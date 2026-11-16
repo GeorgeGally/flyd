@@ -381,7 +381,7 @@ export function resumeBackgroundJobs(deps: Partial<JobDependencies> & { isAlive?
 
 process.on("beforeExit", () => checkpointBackgroundJobs());
 
-async function unattendedTurn(message: string, sessionId: string, readOnly: boolean, background = false): Promise<string> {
+async function unattendedTurn(message: string, sessionId: string, readOnly: boolean, background = false, models?: () => string[]): Promise<string> {
   const [{ respondToConversation }, { retrieveAgentMemory, loadAgentSituation }, { refreshRepoRegistry }] = await Promise.all([
     import("./conversation-responder.js"), import("../commands/code.js"), import("./repo-registry.js"),
   ]);
@@ -391,7 +391,7 @@ async function unattendedTurn(message: string, sessionId: string, readOnly: bool
   return respondToConversation(
     { sessionId, turnNumber: 1, message, history: [], memory, situation, crossRepo, background, onToken: () => {} },
     // The checker must not act, and its verdict lines must reach us unrewritten.
-    readOnly ? { readOnly: true, rewrite: async () => "" } : {},
+    readOnly ? { readOnly: true, rewrite: async () => "", ...(models ? { models } : {}) } : {},
   );
 }
 
@@ -400,9 +400,14 @@ export async function runJobTurn(message: string, id: string, background = false
   return unattendedTurn(message, `job-${id}`, false, background);
 }
 
-/** The real checker: a separate, read-only turn that never saw the builder's reasoning. */
+/**
+ * The real checker: a separate, read-only turn that never saw the builder's reasoning, on another model family
+ * than chat's (which built it) when one is configured; chat's own models otherwise.
+ */
 export async function verifyJobTurn(message: string, id: string, background = false): Promise<string> {
-  return unattendedTurn(message, `job-${id}-check`, true, background);
+  const { chatModelChain, checkerModelChain } = await import("../lib/config.js");
+  const models = () => checkerModelChain([chatModelChain()[0]], chatModelChain);
+  return unattendedTurn(message, `job-${id}-check`, true, background, models);
 }
 
 /** Inbox + notification, so a result is never lost if the chat has closed. */

@@ -6,6 +6,7 @@ import { basename, dirname, extname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { HEADLESS_CHROME_ARGS } from "../lib/headless-chrome.js";
 import { readTaste } from "../council/taste.js";
+import { armedTasteChecks, cssSpacingTrips, SPACING_MEASURE_SCRIPT, spacingCritique, spacingTrips, type SpacingMetrics, type SpacingTrip } from "../council/taste-checks.js";
 import { BoardWatcher, putLabOnBoard, type BoardFeedback, type BoardInput, type BoardWatch, type LabBoard } from "./design-board.js";
 import { completeWithClaude, DesignModelError, makeWithClaude } from "./design-claude.js";
 import { DESIGN_LAB_DONE_WHEN, designLabSkill, designTeamSkills } from "./design.js";
@@ -177,6 +178,8 @@ export interface DesignMateDeps {
   make?(cwd: string, prompt: string): Promise<string>;
   /** Runs git in the project; injectable for tests. */
   git?(cwd: string, args: string[]): Promise<string>;
+  /** Measures a laid-out page for George's spacing check; null when it can't be read. Without it the check is not run. */
+  measure?(page: string, viewport: { width: number; height: number }): Promise<SpacingMetrics | null>;
   /** Puts a finished lab on a Liesel board; injectable for tests. */
   board?(input: BoardInput): Promise<LabBoard>;
   now?: () => Date;
@@ -284,6 +287,8 @@ async function judgeVersion(run: DomainRun, lab: Lab, version: LabVersion, taste
   }
   version.score = Math.max(0, Math.min(10, Number(reply?.score ?? 0)));
   version.critique = String(reply?.critique ?? "").trim();
+  const trips = await spacingCheck(deps, [join(labDir(run.id, root), `v${version.n}.html`)], lab.log, `V${version.n}`);
+  if (trips.length) failRound(version, trips);
   version.judged = true;
   lab.log.push(`Round ${lab.round}: V${version.n} scored ${version.score}/10.`);
   if (version.best === undefined || version.score >= version.best) {
@@ -298,6 +303,35 @@ async function judgeVersion(run: DomainRun, lab: Lab, version: LabVersion, taste
     version.critique = version.bestCritique;
   }
   return undefined;
+}
+
+/** George's spacing check is armed once one of his spacing corrections has come back a third time (council/taste-checks.ts). */
+function spacingArmed(): boolean {
+  try { return armedTasteChecks(readTaste()).some((armed) => armed.check === "spacing"); } catch { return false; }
+}
+
+/**
+ * Runs the spacing check on laid-out pages at both sizes: its trips, empty when it holds,
+ * isn't armed, or has no way to measure. A page it couldn't measure is logged, never passed silently.
+ */
+async function spacingCheck(deps: DesignMateDeps, pages: string[], log: string[], what: string): Promise<SpacingTrip[]> {
+  if (!deps.measure || !pages.length || !spacingArmed()) return [];
+  const trips: SpacingTrip[] = [];
+  for (const page of pages) {
+    for (const viewport of [DESKTOP, PHONE]) {
+      const metrics = await deps.measure(page, viewport).catch(() => null);
+      if (!metrics) { log.push(`${what}: the spacing check could not measure ${basename(page)} at ${viewport.width}px, so it is unchecked there.`); continue; }
+      trips.push(...spacingTrips(metrics));
+    }
+  }
+  if (trips.length) log.push(`${what}: the spacing check tripped ${trips.length} time(s).`);
+  return trips;
+}
+
+/** A spacing trip fails the round: the score stays under the target and the trips lead the critique. */
+function failRound(target: { score?: number; critique?: string }, trips: SpacingTrip[]): void {
+  target.score = Math.min(target.score ?? 0, TARGET_SCORE - 1);
+  target.critique = [spacingCritique(trips), target.critique ?? ""].filter(Boolean).join("\n");
 }
 
 /** Leaves out the directions that would not build or be judged, while enough remain; otherwise says why the lab stops. */
@@ -907,6 +941,16 @@ async function advanceBuild(run: DomainRun, deps: DesignMateDeps, root: string, 
     build.score = files.length ? Math.max(0, Math.min(10, Number(reply?.score ?? 0))) : 0;
     build.critique = String(reply?.critique ?? "").trim();
     build.presentation = String(reply?.presentation ?? "").trim();
+    // The Designer's changed pages are measured, and its CSS read, against his spacing check.
+    if (files.length && spacingArmed()) {
+      const pages = files.filter((path) => /\.html?$/i.test(path)).map((path) => join(build.root, path)).filter((path) => existsSync(path));
+      const css = files.filter((path) => /\.(?:css|scss|sass|less|pcss|html?|vue|svelte|astro)$/i.test(path));
+      const added = [tracked, ...css.filter((path) => !tracked.includes(`b/${path}`)).map((path) => {
+        try { return `+++ b/${path}\n${readFileSync(join(build.root, path), "utf8").split("\n").map((line) => `+${line}`).join("\n")}`; } catch { return ""; }
+      })].join("\n");
+      const trips = [...cssSpacingTrips(added), ...await spacingCheck(deps, pages, build.log, `Round ${build.round}`)];
+      if (trips.length) failRound(build, trips);
+    }
     build.log.push(`Round ${build.round}: ${CREATIVE_DIRECTOR} scored it ${build.score}/10.`);
     if (build.score < TARGET_SCORE && build.round < MAX_ROUNDS) {
       build.round += 1;
@@ -1062,6 +1106,43 @@ document.getElementById("f").addEventListener("load", function () { setTimeout(f
       rmSync(measure, { force: true });
       const height = Number(/<title>h(\d+)<\/title>/.exec(dom)?.[1]);
       resolve(Number.isFinite(height) && height > 0 ? height : viewport.height);
+    };
+    child.on("error", done);
+    child.on("exit", done);
+  });
+}
+
+/**
+ * Lays a page out in a headless browser at one viewport and reads its boxes for the spacing check
+ * (council/taste-checks.ts), from a frame beside it so its relative assets load; null when it can't be read.
+ */
+export function measureWithChrome(page: string, viewport: { width: number; height: number }): Promise<SpacingMetrics | null> {
+  const binary = CHROME.find((path) => existsSync(path));
+  if (!binary) return Promise.resolve(null);
+  const profile = mkdtempSync(join(tmpdir(), "flyd-lab-"));
+  const measure = join(dirname(page), `.spacing-${viewport.width}-${basename(page)}`);
+  writeFileSync(measure, `<!doctype html><html><head><title>0</title></head><body style="margin:0"><iframe id="f" src="${encodeURI(basename(page))}" style="display:block;border:0;width:${viewport.width}px;height:${viewport.height}px"></iframe><script>
+${SPACING_MEASURE_SCRIPT}
+document.getElementById("f").addEventListener("load", function () { setTimeout(function () { try { var w = document.getElementById("f").contentWindow; if (w.gsap && w.gsap.globalTimeline) w.gsap.globalTimeline.getChildren(false, true, true).forEach(function (t) { t.progress(1); }); document.title = "m" + btoa(unescape(encodeURIComponent(JSON.stringify(flydMeasure(w))))); } catch (e) { document.title = "x"; } }, 2500); });
+</script></body></html>`);
+  return new Promise((resolve) => {
+    const child = spawn(binary, [
+      ...HEADLESS_CHROME_ARGS, "--disable-gpu", "--hide-scrollbars", "--allow-file-access-from-files",
+      `--user-data-dir=${profile}`, `--window-size=${Math.max(viewport.width, 500)},${viewport.height}`, "--virtual-time-budget=6000",
+      "--dump-dom", `file://${measure}`,
+    ], { stdio: ["ignore", "pipe", "ignore"] });
+    let dom = "";
+    child.stdout.on("data", (chunk: Buffer) => { dom += chunk.toString("utf8"); });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      rmSync(profile, { recursive: true, force: true });
+      rmSync(measure, { force: true });
+      const encoded = /<title>m([A-Za-z0-9+/=]+)<\/title>/.exec(dom)?.[1];
+      try { resolve(encoded ? JSON.parse(Buffer.from(encoded, "base64").toString("utf8")) as SpacingMetrics : null); } catch { resolve(null); }
     };
     child.on("error", done);
     child.on("exit", done);
@@ -1232,6 +1313,7 @@ export const liveDesignDeps: DesignMateDeps = {
     ...(options.onStarted ? { onStarted: options.onStarted } : {}),
   }),
   shoot: shootWithChrome,
+  measure: measureWithChrome,
   make: (cwd, prompt) => makeWithClaude(cwd, prompt),
   board: (input) => putLabOnBoard(input),
 };

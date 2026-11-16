@@ -37,8 +37,10 @@ const CLAIM_LEASE_MS = 2 * 60_000;
 export const UNCONFIRMED_MS = 15 * 60_000;
 
 export interface CosTickDeps {
-  /** One JSON query: intake, a join's brief, and the acceptance check. */
+  /** One JSON query: intake, a join's brief, and (unless `check` is given) the acceptance check. */
   complete?: Complete;
+  /** The acceptance check, given the models that built the result: by default another family than theirs. */
+  check?: (prompt: string, builtBy: string[]) => Promise<string>;
   dispatch?: Dispatch;
   /** Fast, authority-vetted operational judgment, injectable for offline tests. */
   operationalJudge?: (question: OperationalQuestion) => Promise<OperationalDisposition>;
@@ -572,7 +574,7 @@ async function accept(objective: Objective, finals: PlannedRun[], deps: CosTickD
   const prompt = acceptancePrompt(objective, finals.map((run) => ({ run, text: resultText(run.ref!, jobs, crew) })));
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const parsed = JSON.parse((await (deps.complete ?? defaultComplete)(prompt)).replace(/^```(?:json)?\s*|\s*```$/g, "")) as Record<string, unknown>;
+      const parsed = JSON.parse((deps.check ? await deps.check(prompt, await builders(finals)) : deps.complete ? await deps.complete(prompt) : await defaultCheck(prompt, await builders(finals))).replace(/^```(?:json)?\s*|\s*```$/g, "")) as Record<string, unknown>;
       if (typeof parsed.met === "boolean") return { met: parsed.met, missing: plainLine(String(parsed.missing ?? "")), checked: true };
     } catch {
       // Unreadable or failed: asked once more below.
@@ -790,6 +792,24 @@ async function attend(id: string, deps: CosTickDeps, store: IntelligenceEventSto
 }
 
 const defaultComplete: Complete = async (prompt) => (await import("../../lib/llm.js")).quickQuery(prompt, { json: true });
+
+/** The models that built a result, by the team that ran each final step: coding on the crew's, creative on design's, the rest on chat's. */
+async function builders(finals: PlannedRun[]): Promise<string[]> {
+  const [{ chatModelChain }, { modelRoutes, routeTarget }] = await Promise.all([import("../../lib/config.js"), import("../../runtime/model-routing.js")]);
+  const first = (read: () => string | undefined) => { try { return read(); } catch { return undefined; } };
+  return [...new Set(finals.flatMap((run) => {
+    const model = run.team === "coding" ? first(() => { const route = modelRoutes("crew")[0]; return route && routeTarget("crew", route); })
+      : run.team === "creative" ? first(() => { const route = modelRoutes("design")[0]; return route && routeTarget("design", route); })
+      : first(() => chatModelChain()[0]);
+    return model ? [model] : [];
+  }))];
+}
+
+/** Acceptance on another model family than the builders' when one is configured; otherwise the quick models, as before. */
+const defaultCheck = async (prompt: string, builtBy: string[]): Promise<string> => {
+  const [{ quickQuery }, { checkerModelChain, quickModelChain }] = await Promise.all([import("../../lib/llm.js"), import("../../lib/config.js")]);
+  return quickQuery(prompt, { json: true, chain: checkerModelChain(builtBy, quickModelChain) });
+};
 const defaultDecide = async (run: DomainRun): Promise<ExecutiveDecisionRecord> => (await import("../scheduler.js")).decideRun(run, sendRunMessage);
 const defaultTell = async (run: DomainRun, decision: ExecutiveDecisionRecord, key: string): Promise<unknown> => (await import("../scheduler.js")).tellRun(run, decision, { key });
 

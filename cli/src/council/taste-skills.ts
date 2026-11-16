@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { readProjects, type Project } from "./projects.js";
 import { markPrinciplesSeeded, seedPrinciples } from "./taste-principles.js";
+import { tasteCheckPlan, type TasteRulePlan } from "./taste-checks.js";
 import { carriedTaste, readTaste, tastePath, writeTaste, type TasteProfile, type TasteRule, type TasteSkillKind } from "./taste.js";
 
 // George's taste, carried into every agent's work as skills. TASTE.md is the
@@ -96,17 +97,26 @@ function yamlString(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\s+/g, " ")}"`;
 }
 
-function ruleLines(rule: TasteRule, names: Record<string, string>, quotes: number): string[] {
+/** At the third repeat: the check that holds the rule, or, for judgment, what wrong looked like. */
+function ladderLine(plan: TasteRulePlan | undefined): string[] {
+  if (plan?.check === "spacing") return ["  - Checked automatically: the design team's spacing check measures every round, and a round that breaks this fails."];
+  if (plan?.wrong) return [`  - What wrong looks like, in his words: "${plan.wrong}"`];
+  return [];
+}
+
+function ruleLines(rule: TasteRule, names: Record<string, string>, quotes: number, plan?: TasteRulePlan): string[] {
   const seen = rule.principle ? "" : rule.count === 0 ? " (his own words)" : ` (seen ${rule.count}×)`;
   return [
     `- **${rule.text}**${seen}`,
-    ...rule.evidence.slice(0, quotes).map((item) =>
+    ...ladderLine(plan),
+    ...rule.evidence.slice(plan?.wrong ? 1 : 0, plan?.wrong ? quotes + 1 : quotes).map((item) =>
       `  - "${item.quote.replace(/\s+/g, " ")}" — ${[item.source, item.project ? names[item.project] ?? item.project : "", item.date].filter(Boolean).join(", ")}`),
   ];
 }
 
 /** One standard SKILL.md: frontmatter, the generated marker, then the rules with his words. */
 export function renderTasteSkill(skill: TasteSkill, profile: TasteProfile, source = tastePath()): string {
+  const plans = new Map(tasteCheckPlan(profile).map((plan) => [plan.rule.id, plan]));
   const scope = skill.kind === "project"
     ? `These are the rules for ${profile.names[skill.project!] ?? skill.project} only. George's interface and spacing skills hold here too.`
     : "These hold across all of George's work. A project may add rules of its own in its own skill.";
@@ -124,7 +134,7 @@ export function renderTasteSkill(skill: TasteSkill, profile: TasteProfile, sourc
     "Before you report the work done, check it against every rule below and fix what does not hold, so George never has to ask twice. Where a rule and an explicit instruction for this task disagree, follow the instruction and say so in your report.",
     "",
     ...(skill.principles.length ? ["## His principles", "", ...skill.principles.flatMap((rule) => ruleLines(rule, profile.names, 3)), ""] : []),
-    ...(skill.rules.length ? [skill.principles.length ? "## Learned from his corrections" : "## Rules", "", ...skill.rules.flatMap((rule) => ruleLines(rule, profile.names, 2)), ""] : []),
+    ...(skill.rules.length ? [skill.principles.length ? "## Learned from his corrections" : "## Rules", "", ...skill.rules.flatMap((rule) => ruleLines(rule, profile.names, 2, plans.get(rule.id))), ""] : []),
   ].join("\n");
 }
 

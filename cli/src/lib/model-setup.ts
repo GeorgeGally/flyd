@@ -1,4 +1,4 @@
-import { chatModelChain, quickModelChain } from "./config.js";
+import { chatModelChain, checkerModelChain, quickModelChain } from "./config.js";
 import { claudeApiKey, claudeHeaders, spendStatus, type SpendStatus } from "./claude-spend.js";
 import { modelRoutes, routeTarget } from "../runtime/model-routing.js";
 
@@ -8,6 +8,8 @@ export interface ModelSetup {
   quick: string[];
   typing: string;
   crew: string;
+  /** Who checks chat-built work: another family than chat's first model when one is configured. */
+  checker: string[];
   /** The design team's model: Claude through George's subscription (the claude CLI), never the metered key. */
   design: string;
   /** Image work: the only job allowed on the ChatGPT/Codex allowance. */
@@ -30,6 +32,7 @@ export async function modelSetup(): Promise<ModelSetup> {
     quick: safe(quickModelChain, []),
     typing: safe(predictionModel, "unconfigured"),
     crew: safe(() => crewModel(), "claude/default"),
+    checker: safe(() => checkerModelChain([chatModelChain()[0]], chatModelChain), []),
     design: safe(() => `claude CLI ${designModel()} on the subscription${claudeBinary() ? "" : " (claude CLI not found)"}`, "claude CLI opus on the subscription"),
     images: safe(() => modelRoutes("images").map((route) => routeTarget("images", route)), []),
     claude: { key: Boolean(claudeApiKey()), workspace: Object.keys(claudeHeaders()).length > 0, spend: spendStatus() },
@@ -48,6 +51,7 @@ export function formatModelSetup(setup: ModelSetup): string {
     `  quick    ${setup.quick.join(" → ") || "(none)"}   routing, rewrites, summaries, status lines`,
     `  typing   ${setup.typing}`,
     `  crew     ${setup.crew}`,
+    `  checker  ${setup.checker.join(" → ") || "(none)"}   reviews other models' work; another family when one is configured`,
     `  design   ${setup.design}`,
     `  images   ${setup.images.join(" → ") || "(none)"}`,
     `Claude: ${setup.claude.key ? "key set" : "no CLAUDE_API_KEY"}${setup.claude.workspace ? ", workspace set" : ""}; ${spend.month} spend $${spend.usd.toFixed(2)} of $${spend.cap}${spend.capped ? " (cap reached: on fallbacks until the 1st)" : ""}${sources ? ` (${sources})` : ""}`,

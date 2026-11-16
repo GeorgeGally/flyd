@@ -12,7 +12,7 @@ import { resolveFlydDir } from "../lib/flyd-dir.js";
  * Code on George's subscription), cursor (cursor-agent), codex (the ChatGPT/Codex allowance).
  */
 
-export const MODEL_JOBS = ["chat", "quick", "background", "worker", "crew", "design", "images"] as const;
+export const MODEL_JOBS = ["chat", "quick", "background", "worker", "crew", "design", "images", "checker"] as const;
 export type ModelJob = typeof MODEL_JOBS[number];
 
 export interface ModelRoute {
@@ -44,6 +44,8 @@ export const DEFAULT_MODEL_ROUTING: ModelRouting = {
     crew: [{ provider: "claude", model: "default" }],
     design: [{ provider: "claude", model: "opus" }],
     images: [{ provider: "codex", model: "default" }],
+    // Empty: the checker picks from the text jobs' models, another family than the builder's (checkerModelChain).
+    checker: [],
   },
 };
 
@@ -136,6 +138,31 @@ export function isImagesOnly(target: string | undefined, routing = loadModelRout
 /** How the job's callers spell a route: crew and design "provider/model", the API jobs "provider:model". */
 export function routeTarget(job: ModelJob, route: ModelRoute): string {
   return job === "crew" || job === "design" ? `${route.provider}/${route.model}` : `${route.provider}:${route.model}`;
+}
+
+/**
+ * The model family a "provider:model" or "provider/model" belongs to: a checker from the builder's own family
+ * shares its blind spots. Read from the model's name first (OpenRouter and CommandCode serve many families),
+ * then from the provider.
+ */
+export function modelFamily(target: string): string {
+  const name = target.trim().toLowerCase();
+  const families: Array<[string, RegExp]> = [
+    ["claude", /claude|anthropic|\bopus\b|\bsonnet\b|\bhaiku\b/],
+    ["openai", /\bgpt|openai|codex|(?:^|[:/])o\d/],
+    ["gemini", /gemini|google/],
+    ["grok", /grok|xai/],
+    ["llama", /llama|meta-/],
+    ["mistral", /mistral|mixtral|codestral/],
+    ["qwen", /qwen/],
+    ["deepseek", /deepseek/],
+    ["kimi", /kimi|moonshot/],
+    ["glm", /\bglm|zhipu|z-ai/],
+    ["mercury", /mercury|inception/],
+  ];
+  // The Claude Code CLI on its own default model is Claude.
+  if (/^claude[:/]/.test(name)) return "claude";
+  return families.find(([, pattern]) => pattern.test(name))?.[0] ?? name.split(/[:/]/)[0]!;
 }
 
 /**

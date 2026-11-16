@@ -13,6 +13,9 @@ import { routingFailureEvidence } from "../runtime/routing-learning.js";
 import { reviewEvidence, selfReviewDir } from "../council/reply-review.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { EXPERIENCE_RUNTIME_CONTRACT } from "../intelligence/sensors/source-contracts.js";
+import { FIX_LAYERS, type FixLayer } from "./fix-layers.js";
+import { tasteCheckPlan } from "../council/taste-checks.js";
+import { readTaste, tastePath } from "../council/taste.js";
 
 // Flyd improving Flyd, with George holding the gate. Once a day it gathers
 // evidence of where it fell short — /flyd-fix corrections, failed chat
@@ -25,7 +28,7 @@ import { EXPERIENCE_RUNTIME_CONTRACT } from "../intelligence/sensors/source-cont
 
 export interface Evidence {
   id: string;
-  kind: "fix" | "eval" | "dismissed" | "pushback" | "crew" | "job" | "loop" | "domain" | "review" | "dream";
+  kind: "fix" | "eval" | "dismissed" | "pushback" | "crew" | "job" | "loop" | "domain" | "review" | "dream" | "taste";
   at: string;
   text: string;
 }
@@ -35,8 +38,7 @@ export interface Evidence {
 // on every run; a prompt rule holds only while the model remembers it.
 export const FAILURE_CLASSES = ["missing_context", "wrong_tool", "bad_output", "repeated_loop", "unsafe_action", "lost_decision", "judgment", "unknown"] as const;
 export type FailureClass = typeof FAILURE_CLASSES[number];
-export const FIX_LAYERS = ["check", "tool", "context", "state", "trace", "prompt"] as const;
-export type FixLayer = typeof FIX_LAYERS[number];
+export { FIX_LAYERS, type FixLayer };
 
 export interface Improvement {
   title: string;
@@ -262,6 +264,19 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
     }
   }
 
+  // A taste correction he has made three times that no check holds yet, though
+  // one could: the ladder says the fix is a check, so the improver is asked for it.
+  try {
+    for (const plan of tasteCheckPlan(readTaste(sources.flydDir ? join(flydDir, "TASTE.md") : tastePath()))) {
+      if (!plan.proposeCheck) continue;
+      const { rule } = plan;
+      evidence.push({
+        id: `taste:${rule.id}`, kind: "taste", at: rule.last ? `${rule.last}T00:00:00.000Z` : now.toISOString(),
+        text: `George has made the same taste correction ${rule.count} times and a skill file has not stopped it: "${rule.text}"${plan.wrong ? ` — his words: "${plan.wrong.slice(0, 200)}"` : ""}. It can be measured, so it wants a check (layer: check) beside the spacing check in cli/src/council/taste-checks.ts, run by the design team on screenshots or CSS so a trip fails the round.`,
+      });
+    }
+  } catch { /* taste is optional evidence */ }
+
   // What George was shown that fell short of the chief-of-staff standard,
   // one item per broken requirement with its newest examples.
   evidence.push(...reviewEvidence(since, sources.flydDir ? join(flydDir, "self-review") : selfReviewDir()));
@@ -273,7 +288,7 @@ export function improverPrompt(evidence: Evidence[], attempts: Attempt[], today:
   return [
     "You are Flyd's Critic, turned on Flyd itself: a measured, fair-minded engineer who wants Flyd to serve George better.",
     "Flyd is George's personal agent (TypeScript Core in cli/src; AGENTS.md describes the architecture).",
-    "Where things live: chat system prompt and turn budgets cli/src/runtime/conversation-responder.ts; answer checks cli/src/runtime/honesty-check.ts; tools cli/src/runtime/personal-tools.ts and assistant-tools.ts; tool approval cli/src/runtime/tool-policy.ts; retry limits cli/src/runtime/repeat-guard.ts; background jobs cli/src/runtime/background-jobs.ts; done_when checks cli/src/runtime/acceptance.ts; coding crew cli/src/crew/crew.ts; agent loop cli/src/lib/llm.ts; council (Librarian, Critic, Strategist, Muse, Scout) cli/src/council/; chat eval cases cli/src/evals/chat/cases.json; the chief-of-staff standard and its checks cli/src/council/standard.ts (self-review records in cli/src/council/reply-review.ts); the conversation window's status line cli/src/conversation-view/living.ts and its relayed updates cli/src/conversation-view/interpret.ts; domain-run notifications cli/src/command/notice.ts.",
+    "Where things live: chat system prompt and turn budgets cli/src/runtime/conversation-responder.ts; answer checks cli/src/runtime/honesty-check.ts; tools cli/src/runtime/personal-tools.ts and assistant-tools.ts; tool approval cli/src/runtime/tool-policy.ts; retry limits cli/src/runtime/repeat-guard.ts; background jobs cli/src/runtime/background-jobs.ts; done_when checks cli/src/runtime/acceptance.ts; coding crew cli/src/crew/crew.ts; agent loop cli/src/lib/llm.ts; council (Librarian, Critic, Strategist, Muse, Scout) cli/src/council/; chat eval cases cli/src/evals/chat/cases.json; the chief-of-staff standard and its checks cli/src/council/standard.ts (self-review records in cli/src/council/reply-review.ts); the conversation window's status line cli/src/conversation-view/living.ts and its relayed updates cli/src/conversation-view/interpret.ts; domain-run notifications cli/src/command/notice.ts; taste checks the design team runs cli/src/council/taste-checks.ts (wired in cli/src/command/design-mate.ts).",
     "Name only files from that list or describe the behaviour; never invent paths.",
     `Today is ${today}. Below is recent evidence of where Flyd fell short.`,
     "",

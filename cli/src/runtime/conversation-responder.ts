@@ -111,6 +111,8 @@ interface ConversationResponderDependencies {
   initiative?: InitiativeDependencies;
   runAgentLoop?: typeof agentLoop;
   resolveConnection?: () => ModelConnection;
+  /** The turn's models in failover order, in place of chat's (a background job's checker picks another family). */
+  models?: () => string[];
   persistReceipt?: typeof persistTurnReceipt;
   fetchFn?: FetchLike;
   /** Evaluation runs: state-changing tools are recorded as attempted but never execute. */
@@ -1310,7 +1312,7 @@ export async function respondToConversation(
     ...(planBlock ? { plan: planBlock } : {}),
   });
   const injectedConnection = dependencies.resolveConnection?.();
-  const models = injectedConnection ? [injectedConnection.model] : chatModelChain();
+  const models = injectedConnection ? [injectedConnection.model] : dependencies.models?.() ?? chatModelChain();
   const model = models[0];
   const connectionFor = (name: string): Pick<ModelConnection, "model" | "providerIdentity"> => {
     if (injectedConnection) return injectedConnection;
