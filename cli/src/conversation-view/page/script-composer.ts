@@ -646,32 +646,38 @@ export const COMPOSER_SCRIPT = `
     },
   };
 
-  // A card from the activity column he is talking about: named over the message box and in front of what he sends.
-  var aboutInfo = null;
-  var aboutCleared = null;
-  function chatAbout(info, onClear) {
-    var was = aboutCleared;
-    aboutInfo = info || null;
-    aboutCleared = info ? onClear || null : null;
-    var box = document.getElementById("about");
-    var head = document.getElementById("about-head");
-    var body = document.getElementById("about-body");
-    head.textContent = "";
-    body.textContent = "";
-    document.getElementById("about-title").textContent = info ? info.title || "" : "";
-    box.hidden = !info;
-    if (info) {
-      var v = kindOf(info.kind);
-      box.className = "about tone-" + v.tone;
-      head.appendChild(cardIcon(info.kind));
-      if (info.when) head.appendChild(el("span", "about-when", info.when));
-      if (info.body) body.appendChild(info.body);
-      box.scrollTop = 0;
-    }
-    if (info) input.focus();
-    else if (was) was();
+  // One box for everything he says. Replying to an answer, a card, a job or the words he picked
+  // in a message puts a "Replying to" chip over this box, and what he sends goes where that thing's
+  // own reply always went. ✕ goes back to plain talk with Flyd.
+  var replying = null;
+  var replyingEl = document.getElementById("replying");
+  function replyTo(title, send, prefill) {
+    replying = title && send ? { title: title, send: send } : null;
+    replyingEl.hidden = !replying;
+    document.getElementById("replying-title").textContent = replying ? title : "";
+    if (!replying) return;
+    if (prefill && input.value.indexOf(prefill) === -1) input.value = prefill + input.value.replace(/^\s+/, "");
+    grow();
+    try { input.focus({ preventScroll: true }); } catch (_) { input.focus(); }
+    try { input.setSelectionRange(input.value.length, input.value.length); } catch (_) {}
   }
-  document.getElementById("about-clear").addEventListener("click", function () { chatAbout(null); input.focus(); });
+  document.getElementById("replying-clear").addEventListener("click", function () { replyTo(null); input.focus(); });
+  // A picture he is replying about goes into the box with his words, as if he had dropped it there.
+  function attachFrom(src) {
+    if (!src || attachments.some(function (one) { return one.from === src; })) return;
+    fetch(src).then(function (response) { return response.ok ? response.blob() : null; }).then(function (blob) {
+      if (!blob || IMAGE_TYPES.indexOf(blob.type) === -1) return;
+      if (blob.size > MAX_IMAGE_BYTES) { noteRefusal("Images must be under " + megabytes(MAX_IMAGE_BYTES) + "MB"); return; }
+      var reader = new FileReader();
+      reader.onload = function () {
+        if (attachments.length >= MAX_ATTACHMENTS) return;
+        var url = String(reader.result);
+        attachments.push({ url: url, mediaType: blob.type, data: url.slice(url.indexOf(",") + 1), from: src });
+        renderAttachments();
+      };
+      reader.readAsDataURL(blob);
+    }).catch(function () { noteRefusal("The picture didn't attach; say which one in words"); });
+  }
 
   composer.addEventListener("submit", function (event) {
     event.preventDefault();
@@ -684,12 +690,20 @@ export const COMPOSER_SCRIPT = `
     if (!text && !sending.length) { if (spoken) endVoiceWait(); return; }
     // A story's answer is drawn under the story itself, with its own "reading" line.
     if (centre === "news" && newsPicked && VIEW_TOKEN) { if (spoken) endVoiceWait(); newsSubmit(newsPicked, text, sending); return; }
+    // A reply goes where the thing he is replying to always sent it: its run, its decision or its answer.
+    if (replying) {
+      if (spoken) endVoiceWait();
+      var to = replying;
+      replyTo(null);
+      input.value = "";
+      attachments = [];
+      renderAttachments();
+      saveDraftNow();
+      to.send(text, sending.filter(function (a) { return !a.name; }));
+      return;
+    }
     if (!current) { if (spoken) endVoiceWait(); return; }
     if (spoken) spoken.session = current;
-    if (aboutInfo && text) {
-      text = "About “" + aboutInfo.title + "”" + (aboutInfo.detail && aboutInfo.detail !== aboutInfo.title ? " (" + aboutInfo.detail + ")" : "") + ":\\n\\n" + text;
-      chatAbout(null);
-    }
     recall.index = -1;
     sentSinceLoad.push(text);
     // Created inside the key press, as browsers require for audio.

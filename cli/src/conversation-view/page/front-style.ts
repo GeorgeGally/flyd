@@ -110,9 +110,7 @@ export const FRONT_STYLE = `
 .jpick:disabled:not([aria-pressed="true"]) { opacity: .45; }
 .jpick:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .jsent { margin: -6px 0 0; padding: 0 var(--card-pad) var(--card-pad); font: 400 13px/1.4 var(--sans); color: var(--mute); }
-.job-new { display: flex; gap: 8px; margin: 4px 0 24px; }
-.job-new input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
-.job-new button { height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--ink); color: var(--sheet); font: 500 13px/1 var(--sans); cursor: pointer; }
+
 .job .m { display: flex; align-items: center; gap: 6px; margin-top: 18px; font: 400 12.5px/1.4 var(--sans); color: var(--mute); white-space: nowrap; min-width: 0; }
 .job .m .s { color: var(--ink2); }
 .job .m .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

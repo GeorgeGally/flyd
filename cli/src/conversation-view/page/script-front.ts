@@ -231,8 +231,7 @@ export const FRONT_SCRIPT = `
     var html = !listed ? '<p class="fempty">Checking…</p>'
       : frontSection("needs", PLACE_WORDS.needs, needs, "No decision is waiting.", Infinity)
         + frontSection("moving", PLACE_WORDS.moving, moving, "Nothing is moving right now.", MOVING_FEW_FRONT)
-        + frontSection("done", PLACE_WORDS.done, done, "Nothing has landed lately.", DONE_FEW_FRONT)
-        + (VIEW_TOKEN ? '<form class="job-new"><input name="name" maxlength="60" placeholder="New job" aria-label="New job"><button type="submit">Add</button></form>' : "");
+        + frontSection("done", PLACE_WORDS.done, done, "Nothing has landed lately.", DONE_FEW_FRONT);
     if (html === frontDrawn.jobs) return;
     frontDrawn.jobs = html;
     jobsList.innerHTML = html;
@@ -634,14 +633,6 @@ export const FRONT_SCRIPT = `
     }
     var card = event.target.closest(".job");
     if (card) frontSelect(card.dataset.job);
-  });
-  jobsEl.addEventListener("submit", function (event) {
-    var form = event.target.closest("form.job-new");
-    if (!form) return;
-    event.preventDefault();
-    var name = form.name.value;
-    form.name.value = "";
-    frontPostJob({ op: "create", name: name });
   });
   // Past conversations sit under the jobs; opening one brings the conversation back to the middle.
   (function () {

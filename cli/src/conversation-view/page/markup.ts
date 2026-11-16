@@ -70,7 +70,7 @@ ${FRONT_HTML}
   <div class="row">
     <p class="unread" id="staff" role="status" hidden></p>
     <ul class="commands" id="commands" role="listbox" aria-label="Skills and commands" hidden></ul>
-    <section class="about" id="about" aria-label="What this message is about" hidden><button class="about-clear" type="button" id="about-clear" aria-label="Not about this">✕</button><div class="about-head" id="about-head"></div><p class="about-title" id="about-title"></p><div id="about-body"></div></section>
+    <div class="replying" id="replying" hidden><p class="replying-to">Replying to <span id="replying-title"></span></p><button class="replying-clear" type="button" id="replying-clear" aria-label="Stop replying to this">✕</button></div>
     <p class="notice" id="notice" role="status" aria-live="polite" hidden></p>
     <div class="attachments" id="attachments" hidden></div>
     <div class="article-confirm" id="article-confirm" hidden>

@@ -1623,38 +1623,12 @@ describe("conversation page", () => {
 
   // George, 2026-10-25: "i send a message to flyd and it keeps my message in the textbox":
   // the page redrew the card while the message was on its way and refilled the box from the draft.
-  it("completes a skill in a selected-passage comment and keeps its quote", async () => {
-    load("");
-    await settle();
-    open("latest", [{ id: "a1", role: "assistant", html: "<p>The island is smaller.</p>" }]);
-    const range = document.createRange();
-    const words = document.querySelector(".msg.assistant .body p")!.firstChild!;
-    range.setStart(words, 4);
-    range.setEnd(words, 10);
-    window.getSelection()!.removeAllRanges();
-    window.getSelection()!.addRange(range);
-    document.dispatchEvent(new Event("selectionchange"));
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    document.querySelector<HTMLButtonElement>(".passage-open")!.click();
-    const input = document.querySelector<HTMLTextAreaElement>(".passage-input")!;
-    input.value = "/des";
-    input.dispatchEvent(new Event("input"));
-    await settle();
-    document.querySelector<HTMLElement>(".passage .commands li")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-    expect(input.value).toBe("/design-review ");
-    expect(document.querySelector<HTMLElement>(".passage-card")!.hidden).toBe(false);
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    await settle();
-    const sent = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
-    expect(JSON.parse(String(sent[1]!.body))).toEqual({ session: "latest", text: "/design-review", passage: { quote: "island", from: "assistant" } });
-    window.getSelection()!.removeAllRanges();
-  });
 });
 
 describe("header and artefact view", () => {
   // George, 2026-10-29: "Why doesn't Flyd show me that it's working and give me information about
   // what's happening? I typed something in and it just... nothing happens."
-  it("offers a comment on words he selects in a message, and sends it quoting them", async () => {
+  it("offers a comment on words he selects in a message, typed in the one message box under a chip that quotes them", async () => {
     load("");
     await settle();
     open("latest", [{ id: "a1", role: "assistant", html: "<p>The island runs from the notch.</p>" }, { id: "u1", role: "user", html: "<p>Ship it</p>" }]);
@@ -1669,45 +1643,31 @@ describe("header and artefact view", () => {
       window.getSelection()!.addRange(range);
       document.dispatchEvent(new Event("selectionchange"));
     };
-    // Nothing until he selects something in a message.
+    // Nothing until he selects something in a message, and no second box when he does.
     expect(pop.hidden).toBe(true);
     select(words, 4, 10);
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(pop.hidden).toBe(false);
-    expect(pop.querySelector<HTMLElement>(".passage-card")!.hidden).toBe(true);
+    expect(pop.querySelector("textarea")).toBeNull();
     pop.querySelector<HTMLButtonElement>(".passage-open")!.click();
-    expect(pop.querySelector<HTMLElement>(".passage-card")!.hidden).toBe(false);
-    expect(pop.querySelector(".passage-quote")!.textContent).toBe("island");
-    const input = pop.querySelector<HTMLTextAreaElement>(".passage-input")!;
+    expect(pop.hidden).toBe(true);
+    expect(document.getElementById("replying")!.hidden).toBe(false);
+    expect(document.getElementById("replying-title")!.textContent).toBe("“island”");
+    const input = document.getElementById("input") as HTMLTextAreaElement;
     input.value = "Faster";
-    pop.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
     await settle();
     const sent = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
     expect(sent).toEqual([{ session: "latest", passage: { quote: "island", from: "assistant" }, text: "Faster" }]);
-    expect(pop.querySelector(".reply-note")!.textContent).toBe("Sent to Flyd");
-    pop.querySelector<HTMLButtonElement>(".reply-close")!.click();
-    expect(pop.hidden).toBe(true);
-    // His own words take one too, and say they were his.
-    select(document.querySelector(".msg.user .body")!, 0, 1);
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    expect(pop.hidden).toBe(false);
+    // The chip goes with the message: the next one is plain talk again.
+    expect(document.getElementById("replying")!.hidden).toBe(true);
     // Words selected outside a message take none.
     const outside = document.body.appendChild(document.createElement("p"));
     outside.textContent = "Not a message";
     select(outside.firstChild!, 0, 3);
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(pop.hidden).toBe(true);
-    // Switching conversation with the card open still sends it about the one he picked from.
-    select(document.querySelector(".msg.assistant .body p")!.firstChild!, 4, 10);
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    pop.querySelector<HTMLButtonElement>(".passage-open")!.click();
-    input.value = "Slower";
-    open("other", [{ id: "o1", role: "assistant", html: "<p>Elsewhere</p>" }]);
-    await settle();
-    pop.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
-    const later = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
-    expect(later.at(-1)).toEqual({ session: "latest", passage: { quote: "island", from: "assistant" }, text: "Slower" });
+    window.getSelection()!.removeAllRanges();
   });
 
   it("keeps a real copyable selection when the comment control appears", async () => {
@@ -2251,39 +2211,6 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(sends.at(-1)).toEqual({ session: "latest", replyTo: "reply:a#2", questionText: "Which direction?", text: "B", clientId: expect.stringMatching(/^note-/) });
   });
 
-  it("shows a call's designs, named, over the message box when he clicks its card", async () => {
-    localStorage.setItem("flyd-left", "on");
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    stream.emit("update", {
-      order: [], messages: [], working: false,
-      leftColumn: {
-        now: [], recent: [], week: [],
-        semantic: [{
-          id: "task:pick", kind: "activity", lifecycle: "interrupted", subject: "Pick one of ten left-column card designs for Flyd.",
-          summary: "Ten designs are ready.", project: "Flyd", actions: [], activity: { phase: "needs_you" },
-          source: { showItemId: "call:pick", task: "pick" },
-          decision: { target: "pick", question: "Which design (1-10) should Flyd use?", alternatives: [] },
-          evidence: [
-            { kind: "image", ref: "/api/rail-image?path=a%2F01-hairline.png", label: "01-hairline.png" },
-            { kind: "image", ref: "/api/rail-image?path=a%2F03-side-pane.png", label: "03-side-pane.png" },
-            { kind: "web", ref: "https://example.com/review", label: "Open design review" },
-          ],
-        }],
-      },
-    });
-    await settle();
-    const card = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
-    // The card itself is just its title.
-    expect(card.querySelector(".card-sub")).toBeNull();
-    card.click();
-    const shots = Array.from(document.querySelectorAll<HTMLButtonElement>("#about-body .about-shot"));
-    expect(shots.map((shot) => shot.querySelector(".about-shot-name")!.textContent)).toEqual(["01 hairline", "03 side pane"]);
-    expect(shots[0]!.querySelector("img")!.getAttribute("src")).toContain("token=");
-    expect(document.querySelector<HTMLAnchorElement>("#about-body .card-link")!.href).toBe("https://example.com/review");
-    expect(Array.from(document.querySelectorAll("#about-body .about-text")).map((p) => p.textContent)).toEqual(["Ten designs are ready.", "Which design (1-10) should Flyd use?"]);
-  });
 
   it("keeps one semantic object in the left column while it needs him, and lets it go once it is finished", async () => {
     localStorage.setItem("flyd-left", "on");
@@ -3781,20 +3708,22 @@ describe("the front page", () => {
     expect(list.textContent).not.toContain("…");
   });
 
-  it("opens a handled line from the server's jobs on a take-back form that reaches Flyd's answer", async () => {
+  it("opens a handled line from the server's jobs, and his reply in the one message box reaches Flyd's answer", async () => {
     const stream = await opened();
     stream.emit("update", {
       order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false },
       jobs: [{ id: "landed:sync", group: "done", state: "Handled for you", title: "Said yes for you: rebase and push.", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, handled: { decisionId: "dec-1", task: "sync" } }],
     });
     after(() => document.querySelector<HTMLElement>('.job[data-job="landed:sync"]')!.click());
-    const form = document.querySelector<HTMLFormElement>(".job-view .art-chat")!;
-    const input = form.querySelector<HTMLTextAreaElement>("textarea")!;
-    expect(input.placeholder).toBe("Your own answer takes this back…");
+    // The job has no box of its own: Reply puts its chip over the one message box, and what he sends there reaches it.
+    expect(document.querySelector(".job-view .art-chat-field")!.hasAttribute("hidden")).toBe(true);
+    document.querySelector<HTMLButtonElement>(".job-view .art-chat-reply")!.click();
+    expect(document.getElementById("replying")!.hidden).toBe(false);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
     input.value = "No, hold it";
-    input.dispatchEvent(new Event("input"));
-    form.dispatchEvent(new Event("submit", { cancelable: true }));
+    document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
     await settle();
+    expect(document.getElementById("replying")!.hidden).toBe(true);
     const request = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
     expect(JSON.parse(String(request[1]!.body))).toMatchObject({ decisionFollowUp: "dec-1", decisionTask: "sync", text: "No, hold it" });
   });
