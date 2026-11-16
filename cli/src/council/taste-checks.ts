@@ -122,7 +122,7 @@ export function spacingTrips(metrics: SpacingMetrics): SpacingTrip[] {
 
 /** Spacing values in added CSS lines; a gap this big between stacked elements reads as a hole. */
 const MASSIVE_GAP_PX = 160;
-const SPACING_DECL = /^\+(?!\+\+)\s*(?:margin|padding|gap|row-gap|column-gap)(?:-(?:top|bottom|block|block-start|block-end))?\s*:\s*([^;]+)/i;
+const SPACING_DECL = /^\+(?!\+\+)\s*(?:margin|gap|row-gap|column-gap)(?:-(?:top|bottom|block|block-start|block-end))?\s*:\s*([^;]+)/i;
 
 /** The spacing check on a build's diff of CSS: added spacing that would leave a massive gap. */
 export function cssSpacingTrips(diff: string): SpacingTrip[] {
@@ -155,6 +155,16 @@ export function spacingCritique(trips: SpacingTrip[]): string {
 export const SPACING_MEASURE_SCRIPT = `function flydMeasure(win) {
   var d = win.document, vw = win.innerWidth, vh = win.innerHeight;
   function visible(el) { var s = win.getComputedStyle(el); if (s.visibility === "hidden" || s.display === "none" || Number(s.opacity) === 0) return false; var r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }
+  function reachable(el, r) {
+    if (r.right <= 0 || r.left >= vw) return false;
+    for (var a = el; a && a !== d.body && a !== d.documentElement; a = a.parentElement) {
+      var s = win.getComputedStyle(a);
+      if (s.overflowX === "visible") continue;
+      var b = a.getBoundingClientRect();
+      if (r.left < b.left - 1 || r.right > b.right + 1) return false;
+    }
+    return true;
+  }
   var text = [], top = Infinity, bottom = -Infinity;
   var walker = d.createTreeWalker(d.body, NodeFilter.SHOW_TEXT);
   var node;
@@ -163,7 +173,7 @@ export const SPACING_MEASURE_SCRIPT = `function flydMeasure(win) {
     var range = d.createRange(); range.selectNodeContents(node);
     var rects = range.getClientRects();
     for (var i = 0; i < rects.length; i++) {
-      var r = rects[i]; if (r.width < 1 || r.height < 1) continue;
+      var r = rects[i]; if (r.width < 1 || r.height < 1 || !reachable(node.parentElement, r)) continue;
       var y = r.top + win.scrollY;
       text.push({ left: r.left, right: r.right, top: y, label: node.nodeValue.trim().slice(0, 60) });
       top = Math.min(top, y); bottom = Math.max(bottom, y + r.height);
