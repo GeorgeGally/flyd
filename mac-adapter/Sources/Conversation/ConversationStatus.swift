@@ -7,6 +7,8 @@ struct ConversationStatusPayload: Decodable, Equatable {
         let id: String
         let headline: String
         let asks: Bool
+        /// The item on the board this reply is about: a click opens the conversation there.
+        var item: String? = nil
     }
     /// His newest message still waiting for its answer, and the line the window shows under it.
     struct Waiting: Decodable, Equatable {
@@ -46,7 +48,7 @@ enum ConversationStatusDecision: Equatable {
         // A failed line is said once; a new reply's headline is never overwritten by it.
         if !newSession, decisions.isEmpty, let waiting = current.waiting, waiting.failed == true,
            waiting.id != previous?.waiting?.id || previous?.waiting?.failed != true {
-            decisions.append(.announce(waiting.text, .reply))
+            decisions.append(.announce(waiting.text, .failure))
         }
         // A notice that needs him (a permission prompt, a usage limit) rings once per id; each new ask gets a new id.
         if !newSession, let notice = current.notice, notice.id != previous?.notice?.id {
@@ -63,7 +65,7 @@ enum ConversationStatusDecision: Equatable {
 
 /// The firstmate conversation at a glance in the notch island: working,
 /// sent, what is happening to his message, reply ready, needs your decision. Never takes focus; a click opens
-/// the Conversation window. Dictation and voice keep priority over it.
+/// the Conversation window at the item it is about. Dictation and voice keep priority over it.
 final class ConversationStatus: NSObject, URLSessionDataDelegate {
     static let shared = ConversationStatus()
 
@@ -82,7 +84,7 @@ final class ConversationStatus: NSObject, URLSessionDataDelegate {
     static let workingText = ""
 
     func start(serverURL: URL) {
-        island.onStatusClick = { ConversationWindow.shared.show() }
+        island.onStatusClick = { [weak self] in ConversationWindow.shared.show(item: self?.last?.reply?.item) }
         guard serverURL != baseURL else { return }
         baseURL = serverURL
         last = nil

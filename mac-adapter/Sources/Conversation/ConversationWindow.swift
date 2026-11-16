@@ -79,6 +79,14 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         }
     }
 
+    /// Opens the window at one item, in place in the timeline; with none, as it was.
+    func show(item: String?) {
+        show()
+        guard let item, !item.isEmpty else { return }
+        _ = window ?? makeWindow()
+        run("window.flydOpen && window.flydOpen(\(Self.jsString(item)))")
+    }
+
     /// A remembered frame from a screen that is gone (or bigger than this one) comes back into view.
     private func keepOnScreen(_ window: NSWindow) {
         guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }

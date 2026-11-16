@@ -109,6 +109,24 @@ export const REPLIES_SCRIPT = `
     commandMenu(input, menu, chosen);
     return menu;
   }
+  // A box that takes his own words is typed in the one message box: its field steps aside for a
+  // button that puts this question's chip over the message box, and what he sends there is
+  // submitted here, exactly as if he had typed it in place.
+  function ownWords(form, input, send, title, label) {
+    input.hidden = true;
+    send.hidden = true;
+    var button = el("button", "own-words", label);
+    button.type = "button";
+    button.addEventListener("click", function () {
+      replyTo(title, function (text) {
+        input.value = text;
+        input.dispatchEvent(new Event("input"));
+        form.requestSubmit();
+      });
+    });
+    form.appendChild(button);
+    return button;
+  }
   // The column and the window each keep their own box for the same answer.
   function replyBox(id, place) {
     var state = replyState(place + ":" + id);
@@ -155,8 +173,15 @@ export const REPLIES_SCRIPT = `
       if (open) input.focus(); else opener.focus();
     }
     function say(text) { state.note = text; note.textContent = text; note.hidden = !text; }
-    opener.addEventListener("click", function () { say(""); show(true); });
-    close.addEventListener("click", function () { say(""); show(false); });
+    var carried = [];
+    // Reply puts this answer's chip over the message box; what he sends there is sent from here.
+    opener.addEventListener("click", function () {
+      say("");
+      carried = [];
+      var said = (box.parentElement && box.parentElement.textContent || "").replace(/\s+/g, " ").trim();
+      replyTo(said.length > 60 ? said.slice(0, 59) + "…" : said || "this answer", function (text, pictures, kept) { if (state.sending) return false; input.value = text; carried = kept || []; form.requestSubmit(); }, undefined, true);
+    });
+    close.addEventListener("click", function () { say(""); carried = []; show(false); });
     input.addEventListener("input", function () { state.draft = input.value; });
     input.addEventListener("keydown", function (event) {
       if (event.key === "Escape") { event.preventDefault(); show(false); return; }
@@ -168,58 +193,28 @@ export const REPLIES_SCRIPT = `
       if (!text || !from || state.sending) return;
       state.sending = true;
       say("Sending…");
-      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: from, text: text, replyTo: id }) }, true)
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: from, text: text, replyTo: id, images: carried.filter(function (a) { return !a.name; }).map(function (image) { return { mediaType: image.mediaType, data: image.data }; }), files: carried.filter(function (a) { return a.name; }).map(function (file) { return { name: file.name, data: file.data }; }) }) }, true)
         .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || "not sent"); return data; }); })
-        .then(function () { input.value = ""; state.draft = ""; say(""); show(false); })
+        .then(function () { input.value = ""; state.draft = ""; carried = []; say(""); show(false); })
         .catch(function (error) { say("Not sent: " + (error.message || "try again")); })
         .then(function () { state.sending = false; });
     });
     return box;
   }
-  // Words he selects in a message take a comment: a small Comment button by
-  // the selection, then a card that quotes them, his words and Send. It goes
-  // to whoever is doing the work, naming the conversation the words came from.
+  // Words he selects in a message take a comment: a small Comment button by the selection
+  // puts those words over the message box as what he is replying to, and what he sends goes to
+  // whoever is doing the work, naming the conversation the words came from.
   var PASSAGE_CHARS = ${PASSAGE_CHARS};
   function passageComments() {
     var pop = el("div", "passage");
     pop.hidden = true;
     var opener = el("button", "passage-open", "Comment");
     opener.type = "button";
-    var form = el("form", "passage-card");
-    form.hidden = true;
-    var head = el("div", "reply-head");
-    head.appendChild(el("span", "reply-kicker", "Comment"));
-    var close = el("button", "reply-close", "Close");
-    close.type = "button";
-    head.appendChild(close);
-    var quote = el("blockquote", "passage-quote");
-    var input = el("textarea", "reply-input passage-input");
-    input.rows = 1;
-    input.maxLength = 4000;
-    input.placeholder = "What about it?";
-    input.setAttribute("aria-label", "Your comment on the selected words");
-    var commands = boxCommands(input, function () { place(); });
-    var send = el("button", "reply-send", "Send");
-    send.type = "submit";
-    var row = el("div", "reply-row");
-    row.appendChild(input);
-    row.appendChild(send);
-    var note = el("span", "reply-note");
-    note.setAttribute("role", "status");
-    note.hidden = true;
-    form.appendChild(head);
-    form.appendChild(quote);
-    form.appendChild(row);
-    form.appendChild(commands);
-    form.appendChild(note);
     pop.appendChild(opener);
-    pop.appendChild(form);
     document.body.appendChild(pop);
     // What he selected: the words, whose they were, and where they sit on screen.
     var picked = null;
-    var sending = false;
     var selecting = false;
-    var marks = window.CSS && CSS.highlights && typeof Highlight === "function" ? CSS.highlights : null;
     function messageOf(node) {
       var at = node && (node.nodeType === 1 ? node : node.parentElement);
       if (!at || at.closest("textarea, input, form, button")) return null;
@@ -237,10 +232,9 @@ export const REPLIES_SCRIPT = `
     }
     function place() {
       if (!picked) return;
-      // A redraw of the message drops the selection; an open card stays where it was.
-      if (!picked.range.startContainer.isConnected) { if (form.hidden) hide(); return; }
-      // Comment sits over the first line he selected, the card under the last,
-      // each starting where his selection starts and kept in the conversation's column.
+      // A redraw of the message drops the selection, and Comment with it.
+      if (!picked.range.startContainer.isConnected) { hide(); return; }
+      // Comment sits over the first line he selected, kept in the conversation's column.
       var lines = picked.range.getClientRects();
       var first = lines.length ? lines[0] : picked.range.getBoundingClientRect();
       var whole = picked.range.getBoundingClientRect();
@@ -248,36 +242,24 @@ export const REPLIES_SCRIPT = `
       var height = pop.offsetHeight;
       var edge = Math.min(window.innerWidth - 16, main.getBoundingClientRect().right || window.innerWidth);
       var left = Math.max(16, Math.min(first.left, edge - width));
-      var top = form.hidden ? first.top - height - 8 : whole.bottom + 12;
-      if (form.hidden && top < 64) top = whole.bottom + 8;
-      if (!form.hidden && top + height > window.innerHeight - 16) top = first.top - height - 12;
+      var top = first.top - height - 8;
+      if (top < 64) top = whole.bottom + 8;
       pop.style.left = Math.round(left) + "px";
       pop.style.top = Math.round(Math.max(16, Math.min(top, window.innerHeight - height - 16))) + "px";
     }
-    function mark(on) {
-      if (!marks) return;
-      if (on && picked) marks.set("passage", new Highlight(picked.range)); else marks.delete("passage");
-    }
-    function say(text) { note.textContent = text; note.hidden = !text; }
     function hide() {
       pop.hidden = true;
-      pop.classList.remove("shown", "open");
-      form.hidden = true;
-      opener.hidden = false;
+      pop.classList.remove("shown");
       picked = null;
-      say("");
-      mark(false);
     }
     function offer(pick) {
       picked = pick;
-      opener.hidden = false;
-      form.hidden = true;
       pop.hidden = false;
       place();
       requestAnimationFrame(function () { pop.classList.add("shown"); });
     }
     function check() {
-      if (!form.hidden || sending || selecting) return;
+      if (selecting) return;
       var pick = selected();
       if (pick) offer(pick); else hide();
     }
@@ -296,51 +278,22 @@ export const REPLIES_SCRIPT = `
     opener.addEventListener("mousedown", function (event) { event.preventDefault(); });
     opener.addEventListener("click", function () {
       if (!picked) return;
-      quote.textContent = picked.text;
-      input.value = "";
-      say("");
-      send.disabled = false;
-      opener.hidden = true;
-      form.hidden = false;
-      pop.classList.add("open");
-      mark(true);
-      place();
-      input.focus();
-    });
-    close.addEventListener("click", hide);
-    input.addEventListener("keydown", function (event) {
-      if (event.key === "Escape") { event.preventDefault(); hide(); return; }
-      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
+      var pick = picked;
+      var excerpt = pick.text.replace(/\\s+/g, " ").trim();
+      replyTo("“" + (excerpt.length > 60 ? excerpt.slice(0, 59) + "…" : excerpt) + "”", function (text) { comment(pick, text); });
+      hide();
     });
     document.addEventListener("keydown", function (event) {
-      if (event.key === "Escape" && !pop.hidden && form.hidden) { event.preventDefault(); hide(); }
-    });
-    // A click elsewhere puts the card away unless he has started writing.
-    document.addEventListener("mousedown", function (event) {
-      if (pop.hidden || pop.contains(event.target) || sending) return;
-      if (form.hidden || !input.value.trim()) hide();
+      if (event.key === "Escape" && !pop.hidden) { event.preventDefault(); hide(); }
     });
     window.addEventListener("scroll", place, { passive: true });
     window.addEventListener("resize", place);
-    form.addEventListener("submit", function (event) {
-      event.preventDefault();
-      var text = input.value.trim();
-      if (!text || !picked || sending) return;
-      sending = true;
-      send.disabled = true;
-      say("Sending…");
-      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: picked.session, passage: { quote: picked.text, from: picked.from }, text: text }) }, true)
+    function comment(pick, text) {
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: pick.session, passage: { quote: pick.text, from: pick.from }, text: text }) }, true)
         .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || "not sent"); return data; }); })
-        .then(function () {
-          input.value = "";
-          say("Sent to Flyd");
-          var selection = window.getSelection();
-          if (selection) selection.removeAllRanges();
-          setTimeout(function () { if (!input.value.trim()) hide(); }, 1600);
-        })
-        .catch(function (error) { send.disabled = false; say("Not sent: " + (error.message || "try again")); })
-        .then(function () { sending = false; });
-    });
+        .then(function () { noteRefusal(""); })
+        .catch(function (error) { noteRefusal("Your comment didn't send: " + (error.message || "try again")); });
+    }
   }
   if (SEND_TOKEN) passageComments();
   // An answer Flyd gave for him by one of his standing rules says so in one
@@ -457,6 +410,7 @@ export const REPLIES_SCRIPT = `
     form.appendChild(input);
     form.appendChild(send);
     card.appendChild(form);
+    var own = ownWords(form, input, send, choice.question, choice.options.length ? "Something else…" : "Answer");
     var note = el("span", "reply-note", state.note);
     note.setAttribute("role", "status");
     note.hidden = !state.note;
@@ -464,7 +418,7 @@ export const REPLIES_SCRIPT = `
     function say(text) { state.note = text; note.textContent = text; note.hidden = !text; }
     function settle() {
       buttons.forEach(function (button) { button.disabled = state.sent || state.sending; });
-      input.disabled = send.disabled = state.sent || state.sending;
+      input.disabled = send.disabled = own.disabled = state.sent || state.sending;
       if (pickSend) pickSend.disabled = state.sent || state.sending || picked.length === 0;
       form.hidden = state.sent;
     }
@@ -594,7 +548,7 @@ export const REPLIES_SCRIPT = `
         if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
       });
       form.addEventListener("submit", function (event) { event.preventDefault(); answer(at, input.value); });
-      controls.push(input, next);
+      controls.push(input, next, ownWords(form, input, next, step.question, step.options.length ? "Something else…" : "Answer"));
       wrap.appendChild(form);
       if (at > 0) {
         var row = el("div", "step-nav");

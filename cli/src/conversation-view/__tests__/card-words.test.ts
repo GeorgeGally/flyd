@@ -113,6 +113,28 @@ describe("board cards from staff status lines", () => {
     expect(board.untranslated.map((source) => source.line)).toEqual([RAW]);
   });
 
+  it("puts held-up work whose reading asks his call in Needs you, and leaves held-up work that wants nothing where it was", () => {
+    const run = (outcome: string) => ({ id: "run-b", status: "failed" as const, project: "Easel", outcome, owner: "FirstMate", updatedAt: "2026-11-12T11:30:00.000Z", artifacts: [], work: "blocked" as const });
+    const read = (outcome: string, body: string) => {
+      const pending = jobsFrom({ projects: [easel], runs: [run(outcome)], cardWords: new Map(), now: NOW });
+      expect(pending.jobs.find((job) => job.id !== "easel" || job.group === "moving")).toMatchObject({ group: "moving", state: "Blocked" });
+      return jobsFrom({ projects: [easel], runs: [run(outcome)], cardWords: new Map([[pending.untranslated[0]!.key, { title: "Easel: held up", body }]]), now: NOW }).jobs[0]!;
+    };
+    expect(read("Stopped at the crop step", "I'm stuck and need you to decide which crop to keep before I can continue.")).toMatchObject({ group: "needs", state: "Needs you", ask: "I'm stuck and need you to decide which crop to keep before I can continue." });
+    expect(read("Test leftover", "This was a test leftover, so nothing needs your decision.")).toMatchObject({ group: "moving", state: "Blocked" });
+    // An offer if he still wants it, or Flyd checking first, leaves the next move with Flyd.
+    expect(read("Map run never started", "The map run never got going. If you still want the map, tell me and I'll start it fresh.")).toMatchObject({ group: "moving", state: "Blocked" });
+  });
+
+  it("never opens a title on stray punctuation", () => {
+    const pending = jobsFrom({ projects: [easel], runs: [{ id: "run-d", status: "completed", project: "Easel", outcome: "Request email redesign", owner: "FirstMate", updatedAt: "2026-11-12T11:30:00.000Z", artifacts: [], work: "landed" }], cardWords: new Map(), now: NOW });
+    const key = pending.untranslated[0]!.key;
+    const said = jobsFrom({ projects: [easel], runs: [{ id: "run-d", status: "completed", project: "Easel", outcome: "Request email redesign", owner: "FirstMate", updatedAt: "2026-11-12T11:30:00.000Z", artifacts: [], work: "landed" }], cardWords: new Map([[key, { title: ": DIR request email redesign is done", body: "The request email now shows the artist." }]]), now: NOW });
+    expect(said.jobs[0]!.title).toBe("DIR request email redesign is done");
+    // A finished card with only "finished" to say is bare: the board keeps it, no surface shows it.
+    expect(pending.jobs[0]).toMatchObject({ title: "Easel: finished", bare: true });
+  });
+
   it("says a working card is under way while its plain words are pending", () => {
     const board = jobsFrom({
       projects: [easel],
@@ -120,7 +142,7 @@ describe("board cards from staff status lines", () => {
       cardWords: new Map(),
       now: NOW,
     });
-    const card = board.jobs.find((job) => job.group === "working")!;
+    const card = board.jobs.find((job) => job.group === "moving" && job.state === "Working")!;
     expect(card).toMatchObject({ title: "Easel: work is under way", next: "I'm working on this now." });
   });
 
@@ -210,13 +232,13 @@ describe("card words", () => {
   it("falls back to a plain line for its state, never the raw one, and says what a card needing him needs", () => {
     expect(fallbackWords("easel", "needs")).toEqual({ title: "Easel: needs your answer", body: "I need your answer on this before it can go any further." });
     expect(fallbackWords("easel", "needs", "Ready for you")).toEqual({ title: "Easel: ready for you to look over", body: "This is finished. Have a look when you can and tell me if anything should change." });
-    expect(fallbackWords("easel", "working")).toEqual({ title: "Easel: work is under way", body: "I'm working on this now." });
-    expect(fallbackWords("easel", "waiting")).toEqual({ title: "Easel: waiting for now", body: "Nothing needs you on this yet." });
-    expect(fallbackWords("easel", "waiting", "Blocked")).toEqual({ title: "Easel: held up for now", body: "This is held up. I'll tell you if it needs you." });
+    expect(fallbackWords("easel", "moving", "Working")).toEqual({ title: "Easel: work is under way", body: "I'm working on this now." });
+    expect(fallbackWords("easel", "moving")).toEqual({ title: "Easel: waiting for now", body: "Nothing needs you on this yet." });
+    expect(fallbackWords("easel", "moving", "Blocked")).toEqual({ title: "Easel: held up for now", body: "This is held up. I'll tell you if it needs you." });
     expect(fallbackWords("easel", "done")).toEqual({ title: "Easel: finished", body: "This is done." });
     expect(fallbackWords("", "needs")).toEqual({ title: "Needs your answer", body: "I need your answer on this before it can go any further." });
-    for (const group of ["needs", "working", "waiting", "done"] as const) {
-      for (const state of ["", "Ready for you", "Report ready", "Blocked", "Paused", "Queued"]) {
+    for (const group of ["needs", "moving", "done"] as const) {
+      for (const state of ["", "Ready for you", "Report ready", "Blocked", "Paused", "Queued", "Working"]) {
         expect(JSON.stringify(fallbackWords("easel", group, state))).not.toMatch(/an update is ready|Open to see details/i);
       }
     }

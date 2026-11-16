@@ -5,6 +5,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import { quickQuery } from "../lib/llm.js";
 import { bannedFor, forHim, PA_VOICE } from "../lib/pa-voice.js";
 import { asksSomething, onlyTells } from "./asks.js";
+import { STATE_WORDS, type Place } from "./placement.js";
 
 /**
  * A board card's words, said for George. A card built from a worker's status
@@ -132,7 +133,7 @@ function named(project: string): string {
  * that needs him says what it needs (his look, or his answer); held-up or
  * waiting work is never called finished. Pure.
  */
-export function fallbackWords(project: string, group: "needs" | "working" | "waiting" | "done", state = "", asks = true): CardWords {
+export function fallbackWords(project: string, group: Place, state = "", asks = true): CardWords {
   const name = named(project);
   const lead = (said: string) => (name ? `${name}: ${said}` : said.charAt(0).toUpperCase() + said.slice(1));
   // Words that ask nothing never come back as a request for his answer.
@@ -142,7 +143,7 @@ export function fallbackWords(project: string, group: "needs" | "working" | "wai
     if (/^ready for you$/i.test(state)) return { title: lead("ready for you to look over"), body: "This is finished. Have a look when you can and tell me if anything should change." };
     return { title: lead("needs your answer"), body: "I need your answer on this before it can go any further." };
   }
-  if (group === "working") return { title: lead("work is under way"), body: "I'm working on this now." };
+  if (group === "moving" && state === STATE_WORDS.running) return { title: lead("work is under way"), body: "I'm working on this now." };
   if (group === "done") return { title: lead("finished"), body: "This is done." };
   if (/^blocked$/i.test(state)) return { title: lead("held up for now"), body: "This is held up. I'll tell you if it needs you." };
   if (/^paused$/i.test(state)) return { title: lead("paused for now"), body: "This is paused for now." };

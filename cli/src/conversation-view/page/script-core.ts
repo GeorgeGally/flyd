@@ -1,5 +1,5 @@
 /** The page script's opening: shared state, preferences, theme and scroll keeping.
- * It opens the one IIFE the later parts run inside; script-show.ts closes it. */
+ * It opens the one IIFE the later parts run inside; script-boot.ts closes it. */
 // Core runs under tsx/esbuild with keepNames, so a function inlined with
 // toString() can carry __name(...) calls; without this shim they throw and
 // take the whole page script down.
@@ -120,7 +120,7 @@ var __name = function (f) { return f; };
   // Pinned: he is reading the latest message, so whatever changes keeps him
   // there. Only his own scrolling up unpins it.
   var pinned = true;
-  function onConversation() { return document.documentElement.getAttribute("data-screen") !== "show" && !document.documentElement.hasAttribute("data-job"); }
+  function onConversation() { return !document.documentElement.hasAttribute("data-job"); }
   function toBottom() { pinned = true; window.scrollTo(0, document.documentElement.scrollHeight); }
   // The message at the top of the window and where it sits, so a change above
   // it cannot move what he is reading (WebKit has no scroll anchoring).

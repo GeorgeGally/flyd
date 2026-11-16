@@ -20,7 +20,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
       chat.state.open = !form.hidden;
       chat.save();
       opener.setAttribute("aria-expanded", String(!form.hidden));
-      if (!form.hidden) form.querySelector("textarea").focus();
+      if (!form.hidden) chat.reply("");
     });
     return { opener: opener, form: form };
   }
@@ -453,39 +453,30 @@ export const ARTEFACT_CHAT_SCRIPT = `
     field.appendChild(thumbs);
     field.appendChild(row);
     field.appendChild(commands);
+    // He types in the one message box: Reply puts this card's chip over it, and what he sends comes here.
+    field.hidden = true;
+    var title = (target.about && target.about.title) || (target.decision && (target.decision.question || target.decision.task)) || label;
+    function replyHere(prefill) {
+      replyTo(title, function (text, pictures) {
+        images = takesImages ? (pictures || []).slice(0, 4) : [];
+        paintImages();
+        deliver(text);
+      }, prefill, true);
+    }
+    var reply = el("button", "art-chat-reply", "Reply");
+    reply.type = "button";
+    reply.addEventListener("click", function () { replyHere(""); });
     form.appendChild(thread);
     form.appendChild(field);
+    form.appendChild(reply);
     form.appendChild(receipt);
-    // A reply about one thing he is looking at: the box comes into view with the caret in it, naming
-    // that picture, with the picture itself attached (when this box takes pictures). Nothing is sent
-    // until he does. Quoting the same picture twice neither repeats its name nor attaches it again.
+    // A reply about one picture: the message box takes this card's chip, names the picture and
+    // attaches it (when this card takes pictures). Nothing is sent until he does.
     function quote(label, src) {
-      var line = label ? 'On "' + label + '": ' : "";
-      if (line && input.value.indexOf(line) === -1) input.value = line + input.value.replace(/^\s+/, "");
-      state.text = input.value;
-      state.error = "";
-      save();
-      paint();
-      try { form.scrollIntoView({ block: "center" }); } catch (_) { form.scrollIntoView(); }
-      try { input.focus({ preventScroll: true }); } catch (_) { input.focus(); }
-      try { input.setSelectionRange(input.value.length, input.value.length); } catch (_) {}
-      if (!takesImages || !src || images.some(function (image) { return image.from === src; })) return;
-      if (images.length >= 4) { state.error = "4 images at most"; paint(); return; }
-      fetch(src).then(function (response) { return response.ok ? response.blob() : null; }).then(function (blob) {
-        if (!blob || ["image/png", "image/jpeg", "image/gif", "image/webp"].indexOf(blob.type) === -1) return;
-        if (blob.size > ${MAX_IMAGE_BYTES}) { state.error = "Images must be under " + Math.round(${MAX_IMAGE_BYTES} / 1048576) + "MB"; paint(); return; }
-        var reader = new FileReader();
-        reader.onload = function () {
-          if (images.length >= 4 || images.some(function (image) { return image.from === src; })) return;
-          var url = String(reader.result);
-          images.push({ url: url, mediaType: blob.type, data: url.slice(url.indexOf(",") + 1), from: src });
-          paintImages();
-          paint();
-        };
-        reader.readAsDataURL(blob);
-      }).catch(function () { state.error = "The picture didn't attach; say which one in words"; paint(); });
+      replyHere(label ? 'On "' + label + '": ' : "");
+      if (takesImages && src) attachFrom(src);
     }
-    var chat = { form: form, state: state, deliver: deliver, save: save, target: target, watch: watch, quote: quote, onPaint: null };
+    var chat = { form: form, state: state, deliver: deliver, save: save, target: target, watch: watch, quote: quote, reply: replyHere, onPaint: null };
     paintThread();
     paint();
     watch();
@@ -654,17 +645,20 @@ export const ARTEFACT_CHAT_SCRIPT = `
         button.addEventListener("click", function () { chosenChange = option; changes.querySelectorAll("button").forEach(function (candidate) { candidate.setAttribute("aria-pressed", String(candidate === button)); }); });
         changes.appendChild(button);
       });
-      var other = el("textarea", "art-chat-input"); other.rows = 1; other.placeholder = "Something else…"; other.setAttribute("aria-label", "What else should change?");
-      var sendFollowUp = el("button", "art-chat-send", "Send"); sendFollowUp.type = "button";
-      sendFollowUp.addEventListener("click", function () {
+      function sendFollowUp(own) {
         var likedOptions = Object.keys(selected).filter(function (option) { return selected[option]; });
-        var text = "Liked: " + (likedOptions.length ? likedOptions.join(", ") : "None") + "\\nChange: " + (other.value.trim() || chosenChange || "No change specified");
+        var text = "Liked: " + (likedOptions.length ? likedOptions.join(", ") : "None") + "\\nChange: " + (own || chosenChange || "No change specified");
         chat.state.followUp = true;
         target.decision = followTarget;
         target.decisionTask = decision.task;
         chat.deliver(text, function () { chat.state.followUp = null; chat.save(); });
-      });
-      wrap.appendChild(liked); wrap.appendChild(changes); wrap.appendChild(other); wrap.appendChild(sendFollowUp);
+      }
+      // Anything else he wants changed is said in the message box, under this round's chip.
+      var other = el("button", "choice-pick", "Something else…"); other.type = "button";
+      other.addEventListener("click", function () { replyTo(decision.question || "The next round", sendFollowUp); });
+      var send = el("button", "art-chat-send", "Send"); send.type = "button";
+      send.addEventListener("click", function () { sendFollowUp(""); });
+      wrap.appendChild(liked); wrap.appendChild(changes); wrap.appendChild(other); wrap.appendChild(send);
       return wrap;
     }
     if (decision && decision.steps && decision.steps.length) {

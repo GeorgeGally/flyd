@@ -110,9 +110,7 @@ export const FRONT_STYLE = `
 .jpick:disabled:not([aria-pressed="true"]) { opacity: .45; }
 .jpick:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .jsent { margin: -6px 0 0; padding: 0 var(--card-pad) var(--card-pad); font: 400 13px/1.4 var(--sans); color: var(--mute); }
-.job-new { display: flex; gap: 8px; margin: 4px 0 24px; }
-.job-new input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
-.job-new button { height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--ink); color: var(--sheet); font: 500 13px/1 var(--sans); cursor: pointer; }
+
 .job .m { display: flex; align-items: center; gap: 6px; margin-top: 18px; font: 400 12.5px/1.4 var(--sans); color: var(--mute); white-space: nowrap; min-width: 0; }
 .job .m .s { color: var(--ink2); }
 .job .m .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -146,7 +144,6 @@ export const FRONT_STYLE = `
   margin: 8px 0 0; font: 500 22px/1.25 var(--sans); letter-spacing: -0.015em; color: var(--ink); text-wrap: balance;
   overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
 }
-:root[data-layout="front"] .front-fade { opacity: 0; }
 
 /* The conversation, straight on the paper. */
 :root[data-layout="front"] main {
@@ -158,11 +155,7 @@ export const FRONT_STYLE = `
 /* The chat reads at a comfortable size: his words at body size, Flyd's a step under, both on a generous line. */
 :root[data-layout="front"] .msg .body { font-size: 18px; }
 :root[data-layout="front"] .msg.assistant { font-size: 17px; line-height: 1.55; }
-/* What needs him lives in the left column; the conversation doesn't repeat it. */
-:root[data-layout="front"]:not([data-screen="show"]) #show, :root[data-layout="front"] .inline-screen { display: none !important; }
-/* The decision the conversation carries: the same quiet well as the message box, a hairline of the dot's colour. */
-:root[data-layout="front"] .inline-card { border: 0; border-left: 2px solid var(--line); background: var(--well); }
-:root[data-layout="front"] .inline-card.k-call { border-left-color: var(--hot); }
+
 :root[data-layout="front"] .empty { margin-top: 18vh; }
 :root[data-layout="front"] .composer {
   left: var(--c-left); right: var(--c-right); bottom: 0; z-index: 4;
@@ -177,11 +170,36 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] .composer:hover .hint, :root[data-layout="front"] .composer:focus-within .hint { opacity: 1; }
 :root[data-layout="front"] .jump { right: calc(var(--c-right) + var(--pad-x)); bottom: calc(var(--composer-h, 130px) + var(--gut) + 12px); }
 
-/* One job, open: what it is, its pictures large enough to judge, its words and a box. */
-:root[data-layout="front"][data-job] main, :root[data-layout="front"][data-job] .composer, :root[data-layout="front"][data-job] .jump { display: none !important; }
-:root[data-layout="front"][data-job] .job-view {
-  display: block; margin: 0 var(--c-right) 0 var(--c-left); padding: calc(var(--stage-head-h, 110px) + 6px) var(--pad-x) calc(var(--gut) + 40px);
-  font: 400 17px/1.55 var(--sans); color: var(--ink); transition: opacity .2s ease;
+/* A job opens in place under its own message, which already names it: the head keeps only Close and Back. */
+:root[data-layout="front"][data-job] .stage-head h1, :root[data-layout="front"][data-job] .stage-sub { display: none; }
+/* Next: work not yet under way, one closed line with its count. */
+:root[data-layout="front"] .fnext > summary { list-style: none; cursor: pointer; }
+:root[data-layout="front"] .fnext > summary::-webkit-details-marker { display: none; }
+:root[data-layout="front"] .fnext > summary:hover span:first-child, :root[data-layout="front"] .fnext > summary:focus-visible span:first-child { color: var(--ink); }
+/* Earlier conversations: folded at the top of the timeline, one quiet line until opened. */
+:root[data-layout="front"] .earlier { margin: 0 0 32px; }
+:root[data-layout="front"] .earlier summary { width: fit-content; padding: 4px 0; font: 400 14px/1.4 var(--sans); color: var(--mute); cursor: pointer; list-style: none; }
+:root[data-layout="front"] .earlier summary::-webkit-details-marker { display: none; }
+:root[data-layout="front"] .earlier summary:hover, :root[data-layout="front"] .earlier summary:focus-visible { color: var(--ink); }
+:root[data-layout="front"] .earlier[open] summary { margin-bottom: 12px; }
+/* What needs him and what finished, told in the timeline as Flyd's own messages among his words. */
+:root[data-layout="front"] .msg.work { max-width: 64ch; padding: 18px 20px 20px; border-radius: 12px; background: var(--sheet); box-shadow: 0 0 0 1px var(--line); }
+:root[data-layout="front"] .msg.work.needs { box-shadow: 0 0 0 1px color-mix(in srgb, var(--hot) 40%, var(--line)); }
+.work-meta { display: flex; align-items: center; gap: 8px; margin: 0; font: 400 13px/1.4 var(--sans); color: var(--mute); }
+.work-title { margin: 8px 0 0; font: 500 18px/1.35 var(--sans); color: var(--ink); text-wrap: pretty; overflow-wrap: anywhere; }
+.work-line { margin: 8px 0 0; font: 400 16px/1.55 var(--sans); color: var(--ink2); text-wrap: pretty; overflow-wrap: anywhere; }
+.work-shot { display: block; width: 100%; margin: 16px 0 0; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: var(--well); cursor: pointer; }
+.work-shot img { display: block; width: 100%; max-height: 320px; object-fit: cover; object-position: top; }
+.work .jpicks { margin-top: 16px; }
+.work-acts { display: flex; gap: 8px; margin-top: 20px; }
+.work-acts button { height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--well); color: var(--ink); font: 500 14px/1 var(--sans); cursor: pointer; }
+.work-acts button:hover { background: var(--well-on); }
+.work-acts button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* One job, open: it unfolds under its own message, and the one message box stays under the conversation. */
+.job-view:has(.jv-acts .jv-reply) .art-chat-reply { display: none; }
+:root[data-layout="front"][data-job] .work .job-view {
+  display: block; margin: 20px 0 0; padding: 20px 0 0; border-top: 1px solid var(--line);
+  font: 400 17px/1.55 var(--sans); color: var(--ink);
 }
 .jv-lead { margin: 0 0 20px; max-width: 64ch; color: var(--ink2); overflow-wrap: anywhere; }
 .jv-ask { margin: 0 0 16px; max-width: 40ch; font: 500 19px/1.35 var(--sans); }
@@ -298,7 +316,7 @@ button.jv-thread { cursor: pointer; }
 :root[data-layout="front"] .rail .art-card .art-title:hover { color: var(--link); }
 /* The card's kind sits under its name as a quiet word, never a label over it. */
 :root[data-layout="front"] .rail .art-kind { order: 2; margin: 10px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
-:root[data-layout="front"] .rail .art-advice-line { order: 0; font: 500 19px/1.34 var(--sans); letter-spacing: -0.015em; text-wrap: pretty; }
+
 :root[data-layout="front"] .rail .art-plain { gap: 16px; margin-top: 0; }
 :root[data-layout="front"] .rail .art-plain + .brief-top { margin-top: 32px; }
 :root[data-layout="front"] .rail .art-grid + .art-plain { padding-top: 0; border-top: 0; }
@@ -395,7 +413,7 @@ button.jv-thread { cursor: pointer; }
 .history-article:hover { color: var(--ink, var(--fg)); }
 
 /* Past conversations, under the jobs: a quiet list. */
-.fhistory:has(> .history[hidden]) { display: none; }
+.earlier:has(> .history[hidden]) { display: none; }
 .jobs .history { display: block; max-height: none; padding: 0; border: 0; overflow: visible; }
 .jobs .history[hidden] { display: none; }
 .jobs .history-top { display: none; }
@@ -404,10 +422,6 @@ button.jv-thread { cursor: pointer; }
 .jobs .history-item { padding: 9px 4px; font-size: 14px; color: var(--ink2); }
 .jobs .history-item:hover { color: var(--ink); }
 .jobs .history-item-age { font-size: 12.5px; }
-
-/* The artefact view keeps the whole screen. */
-:root[data-screen="show"] .rtabs, :root[data-screen="show"] .jobs,
-:root[data-screen="show"] .stage-head, :root[data-screen="show"] .job-view { display: none !important; }
 
 /* Narrower: the column gives up width with the window; the cards keep their shape. */
 @media (max-width: 1100px) {

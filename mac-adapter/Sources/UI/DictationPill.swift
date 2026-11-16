@@ -37,6 +37,8 @@ final class DictationPill: NSObject {
         case sent
         /// What is happening to his message now (its line under the message): spinner, briefly.
         case progress
+        /// His message did not get through, or its answer failed: rust dot, never a green reply.
+        case failure
 
         var holdSeconds: TimeInterval? {
             switch self {
@@ -45,6 +47,7 @@ final class DictationPill: NSObject {
             case .decision: return 10
             case .sent: return 2
             case .progress: return 3.5
+            case .failure: return 8
             }
         }
     }
@@ -53,6 +56,8 @@ final class DictationPill: NSObject {
     private(set) var currentPhase: Phase?
     /// Clicking a conversation status opens the Conversation window.
     var onStatusClick: (() -> Void)?
+    /// A notification on the island opens what it is about.
+    var onNotificationClick: (() -> Void)?
 
     /// Dictation or a voice question is using the island; conversation status waits.
     var isBusyWithVoice: Bool {
@@ -355,7 +360,7 @@ final class DictationPill: NSObject {
                 title = String(title.dropFirst(decisionPrefix.count)).trimmingCharacters(in: .whitespaces)
             }
             guard !title.isEmpty else { return nil }
-            return Message(meta: tone == .decision ? "Your decision" : "Reply", title: quoted(title, limit: statusLimit), body: nil)
+            return Message(meta: tone == .decision ? "Needs you" : tone == .failure ? "Didn't go through" : "Reply", title: quoted(title, limit: statusLimit), body: nil)
         case .notice(let text), .failed(let text):
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             let parts = trimmed.split(separator: "\n", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
@@ -488,7 +493,7 @@ final class DictationPill: NSObject {
         if phase == .inserted || Self.isSent(phase) {
             check?.draw(animated: !FlydPalette.reduceMotion)
         }
-        if case .status = phase {
+        if Self.isClickable(phase) {
             setClickArea([target])
         } else {
             setClickArea([])
@@ -590,6 +595,7 @@ final class DictationPill: NSObject {
         case .failed: return setMessage(message, layout, dot: FlydPalette.signalRust, meta: FlydPalette.signalRust)
         case .notice: return setMessage(message, layout, dot: FlydPalette.brassGlow, meta: quiet)
         case .status(_, .decision): return setMessage(message, layout, dot: FlydPalette.brassGlow, meta: FlydPalette.brassGlow, pulsing: true)
+        case .status(_, .failure): return setMessage(message, layout, dot: FlydPalette.signalRust, meta: FlydPalette.signalRust)
         // The spinner already says it is under way.
         case .status(_, .progress): return setMessage(message, layout, dot: nil, meta: quiet)
         case .status: return setMessage(message, layout, dot: FlydPalette.signalGreen, meta: FlydPalette.signalGreen)
@@ -884,9 +890,24 @@ final class DictationPill: NSObject {
     }
 
     @objc private func islandClicked() {
-        guard case .status = currentPhase else { return }
-        hide()
-        onStatusClick?()
+        switch currentPhase {
+        case .status:
+            hide()
+            onStatusClick?()
+        case .notification:
+            hide()
+            onNotificationClick?()
+        default:
+            return
+        }
+    }
+
+    /// A status or a notification takes a click on the island; nothing else does.
+    static func isClickable(_ phase: Phase?) -> Bool {
+        switch phase {
+        case .status, .notification: return true
+        default: return false
+        }
     }
 
     /// Lets a status take clicks on the island only; everywhere else on the canvas the

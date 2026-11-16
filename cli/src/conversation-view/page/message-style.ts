@@ -132,6 +132,11 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .reply-open { font: 500 13px/1.2 var(--sans); color: var(--muted); background: transparent; border: 0; border-radius: 4px; padding: 2px 0; cursor: pointer; opacity: 0.7; transition: opacity 160ms ease, color 160ms ease; }
 .msg:hover .reply-open, .reply-open:focus-visible { opacity: 1; }
 .reply-open:hover { color: var(--fg); }
+/* A card's, a question's or a job's Reply: one quiet button that hands his words to the message box. */
+.art-chat-reply, .own-words { display: inline-flex; align-items: center; height: 32px; margin-top: 16px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--tint); color: var(--fg); font: 500 14px/1 var(--sans); cursor: pointer; transition: background 140ms ease; }
+.art-chat-reply:hover, .own-words:hover { background: var(--faint); }
+.art-chat-reply:focus-visible, .own-words:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.own-words:disabled { opacity: 0.5; cursor: default; }
 /* Open, it is a card like a learned memory: its label and Close, then his words and Send as one row. */
 .reply form {
   flex-basis: 100%; padding: 10px 12px 12px; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 10px;

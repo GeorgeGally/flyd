@@ -18,6 +18,14 @@ final class CoreNotificationsTests: XCTestCase {
         XCTAssertEqual(second.notifications, [CoreNotificationPayload(title: "Scout — today", message: "Three new reads")])
         XCTAssertEqual(second.rest, Data())
     }
+
+    func testANotificationCarriesTheItemAClickOpens() {
+        let event = Data("event: notification\ndata: {\"title\":\"Flyd\",\"message\":\"I need your decision on the hero.\",\"item\":\"needs\"}\n\n".utf8)
+        XCTAssertEqual(CoreNotificationPayload.parse(event).notifications.first?.item, "needs")
+        XCTAssertTrue(DictationPill.isClickable(.notification("Flyd", "I need your decision.")))
+        XCTAssertTrue(DictationPill.isClickable(.status("Reply ready", .reply)))
+        XCTAssertFalse(DictationPill.isClickable(nil))
+    }
 }
 
 final class CoreNotificationTurnTests: XCTestCase {

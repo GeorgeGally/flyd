@@ -6,6 +6,8 @@ import { staffLine } from "./for-george.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { authorSummary, digestReply, isActionable, isRoutine } from "./summaries.js";
 import type { FleetArtefact } from "./artefact.js";
+import type { Job } from "./jobs.js";
+import { STATE_WORDS } from "./placement.js";
 import type { ConversationSnapshot } from "./types.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -24,7 +26,7 @@ export interface ConversationStatus {
   activity?: string;
   lastActivity?: string;
   /** `lifecycle`: the id is the question's own lifecycle (a firstmate hold), so it rings once for that lifecycle whatever its wording. */
-  reply?: { id: string; headline: string; asks: boolean; lifecycle?: boolean };
+  reply?: { id: string; headline: string; asks: boolean; lifecycle?: boolean; item?: string };
   /** His newest message still waiting for its answer, and the line saying what is happening to it. */
   waiting?: { id: string; text: string; failed?: true };
 }
@@ -136,15 +138,22 @@ export function ringsHim(row: { label: string; question?: string }): boolean {
   return !/^(?:next|later)\s*[:-]/i.test(said) && !/\b(?:non-?urgent|not urgent|no rush|low priority)\b/i.test(said);
 }
 
-export function islandStatusOf(current: ConversationStatus, fleet?: FleetArtefact): ConversationStatus {
+/**
+ * The island's status. What needs him is the column's own Needs you, placed once in Core
+ * (placement.ts): the island never re-reads the fleet with a rule of its own, so it can
+ * never say 0 while the column says 3. Each ask still rings once (IslandRung).
+ */
+export function islandStatusOf(current: ConversationStatus, fleet?: FleetArtefact, needs: Job[] = []): ConversationStatus {
   // An old call firstmate still holds sits quietly in the list: it never rings him again.
-  const ask = fleet?.calls.find((row) => !row.ledgerOnly && !row.quiet && ringsHim(row));
+  // The conversation's own question is said by its reply's own reading, not again as a card.
+  const own = current.reply ? `call:${current.reply.id}` : "";
+  const ask = needs.find((job) => job.group === "needs" && !job.quiet && job.id !== own && job.state !== STATE_WORDS.ready && job.state !== STATE_WORDS.report && ringsHim({ label: job.title, question: job.ask || job.title }));
   const notable = fleet?.landed.find((row) => row.notable);
   // A call firstmate names the lifecycle of rings once for that lifecycle: a new decision id or new wording for the
   // same open hold is the same question, and the hold raised again is a new one.
-  const lifecycle = ask?.task && ask.holdIdentity ? `hold:${ask.task}#${ask.holdIdentity}` : undefined;
+  const lifecycle = ask?.questionIdentity && /^hold:/.test(ask.questionIdentity) ? ask.questionIdentity : undefined;
   const reply = ask
-    ? { id: `decision:${lifecycle ?? ask.executiveDecisionId ?? ask.task ?? ask.label}`, headline: forHim(ask.question ?? ask.label), asks: true, ...(lifecycle ? { lifecycle: true } : {}) }
+    ? { id: `decision:${lifecycle ?? ask.id}`, headline: forHim(ask.ask || ask.title), asks: true, ...(lifecycle ? { lifecycle: true } : {}), item: ask.id }
     : notable
       ? { id: `outcome:${notable.executiveDecisionId ?? notable.task ?? notable.label}`, headline: notable.label, asks: false }
       : current.reply?.asks || current.reply?.id.startsWith("answer:") ? current.reply : undefined;

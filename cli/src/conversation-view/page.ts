@@ -16,10 +16,11 @@ import { MACHINES_SCRIPT } from "./page/script-machines.js";
 import { MESSAGES_SCRIPT } from "./page/script-messages.js";
 import { REPLIES_SCRIPT } from "./page/script-replies.js";
 import { SESSION_SCRIPT } from "./page/script-session.js";
-import { SHOW_SCRIPT } from "./page/script-show.js";
+import { BOOT_SCRIPT } from "./page/script-boot.js";
 import { THREADS_SCRIPT } from "./page/script-threads.js";
 import { TODOS_SCRIPT } from "./page/script-todos.js";
 import { TODAY_SCRIPT } from "./page/script-today.js";
+import { TIMELINE_SCRIPT } from "./page/script-timeline.js";
 import { WEEK_SCRIPT } from "./page/script-week.js";
 import { TODAY_STYLE } from "./page/today-style.js";
 import { SHOW_STYLE } from "./page/show-style.js";
@@ -32,7 +33,7 @@ import { WEEK_STYLE } from "./page/week-style.js";
 // fetches nothing but this server's own /api endpoints. Each part lives in
 // page/: styles by area, the one page script in the order it runs, and the
 // markup. The script parts are pieces of one IIFE: script-core.ts opens it and
-// script-show.ts closes it, so they only work joined in this order.
+// script-boot.ts closes it, so they only work joined in this order.
 
 export { BASE_STYLE };
 
@@ -58,8 +59,9 @@ const SCRIPT = joined([
   MACHINES_SCRIPT,
   TODOS_SCRIPT,
   TODAY_SCRIPT,
+  TIMELINE_SCRIPT,
   WEEK_SCRIPT,
-  SHOW_SCRIPT,
+  BOOT_SCRIPT,
 ]);
 
 export function renderPage(options: PageOptions): string {

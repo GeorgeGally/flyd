@@ -1,11 +1,7 @@
 /*
- * Artefact view: Flyd on TV. One scene holds the screen at a time: a big
- * headline in Flyd's words, the sentence that says what it means for him, and
- * the work itself large beside it: the desktop capture in a browser, the phone
- * capture in a phone in front of it. The scenes take turns like title cards,
- * the work with pictures first. The numbers are one quiet line at the foot,
- * never a dashboard. Text fades in place: no movement, no pop. The
- * conversation stays live underneath, one switch away.
+ * What the Artefact (TV) view left that other places still draw: a card's
+ * question and its answers, its own thread and chat box, and the work's
+ * pictures framed as a browser or a phone.
  */
 export const SHOW_STYLE = `
 :root {
@@ -29,88 +25,17 @@ export const SHOW_STYLE = `
   --k-next: #8b8880;
   --k-news: #2b2b2e;
 }
-:root[data-screen="show"] main, :root[data-screen="show"] .jump, :root[data-screen="show"] .composer { display: none; }
-:root[data-screen="show"] .problem { z-index: 7; }
-/* The header stays: the same switches in both modes, over the screen. */
-:root[data-screen="show"] header { z-index: 7; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
-:root[data-screen="show"] header .picker { display: none; }
-:root[data-screen="show"] header .air { display: inline-flex; }
 
-.show {
-  position: fixed; inset: 0; z-index: 6; overflow: hidden;
-  display: flex; flex-direction: column;
-  padding: var(--head-h) clamp(28px, 6vw, 104px) 0;
-  color: var(--fg); background: var(--screen);
-}
-.show[hidden] { display: none; }
-.show.power { animation: show-in 320ms ease both; }
-.show.off { animation: show-out 160ms ease both; }
 @keyframes show-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes show-out { from { opacity: 1; } to { opacity: 0; } }
-.show > * { width: 100%; max-width: 1480px; margin-left: auto; margin-right: auto; }
 
-/* Semantic workspace: the focused work owns the room; the rest of Flyd is
-   context at its edge, not a competing dashboard. */
-.show.semantic-workspace { padding-top: 64px; }
-.semantic-workspace .tv { padding: clamp(26px, 6vh, 78px) 0 clamp(20px, 4vh, 48px); }
-.semantic-workspace .scene { min-height: min(68vh, 820px); align-content: center; }
-.semantic-workspace .scene[data-semantic="decision"],
-.semantic-workspace .scene[data-semantic="action"] { grid-template-columns: minmax(0, 1fr); max-width: 980px; margin-inline: auto; }
-.semantic-workspace .scene[data-semantic="artifact"].has-shot,
-.semantic-workspace .scene[data-semantic="investigation"].has-shot { grid-template-columns: minmax(280px, .7fr) minmax(0, 1.3fr); }
-.semantic-workspace .scene[data-semantic="artifact"] .scene-shot img { max-height: 70vh; object-fit: contain; background: var(--tint); }
-.semantic-workspace .scene[data-semantic="activity"] .scene-head { max-width: 18em; }
-.semantic-workspace .scene[data-semantic="monitor"] { opacity: .96; }
-.semantic-workspace .semantic-context { display: flex; gap: 10px 22px; align-items: baseline; flex-wrap: wrap; padding: 14px 0 18px; border-top: 1px solid var(--faint); font: 500 13px/1.35 var(--mono); color: var(--muted); }
-.semantic-workspace .semantic-context:empty { display: none; }
-.semantic-context button { appearance: none; border: 0; background: none; padding: 0; color: inherit; font: inherit; cursor: pointer; }
-.semantic-context button:hover { color: var(--strong); }
-.semantic-context .needs { color: var(--k-call); }
-.semantic-context .working { color: var(--k-live); }
-.semantic-context .landed { color: var(--k-landed); }
-.semantic-context .held { color: var(--k-waiting); }
-.semantic-context .failed { color: var(--k-call); }
-.semantic-context .watching { color: var(--muted); }
-.semantic-workspace .ticks { display: none !important; }
-
-/* The stage: one scene, centred, the same room above and below it. */
-.tv { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; justify-content: safe center; padding: clamp(20px, 5vh, 64px) 0; }
-.scene { --k: var(--k-news); display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: clamp(36px, 4.5vw, 88px); }
-.scene.has-shot { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); }
-/* A question with its answer field needs the room for words: the picture steps back. */
-.scene.has-shot.has-ask { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); }
-.scene-text { min-width: 0; }
-.scene-head {
-  margin: 0; max-width: 14em; font: 800 clamp(40px, 5.6vw, 96px)/1.02 var(--display); letter-spacing: -0.032em;
-  color: var(--strong); text-wrap: balance; overflow-wrap: anywhere;
-}
-.scene-head { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
-.scene-head.long { -webkit-line-clamp: 3; max-width: 18em; font-size: clamp(32px, 4vw, 64px); line-height: 1.06; letter-spacing: -0.026em; }
-.scene.has-shot .scene-head { font-size: clamp(34px, 3.9vw, 66px); }
-.scene.has-shot .scene-head.long { font-size: clamp(28px, 2.9vw, 46px); }
-.scene-head[role="button"] { cursor: pointer; }
-.scene-head[role="button"]:hover { color: color-mix(in srgb, var(--strong) 80%, var(--k)); }
-.scene-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 8px; border-radius: 6px; }
-.scene-line { margin: 30px 0 0; max-width: 31em; font: 400 clamp(18px, 1.45vw, 23px)/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
-.scene-line:empty { display: none; }
 /* The page a change is on: a button that opens it, big enough to read across the room. */
 a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-items: center; gap: 0.5em; max-width: 100%; padding: 0.6em 1.15em; border-radius: 999px; background: var(--accent); color: var(--bg); font: 600 15px/1.2 var(--sans); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 160ms ease; }
 .open-page:hover { opacity: 0.85; }
 .open-page:focus-visible { outline: 2px solid var(--strong); outline-offset: 3px; }
-.scene-open { margin-top: 26px; font-size: clamp(16px, 1.2vw, 19px); }
+
 .reply-open-page { margin: 0.6em 0 0.4em; }
-.scene-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 22px; margin-top: 30px; font: 500 14px/1.3 var(--mono); color: var(--muted); }
-.scene-meta .kind { font-family: var(--sans); font-weight: 600; color: var(--k); }
-.scene-meta .project { color: var(--fg); }
-.scene-meta a { color: var(--link); text-decoration: none; transition: color 140ms ease; }
-.scene-meta a:hover { color: var(--strong); }
-/*
- * The work, as large as the stage allows. A desktop capture sits in a browser,
- * a phone capture in a phone (both shown from the top of the page, as a device
- * would, unless the top is nearly empty; see aimAtContent); with both, the phone stands in front of the browser. Anything else
- * (artwork, a tablet without its name) keeps its own shape, never cropped.
- */
-.scene-shot { margin: 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+
 .devices { position: relative; width: 100%; height: min(66vh, calc(100vh - 300px)); min-height: 220px; container-type: size; }
 .device { position: absolute; overflow: hidden; background: #050608; cursor: zoom-in; box-sizing: border-box; }
 .device img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
@@ -166,25 +91,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .screen-metrics dd { margin: 0 0 0 6px; font: 400 15px/1.4 var(--sans); color: var(--fg); }
 .screen-evidence { font: 500 15px/1.4 var(--sans); color: var(--accent); text-decoration: none; }
 .screen-evidence:hover { text-decoration: underline; }
-/* The artefact in the conversation: the same pattern, drawn where he reads. */
-.inline-screen { margin: 28px 0 8px; }
-.inline-screen[hidden] { display: none; }
-.inline-card {
-  display: grid; gap: 12px; padding: 22px 24px; border: 1px solid var(--faint);
-  border-left: 3px solid var(--accent); border-radius: 12px; background: var(--tint);
-}
-.inline-card.k-landed { border-left-color: var(--k-landed); }
-.inline-card.k-call { border-left-color: var(--k-call); }
-.inline-head { margin: 0; font: 600 clamp(19px, 1.7vw, 25px)/1.25 var(--sans); color: var(--strong); }
-.inline-head[role="button"] { cursor: pointer; }
-.inline-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
-.inline-main.has-shot { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); }
-.inline-text { min-width: 0; }
-@media (max-width: 720px) { .inline-main.has-shot { grid-template-columns: minmax(0, 1fr); } }
-.inline-card .screen-body { margin-top: 4px; max-width: none; }
-.inline-shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; }
-.inline-shots img { display: block; width: 100%; max-height: 150px; border-radius: 8px; border: 1px solid var(--faint); object-fit: cover; cursor: zoom-in; }
-.inline-card .scene-ask { margin-top: 10px; max-width: none; }
+
 /* A hold with more than one decision: each in its own plain line, then what he can pick. */
 .art-decisions { display: flex; flex-direction: column; gap: 16px; margin: 0 0 22px; padding: 0; list-style: none; }
 .art-decision { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 12px; background: var(--tint); }
@@ -280,96 +187,21 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .art-msg--them { margin-bottom: 4px; }
 .scene-ask .step-q { font-size: clamp(20px, 1.6vw, 26px); line-height: 1.25; }
 .scene-ask .step-review { font-size: clamp(16px, 1.2vw, 19px); }
-.scene-meta .closed { color: var(--muted); font-style: italic; }
-/* A question leads in words his own size: the answer under it is what matters. */
-.scene.has-ask .scene-head, .scene.has-ask .scene-head.long { max-width: 24em; font-size: clamp(26px, 2.4vw, 40px); line-height: 1.15; letter-spacing: -0.015em; }
-.scene.has-ask .scene-line { margin-top: 14px; font-size: clamp(16px, 1.2vw, 19px); color: var(--muted); }
-.scene.has-ask .scene-text { display: flex; flex-direction: column; }
-.scene-shot .thumbs { display: flex; align-items: center; gap: 8px; }
-.scene-shot .thumbs img {
-  width: auto; height: 46px; max-width: 82px; object-fit: cover; object-position: top; border-radius: 5px; cursor: pointer;
-  opacity: 0.45; transition: opacity 140ms ease;
-}
-.scene-shot .thumbs img:hover, .scene-shot .thumbs img.on { opacity: 1; }
 
-/* Title-card motion, TV style: the old scene fades out, the new one fades in where it stands, headline first. Nothing moves or scales. */
-.scene.out > * { animation: scene-out 200ms ease both; }
-.scene.in .scene-head { animation: scene-fade 380ms ease both; }
-.scene.in .scene-line { animation: scene-fade 380ms ease 70ms both; }
-.scene.in .scene-meta, .scene.in .scene-ask, .scene.in .scene-open { animation: scene-fade 380ms ease 140ms both; }
-.scene.in .scene-shot { animation: scene-fade 520ms ease 40ms both; }
 @keyframes scene-out { to { opacity: 0; } }
 @keyframes scene-fade { from { opacity: 0; } to { opacity: 1; } }
 
-/* The work's own colours, far behind everything and out of focus: the room the screen is in. */
-
-/* Which scene is up, and how long until the next: one short line each. */
-.ticks { display: flex; flex-wrap: wrap; gap: 10px; min-height: 14px; margin-bottom: clamp(28px, 5vh, 48px); }
-.ticks[hidden] { display: none; }
-.ticks button { position: relative; width: 30px; height: 14px; padding: 0; border: 0; background: none; cursor: pointer; }
-.ticks button::before, .ticks button::after { content: ""; position: absolute; left: 0; top: 6px; height: 2px; border-radius: 1px; }
-.ticks button::before { right: 0; background: var(--k); opacity: 0.3; }
-.ticks button::after { width: 0; background: var(--k); }
-.ticks button.on::after { width: 100%; transition: width var(--dwell, 9s) linear; }
-.ticks button.on.held::after { transition: none; }
-.ticks button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-/* The numbers: one quiet line, read like a TV's crawl, never a dashboard of charts. */
-.readouts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 26px; padding-bottom: 14px; font: 500 14px/1.4 var(--mono); color: var(--muted); }
-.readouts:empty { display: none; }
-.ro { min-width: 0; display: flex; flex-wrap: wrap; column-gap: 0.6em; }
-.ro b, .ro-part { white-space: nowrap; }
-.ro b { font-weight: 600; color: var(--strong); font-variant-numeric: tabular-nums; }
-.ro .k-call b, .ro b.k-call { color: var(--k-call); }
-.ro-part + .ro-part::before { content: "· "; color: var(--muted); }
-.ro-part b { color: var(--k); }
-.ro.fade { animation: scene-fade 600ms ease both; }
-/* A figure that opens what it counts: underlined like a link, nothing louder. */
-.ro-open { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--k) 45%, transparent); text-underline-offset: 4px; transition: color 140ms ease; }
-.ro-open:hover { color: var(--fg); text-decoration-color: var(--k); }
-.ro-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
-
-/* What needs him: a sheet over the artefact, one call after another, each answerable where it stands. */
-.calls { position: fixed; inset: 0; z-index: 9; display: grid; place-items: center; padding: 64px 16px 24px; background: color-mix(in srgb, var(--bg) 62%, transparent); }
-.calls[hidden] { display: none; }
-.calls-sheet {
-  display: flex; flex-direction: column; width: min(680px, 100%); max-height: calc(100vh - 88px); border: 1px solid var(--faint); border-radius: 14px;
-  background: var(--bg); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.32); animation: choice-in 160ms ease both;
-}
-.calls-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 24px; border-bottom: 1px solid var(--faint); }
-.calls-top h2 { margin: 0; font: 600 20px/1.2 var(--sans); color: var(--k-call); }
-.calls-top button { font: 500 15px/1 var(--mono); color: var(--muted); background: none; border: 0; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
-.calls-top button:hover { color: var(--fg); }
-.calls-top button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.calls-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 0 24px; list-style: none; }
 .call { padding: 22px 0 24px; }
 .call + .call { border-top: 1px solid var(--faint); }
 .call-meta { display: flex; gap: 12px; margin: 0 0 6px; font: 500 12px/1.4 var(--mono); color: var(--muted); }
 .call-head { margin: 0; font: 600 19px/1.35 var(--sans); color: var(--strong); text-wrap: pretty; }
 .call-question { margin: 8px 0 0; font: 400 16px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; }
 .call-link { display: inline-block; margin: 8px 14px 0 0; font: 500 13px/1.4 var(--mono); color: var(--link); text-decoration: none; }
-.calls-sheet:focus { outline: none; }
+
 /* Each answer compact: the choices, then the chat box. */
 .call .scene-ask { margin-top: 14px; max-width: none; }
 .call .choice-pick { min-height: 44px; font-size: 15px; }
 .call-link.closed { color: var(--muted); font-style: italic; }
-
-/* A figure's own group, opened: one calm sheet, every piece of work one line,
-   newest first, each unfolding its card detail where it stands. */
-.drill { position: fixed; inset: 0; z-index: 9; display: grid; place-items: center; padding: 64px 16px 24px; background: color-mix(in srgb, var(--bg) 62%, transparent); }
-.drill[hidden] { display: none; }
-.drill-sheet {
-  display: flex; flex-direction: column; width: min(560px, 100%); max-height: calc(100vh - 88px); border: 1px solid var(--faint); border-radius: 20px;
-  background: var(--bg); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.32); animation: choice-in 160ms ease both;
-}
-.drill-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 26px 28px 20px; border-bottom: 1px solid var(--faint); }
-.drill-top h2 { margin: 0; font: 600 21px/1.2 var(--sans); color: var(--k, var(--strong)); }
-.drill-top button { font: 500 15px/1 var(--mono); color: var(--muted); background: none; border: 0; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
-.drill-top button:hover { color: var(--fg); }
-.drill-top button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.drill-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 20px 22px 26px; list-style: none; display: grid; gap: 12px; align-content: start; }
-.drill-empty { margin: 0; padding: 6px 4px; font: 400 15px/1.5 var(--sans); color: var(--muted); }
-.drill-sheet:focus { outline: none; }
 
 /* The foot: what Flyd is doing, and how to talk to it. */
 .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 24px; flex-wrap: wrap; padding-bottom: 24px; }
@@ -390,34 +222,33 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 @keyframes spot { 0%, 35% { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 0.4em color-mix(in srgb, var(--accent) 16%, transparent); } 100% { background: transparent; box-shadow: 0 0 0 0.4em transparent; } }
 
 @media (max-width: 900px) {
-  .scene.has-shot { grid-template-columns: minmax(0, 1fr); gap: 28px; }
-  /* A decision with a picture and an ask stacks too: the scene is the phone's width. */
-  .scene.has-shot.has-ask { grid-template-columns: minmax(0, 1fr); }
-  .scene-shot { order: -1; }
+  
+  
+  
   .devices { height: 44vh; }
 }
 @media (max-height: 680px) {
-  .scene-head, .scene.has-shot .scene-head { font-size: clamp(30px, 3.4vw, 48px); }
-  .scene-head.long, .scene.has-shot .scene-head.long { font-size: clamp(24px, 2.6vw, 36px); }
-  .scene-line { margin-top: 18px; }
-  .scene-meta { margin-top: 18px; }
+  
+  
+  
+  
   .devices { height: 38vh; }
 }
 @media (max-width: 720px) {
-  .show { overflow-x: hidden; overflow-y: auto; padding: var(--head-h) 16px 0; }
-  .tv { flex: none; min-height: calc(100vh - 220px); padding: 28px 0 36px; }
-  .scene-head, .scene.has-shot .scene-head { font-size: 34px; }
-  .scene-head.long, .scene.has-shot .scene-head.long { font-size: 27px; }
-  .scene-line { margin-top: 20px; font-size: 18px; }
-  .scene-meta { margin-top: 20px; font-size: 13px; }
-  .scene.has-ask .scene-head, .scene.has-ask .scene-head.long { font-size: 24px; }
-  .ticks { margin-bottom: 32px; }
+  
+  
+  
+  
+  
+  
+  
+  
   .devices { height: 46vh; }
   .foot .hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .project-badge.shown, .show.power, .show.off, .scene.in > *, .scene.in .scene-head, .scene.in .scene-line, .scene.in .scene-meta, .scene.in .scene-ask, .scene.in .scene-shot, .scene.in .scene-open,
   .scene.out > *, .ro.fade, .doing.on::before, .msg.spot { animation: none; }
-  .ticks button.on::after { transition: none; }
+  
 }
 `;

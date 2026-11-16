@@ -3,6 +3,8 @@ import Foundation
 struct CoreNotificationPayload: Decodable, Equatable {
     let title: String
     let message: String
+    /// The conversation item a click opens ("needs" for what needs him first); none opens the conversation.
+    var item: String? = nil
 
     /// The notifications in a chunk of Core's /notifications event stream, and what is left over.
     static func parse(_ buffer: Data) -> (notifications: [CoreNotificationPayload], rest: Data) {
@@ -26,7 +28,7 @@ struct CoreNotificationPayload: Decodable, Equatable {
     /// The notification is not lost — it shows once the island is free.
     static func canShow(over phase: DictationPill.Phase?) -> Bool {
         switch phase {
-        case .listening, .working, .thinking, .failed, .notification, .status(_, .working), .status(_, .decision), .status(_, .reply):
+        case .listening, .working, .thinking, .failed, .notification, .status(_, .working), .status(_, .decision), .status(_, .reply), .status(_, .failure):
             return false
         default:
             return true
@@ -59,6 +61,7 @@ final class CoreNotifications: NSObject, URLSessionDataDelegate {
         let island = DictationPill.shared
         guard !waiting.isEmpty, CoreNotificationPayload.canShow(over: island.currentPhase) else { return }
         let next = waiting.removeFirst()
+        island.onNotificationClick = { ConversationWindow.shared.show(item: next.item) }
         island.show(.notification(next.title, next.message))
     }
 

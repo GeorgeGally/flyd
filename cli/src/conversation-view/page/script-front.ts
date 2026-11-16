@@ -4,16 +4,22 @@
  * column (#rail: artefacts, notices, news), restyled as cards by front-style.ts.
  * When the stream sends update.jobs, those are the cards: a project George is
  * moving, with the digest already stored on it. The page never asks for a new
- * reading while drawing. Without that list it still maps the fleet (frontJobsOf).
+ * reading while drawing. Core places every card (placement.ts); the page never re-sorts them.
  * A group with nothing in it says something true. Runs inside the page script's
  * closure and borrows its helpers (el, ago, clock, withToken, sceneAsk,
  * artefactChat, openImage, store, cardRead, itemKey, connect).
  */
+import { PLACE_WORDS, STATE_WORDS } from "../placement.js";
+
 export const FRONT_SCRIPT = `
+  // The one set of words for where work sits, as Core says it (placement.ts).
+  var PLACE_WORDS = ${JSON.stringify(PLACE_WORDS)};
+  var PLACE_STATES = ${JSON.stringify(STATE_WORDS)};
   // The front page: jobs, the one open job, artefacts.
   var frontRoot = document.documentElement;
   var jobsEl = document.getElementById("jobs");
   var jobsList = document.getElementById("jobs-list");
+  var todosEl = document.getElementById("todos");
   var jobView = document.getElementById("job-view");
   var stageHead = document.getElementById("stage-head");
   var stageCrumb = document.getElementById("stage-crumb");
@@ -28,6 +34,7 @@ export const FRONT_SCRIPT = `
   var frontDrawn = { jobs: "", view: "", viewId: "" };
   var frontVersion = {};
   var DONE_FEW_FRONT = 5;
+  var MOVING_FEW_FRONT = 8;
 
   // The right column's tabs; the choice is remembered.
   var rtabs = document.getElementById("rtabs");
@@ -39,7 +46,7 @@ export const FRONT_SCRIPT = `
   }
   var savedTab = "jobs";
   try { savedTab = localStorage.getItem("flyd-front-tab") || "jobs"; } catch (_) {}
-  frontTab(savedTab === "arts" || savedTab === "threads" || savedTab === "todo" ? savedTab : "jobs");
+  frontTab(savedTab === "arts" || savedTab === "threads" ? savedTab : "jobs");
   rtabs.addEventListener("click", function (event) {
     var tab = event.target.closest(".rtab");
     if (!tab) return;
@@ -117,16 +124,6 @@ export const FRONT_SCRIPT = `
     });
   }
   // The candidates a lab put up: the desktop page large, its phone view beside it.
-  function frontPreviews(list) {
-    return (list || []).filter(function (preview) { return preview && preview.image; }).map(function (preview) {
-      return { label: frontText(preview.label), image: withToken(preview.image), phone: preview.phone ? withToken(preview.phone) : "" };
-    });
-  }
-  function frontEvidenceShots(evidence) {
-    return frontShots((evidence || []).filter(function (object) { return object.kind === "image" && !object.closed; }).map(function (object) {
-      return { src: object.ref, label: object.label };
-    }));
-  }
   // A long headline: its first sentence heads the job, the rest reads under it.
   function frontSplit(text) {
     if (text.length <= 110) return { title: text, rest: "" };
@@ -148,89 +145,6 @@ export const FRONT_SCRIPT = `
     var head = frontText(title);
     if (!text || !head || text.toLowerCase().indexOf(head.toLowerCase()) !== 0) return text;
     return text.slice(head.length).replace(/^[\\s:.–—-]+/, "");
-  }
-  var FRONT_WORKING = { live: "Working", ready: "Ready for you", waiting: "Waiting", next: "Queued" };
-  var FRONT_PHASE = { needs_you: "needs", ready: "working", working: "working", queued: "working", paused: "working", finished: "done" };
-
-  // The same test Core uses for "needs George" (semantic.ts needsGeorge).
-  function frontNeeds(object) {
-    var phase = object.activity && object.activity.phase;
-    return object.kind === "decision" || (object.lifecycle === "interrupted" && object.status !== "paused") || !!(object.monitor && object.monitor.phase === "changed") || phase === "needs_you" || phase === "ready";
-  }
-  // One semantic object as a job: a design lab, a review, a decision with no fleet call behind it.
-  function frontObjectJob(object, group) {
-    var phase = object.activity && object.activity.phase || "";
-    var lab = String(object.id).indexOf("lab:") === 0;
-    var decision = object.decision && (object.decision.alternatives || object.decision.choices) ? {
-      decisionId: object.decision.decisionId, task: object.decision.target || object.decision.task || "", question: object.decision.question || object.subject,
-      choices: object.decision.alternatives || object.decision.choices || [],
-      // Every decision the work puts to him, so the card says what they are and which is done.
-      decisions: object.decision.decisions,
-      recommended: object.decision.recommended,
-    } : null;
-    return {
-      id: object.id, group: group || (frontNeeds(object) ? "needs" : FRONT_PHASE[phase] || "working"),
-      state: lab ? "Lab ready for review" : object.status || (phase ? capital(String(phase).replace(/_/g, " ")) : "Needs you"),
-      title: frontHeading(object.subject, frontProject(object.project)), project: frontProject(object.project),
-      at: object.updatedAt || object.activity && object.activity.started || object.createdAt,
-      shots: frontEvidenceShots(object.evidence), detail: frontText(object.detail || object.summary), previews: frontPreviews(object.previews),
-      links: (object.evidence || []).filter(function (one) { return one.kind === "web" && !one.closed; }).map(function (one) { return { label: one.label, url: one.ref }; }),
-      decision: decision, task: object.source && object.source.task || "",
-    };
-  }
-  // Every job the stream knows, in three groups: what needs him, what is under way, what landed.
-  function frontJobsOf(update) {
-    var show = update.show || {};
-    var jobs = [];
-    var seen = {};
-    var tasks = {};
-    function add(job) {
-      if (!job.title || seen[job.id] || (job.task && tasks[job.group + ":" + job.task])) return;
-      seen[job.id] = true;
-      if (job.task) tasks[job.group + ":" + job.task] = true;
-      jobs.push(job);
-    }
-    var calls = {};
-    (show.calls || []).forEach(function (call) { calls[call.id] = call; });
-    function callJob(call) {
-      return { id: call.id, group: "needs", state: call.status || "Needs your choice", title: frontHeading(call.headline, frontProject(call.project)), project: frontProject(call.project),
-        at: call.at, shots: frontShots(call.shots), previews: frontPreviews(call.previews), detail: frontText(call.detail), links: call.links || [], decision: call.decision || null, task: call.task || "" };
-    }
-    // What needs him is one list (the corner, the count and the drill read it too): the focus, then the rest.
-    // A call carries its pictures and its choices; anything else (a finished design lab) is drawn from its own object.
-    if (show.needs) {
-      var focus = show.focus && frontNeeds(show.focus) ? [show.focus] : [];
-      focus.concat(show.needs).forEach(function (object) {
-        var call = calls[object.source && object.source.showItemId];
-        add(call ? callJob(call) : frontObjectJob(object, "needs"));
-      });
-    } else {
-      (show.calls || []).forEach(function (call) { add(callJob(call)); });
-    }
-    [show.underway, show.ready, show.held, show.next].forEach(function (list) {
-      (list || []).forEach(function (item) {
-        add({ id: item.id, group: "working", state: FRONT_WORKING[item.kind] || capital(item.status || "Working"), title: frontHeading(item.headline, frontProject(item.project)), project: frontProject(item.project),
-          at: item.at || item.started, shots: frontShots(item.shots), previews: frontPreviews(item.previews), detail: frontText(item.detail || item.why), links: item.links || [], decision: item.decision || null, task: item.task || "" });
-      });
-    });
-    // Anything else the left column carries (a review, an activity) becomes a card of its kind.
-    ((update.leftColumn && update.leftColumn.semantic) || []).forEach(function (activity) {
-      var from = activity.source && activity.source.showItemId;
-      if (from && seen[from]) return;
-      add(frontObjectJob(activity));
-    });
-    var landed = (show.done || []).concat(show.landedWeek || []);
-    landed.sort(function (a, b) { return frontAge(a.at) - frontAge(b.at); });
-    // New: Flyd first saw it after he last looked at Done (the same record the Done list keeps).
-    var doneSeen = cardRead("flyd-done-seen");
-    landed.forEach(function (item) {
-      // A call Flyd answered for him by one of his rules: one quiet line, and his own answer takes it back.
-      var handled = item.status === "handled" && item.executiveDecisionId ? { decisionId: item.executiveDecisionId, task: item.task || "" } : null;
-      add({ id: item.id, group: "done", state: handled ? "Handled for you" : "Finished", title: frontHeading(item.headline, frontProject(item.project)), project: frontProject(item.project), at: item.at,
-        shots: frontShots(item.shots), previews: frontPreviews(item.previews), detail: frontText(item.detail || item.why), links: item.links || [], decision: null, task: item.task || "",
-        handled: handled, fresh: isNew(item, doneSeen) });
-    });
-    return jobs;
   }
   function frontTalk(update) {
     return { id: "talk", group: "talk", state: update.working ? "Working" : "With " + assistant, title: conversationTitle.textContent || "New conversation",
@@ -283,7 +197,8 @@ export const FRONT_SCRIPT = `
     return picks ? '<div class="jobask' + (job.id === frontActive ? " on" : "") + '">' + card + picks + '</div>' : card;
   }
   function frontJobButton(job, picks) {
-    var moving = job.group === "working";
+    // Work under way is words only, with a pulsing dot; every other card may lead with its picture.
+    var moving = job.group === "moving" && job.state === "Working";
     var pic = !moving && job.shots && job.shots.length
       ? '<div class="frame"><img src="' + frontEsc(job.shots[0].src) + '" alt="" loading="lazy"></div>' : "";
     var line = frontLine(job);
@@ -301,30 +216,54 @@ export const FRONT_SCRIPT = `
     return '<section class="fgroup"><h2 class="fhead"><span>' + frontEsc(label) + '</span><span>' + (count === "" ? "" : count) + '</span></h2>'
       + '<div class="fstrip">' + body + '</div>' + (extra || "") + '</section>';
   }
+  // A section that holds many shows its newest few, with the rest one tap away.
+  function frontSection(key, label, list, empty, few) {
+    if (!list.length) return frontGroup(label, 0, "", '<p class="fempty">' + empty + '</p>');
+    var shown = frontOpen[key] ? list : list.slice(0, few);
+    return frontGroup(label, list.length, shown.map(frontJobCard).join(""),
+      list.length > few ? '<button type="button" class="fmore" data-more="' + key + '">' + (frontOpen[key] ? "Show fewer" : "Show all " + list.length) + '</button>' : "");
+  }
+  // Next remembers whether he opened it, across redraws.
+  jobsList.addEventListener("toggle", function (event) {
+    if (event.target.classList && event.target.classList.contains("fnext")) frontOpen.next = event.target.open;
+  }, true);
+  // Work not yet under way: one closed line with its count, opened on a tap.
+  function frontNext(list) {
+    if (!list.length) return "";
+    return '<details class="fgroup fnext"' + (frontOpen.next ? " open" : "") + '><summary class="fhead"><span>Next</span><span>' + list.length + '</span></summary>'
+      + '<div class="fstrip">' + list.map(frontJobCard).join("") + '</div></details>';
+  }
+  // Three places, as Core placed each card: his move, what is moving, what is done.
   function frontDrawJobs(jobs) {
-    // A jobs array is the list. Until one arrives, an empty fleet group is unknown.
     var listed = !!(frontUpdate && Array.isArray(frontUpdate.jobs));
-    var known = listed || !!(frontUpdate && frontUpdate.show && frontUpdate.show.read);
-    var unread = '<p class="fempty">Checking…</p>';
     var needs = jobs.filter(function (job) { return job.group === "needs"; });
-    var working = jobs.filter(function (job) { return job.group === "working"; });
-    var waiting = jobs.filter(function (job) { return job.group === "waiting"; });
-    var done = jobs.filter(function (job) { return job.group === "done"; });
-    var shownDone = frontOpen.done ? done : done.slice(0, DONE_FEW_FRONT);
-    var needsEmpty = listed ? "No decision is waiting." : "Nothing waits on you.";
-    var workingEmpty = "Nothing is running right now.";
-    var doneEmpty = listed ? "Nothing has landed lately." : "Nothing landed this week.";
+    // Moving holds only work actually under way; queued, paused and held-up work waits folded under Next.
+    var moving = jobs.filter(function (job) { return job.group === "moving" && String(job.state).indexOf(PLACE_STATES.running) === 0; });
+    var next = jobs.filter(function (job) { return job.group === "moving" && String(job.state).indexOf(PLACE_STATES.running) !== 0; });
+    var done = jobs.filter(function (job) { return job.group === "done" && !job.bare; });
     rtabDot.hidden = !needs.length;
-    var html = (needs.length ? frontGroup("Needs you", needs.length, needs.map(frontJobCard).join("")) : frontGroup("Needs you", known ? 0 : "", "", known ? '<p class="fempty">' + needsEmpty + '</p>' : unread))
-      + (working.length ? frontGroup("Working", working.length, working.map(frontJobCard).join("")) : frontGroup("Working", known ? 0 : "", "", known ? '<p class="fempty">' + workingEmpty + '</p>' : unread))
-      + (listed ? (waiting.length ? frontGroup("Waiting", waiting.length, waiting.map(frontJobCard).join("")) : frontGroup("Waiting", 0, "", '<p class="fempty">Nothing is waiting.</p>')) : "")
-      + (done.length ? frontGroup("Done", done.length, shownDone.map(frontJobCard).join(""),
-          done.length > DONE_FEW_FRONT ? '<button type="button" class="fmore" data-more="done">' + (frontOpen.done ? "Show fewer" : "Show all " + done.length) + '</button>' : "")
-        : frontGroup("Done", known ? 0 : "", "", known ? '<p class="fempty">' + doneEmpty + '</p>' : unread))
-      + (listed && VIEW_TOKEN ? '<form class="job-new"><input name="name" maxlength="60" placeholder="New job" aria-label="New job"><button type="submit">Add</button></form>' : "");
+    var html = !listed ? '<p class="fempty">Checking…</p>'
+      : frontSection("needs", PLACE_WORDS.needs, needs, "No decision is waiting.", Infinity)
+        + frontSection("moving", PLACE_WORDS.moving, moving, "Nothing is under way right now.", MOVING_FEW_FRONT)
+        + frontNext(next)
+        + frontSection("done", PLACE_WORDS.done, done, "Nothing has landed lately.", DONE_FEW_FRONT);
     if (html === frontDrawn.jobs) return;
     frontDrawn.jobs = html;
+    if (todosEl) jobsEl.insertAdjacentElement("afterend", todosEl);
     jobsList.innerHTML = html;
+    var needsGroup = listed && jobsList.querySelector(".fgroup");
+    if (todosEl && needsGroup) needsGroup.insertBefore(todosEl, needsGroup.querySelector(".fstrip").nextSibling);
+    frontNeedsCount();
+  }
+  // Needs you counts his calls and his own to-dos alike.
+  function frontNeedsCount() {
+    var needsGroup = jobsList.querySelector(".fgroup");
+    var todos = needsGroup && needsGroup.querySelector("#todos");
+    if (!todos) return;
+    var count = needsGroup.querySelectorAll(".fstrip .job").length + todos.querySelectorAll(".todo").length;
+    var empty = needsGroup.querySelector(":scope > .fempty");
+    if (empty) empty.hidden = count > 0;
+    needsGroup.querySelector(".fhead span:last-child").textContent = count ? String(count) : "0";
   }
 
   // The open job's heading: what the open job is, then its state, where and when said as one plain line under it; nothing above the title.
@@ -641,6 +580,8 @@ export const FRONT_SCRIPT = `
     }
     frontRoot.setAttribute("data-job", job.id);
     frontHead(job, VIEW_TOKEN && Array.isArray(frontUpdate.jobs));
+    // The job opens in place, under its own message in the timeline.
+    if (typeof workHold === "function") workHold(job.id);
     var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.previews, job.links, job.decision, job.domainRun, job.questionIdentity, job.next, job.ask, job.digest, job.threads, job.files, job.choices, job.recommended, job.decisions]);
     // A job already open stays as he left it while he is typing in it.
     if (drawn === frontDrawn.view || (frontDrawn.viewId === job.id && jobView.contains(document.activeElement))) return;
@@ -659,17 +600,17 @@ export const FRONT_SCRIPT = `
       if (on) card.setAttribute("aria-current", "true"); else card.removeAttribute("aria-current");
     });
     frontDrawn.jobs = "";
-    var fading = [stageHead, jobView, main];
-    fading.forEach(function (node) { node.classList.add("front-fade"); });
-    setTimeout(function () {
-      frontStage();
-      if (frontUpdate) frontDrawJobs(Array.from(frontJobs.values()));
-      // On a phone the middle sits under the strips of cards: the job opens where its heading is.
-      var stacked = getComputedStyle(stageHead).position !== "fixed";
-      if (id === "talk") { if (pinned) toBottom(); }
-      else window.scrollTo(0, stacked ? Math.max(0, stageHead.getBoundingClientRect().top + window.scrollY - document.querySelector("header").offsetHeight) : 0);
-      fading.forEach(function (node) { node.classList.remove("front-fade"); });
-    }, 200);
+    // The conversation stays; the job unfolds under its own message in it.
+    frontStage();
+    if (frontUpdate) frontDrawJobs(Array.from(frontJobs.values()));
+    if (typeof drawTimeline === "function") drawTimeline();
+    if (id === "talk") return;
+    var node = typeof workNodes === "undefined" ? null : workNodes.get(id);
+    if (!node) return;
+    pinned = false;
+    var head = document.querySelector("header");
+    var above = (head ? head.offsetHeight : 0) + (getComputedStyle(stageHead).position === "fixed" ? stageHead.offsetHeight : 0);
+    window.scrollTo(0, Math.max(0, node.getBoundingClientRect().top + window.scrollY - above - 16));
   }
 
   function frontListedJob(job) {
@@ -681,26 +622,31 @@ export const FRONT_SCRIPT = `
       choices: Array.isArray(job.choices) ? job.choices : [], recommended: job.recommended || "", labels: job.labels && typeof job.labels === "object" ? job.labels : {},
       decisions: Array.isArray(job.decisions) ? job.decisions : [],
       handled: job.handled && job.handled.decisionId ? { decisionId: job.handled.decisionId, task: job.handled.task || "" } : null,
+      bare: job.bare === true,
     };
   }
   function frontPostJob(body) {
     if (!VIEW_TOKEN) return;
     fetch("/api/jobs", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify(body) })
-      .then(function (response) { return response.json(); })
-      .then(function (data) {
-        if (!frontUpdate || !Array.isArray(frontUpdate.jobs) || !data.job) return;
+      .then(function (response) { return response.json().catch(function () { return {}; }).then(function (data) { return { ok: response.ok, data: data }; }); })
+      .then(function (reply) {
+        var data = reply.data || {};
+        // A refused edit says why where he is typing; it never fails silently.
+        if (!reply.ok || !data.job) { noteRefusal(data.error || (body.op === "close" ? "Flyd couldn't close that." : "Flyd couldn't change that.")); return; }
+        noteRefusal("");
+        if (!frontUpdate || !Array.isArray(frontUpdate.jobs)) return;
         frontUpdate.jobs = frontUpdate.jobs.filter(function (job) { return job.id !== data.job.id && job.id !== body.id; }).concat([data.job]);
         frontDrawn.jobs = "";
         frontDrawn.view = "";
         if (body.op === "close" && frontActive === body.id) frontActive = "talk";
         renderFront();
       })
-      .catch(function () {});
+      .catch(function () { noteRefusal(body.op === "close" ? "Flyd couldn't close that. The view lost its connection." : "Flyd couldn't change that. The view lost its connection."); });
   }
   function renderFront(update) {
     if (update) frontUpdate = update;
     if (!frontUpdate) return;
-    var jobs = Array.isArray(frontUpdate.jobs) ? frontUpdate.jobs.map(frontListedJob) : frontJobsOf(frontUpdate);
+    var jobs = (Array.isArray(frontUpdate.jobs) ? frontUpdate.jobs : []).map(frontListedJob);
     frontJobs = new Map(jobs.map(function (job) { return [job.id, job]; }));
     frontDrawJobs(jobs);
     frontStage();
@@ -720,22 +666,12 @@ export const FRONT_SCRIPT = `
     var card = event.target.closest(".job");
     if (card) frontSelect(card.dataset.job);
   });
-  jobsEl.addEventListener("submit", function (event) {
-    var form = event.target.closest("form.job-new");
-    if (!form) return;
-    event.preventDefault();
-    var name = form.name.value;
-    form.name.value = "";
-    frontPostJob({ op: "create", name: name });
-  });
-  // Past conversations sit under the jobs; opening one brings the conversation back to the middle.
+  // Earlier conversations fold away at the top of the timeline; opening one brings it to the middle.
   (function () {
-    var group = el("section", "fgroup fhistory");
-    var head = el("h2", "fhead");
-    head.appendChild(el("span", "", "Earlier conversations"));
-    group.appendChild(head);
+    var group = el("details", "earlier");
+    group.appendChild(el("summary", "", "Earlier conversations"));
     group.appendChild(historyEl);
-    jobsEl.appendChild(group);
+    main.insertBefore(group, main.firstChild);
     historyList.addEventListener("click", function (event) { if (event.target.closest(".history-item")) frontSelect("talk"); });
   })();
   document.getElementById("stage-back").addEventListener("click", function () {

@@ -44,7 +44,6 @@ import { answerLead, deliver, reportFromReply } from "../runtime/delivery.js";
 import { ASKS_HIM, condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
 import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from "./show.js";
 import { editJob, jobRunFromDomain, jobsFrom, type Job, type JobReport } from "./jobs.js";
-import { liveActivityOf, type LiveActivity } from "./live-activity.js";
 import { readDigests, scheduleDigest } from "./job-digest.js";
 import { exhaustedCardWords, readCardWords, scheduleCardWords } from "./card-words.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs, type ArtefactRow } from "./artefact.js";
@@ -239,8 +238,6 @@ interface StreamUpdate {
   jobsFleetKnown?: boolean;
   /** What he must do himself. Present only when the view built it. */
   todos?: TodoRow[];
-  /** What is running, what needs George and what landed, counted once. */
-  live?: LiveActivity;
 }
 
 /**
@@ -762,7 +759,6 @@ export class SnapshotDiffer {
       ...(page ? { page } : {}),
       ...(board ? { jobs: board.jobs, jobsFleetKnown: board.fleetKnown } : {}),
       ...(todos ? { todos } : {}),
-      live: liveActivityOf(show, board?.jobs),
     };
   }
 }
@@ -844,6 +840,8 @@ export class ConversationViewServer {
   private readonly jobWake = new Set<() => void>();
   /** The jobs the column last drew: a tick on a Flyd ask is checked against these. */
   private boardJobs: Job[] = [];
+  private boardJobsAt = 0;
+  private islandNeeds: { at: number; jobs: Job[] } | undefined;
   /** His notes from cards: accepted at once, routed in order behind. */
   private readonly cardNotes = new CardNotes();
   /** Opens a card's Liesel board, starting Liesel first when it is down. Tests replace it. */
@@ -1067,10 +1065,12 @@ export class ConversationViewServer {
         // Inline page only; the right column may frame a loopback site it previews.
         "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-src 'self' http://127.0.0.1:* http://localhost:*",
       });
+      // One lasting conversation: every window opens the one he last talked in, never a fresh one of its own.
+      const lasting = this.source.newSession ? await this.lastingSession() : undefined;
       res.end(renderPage({
         assistantLabel: this.source.assistantLabel,
         ...(this.source.canSend ? { sendToken: this.token } : {}),
-        ...(this.source.newSession ? { newSession: `window:${randomBytes(16).toString("hex")}` } : {}),
+        ...(this.source.newSession ? { newSession: lasting ?? `window:${randomBytes(16).toString("hex")}` } : {}),
       }));
       return;
     }
@@ -1371,7 +1371,6 @@ export class ConversationViewServer {
       .filter((item) => !item.id.startsWith("call:"))
       .map((item) => ({
         id: item.id,
-        ...(item.status === "advice" ? { label: "Advice" } : {}),
         title: item.headline,
         ...(item.detail ? { line: item.detail } : {}),
         ...(item.links?.[0]?.url ? { url: item.links[0].url } : {}),
@@ -2233,7 +2232,7 @@ export class ConversationViewServer {
     let sent = "";
     const emit = () => {
       if (!latest) return;
-      const current = this.islandRung.once(islandStatusOf(statusOf(latest), this.feed.current().fleet));
+      const current = this.islandRung.once(islandStatusOf(statusOf(latest), this.feed.current().fleet, this.placedNeeds(latest)));
       const found = this.notices.ringing();
       const ringing = found ? this.islandRung.onceNotice({ id: found.id, text: noticeLine(found) }) : undefined;
       const status = JSON.stringify({ session: session.id, ...current, ...(ringing ? { notice: ringing } : {}) });
@@ -2342,6 +2341,7 @@ export class ConversationViewServer {
   /** The Todo tab's list, from the board the column just drew. A read that fails leaves the page's list as it is. */
   private todoList(jobs: Job[]): TodoRow[] | undefined {
     this.boardJobs = jobs;
+    this.boardJobsAt = Date.now();
     try {
       return readTodos(jobs);
     } catch (error) {
@@ -2386,6 +2386,35 @@ export class ConversationViewServer {
     } catch (error) {
       console.error(`[todos] ${error instanceof Error ? error.message : String(error)}`);
       sendJson(res, 500, { error: "Could not save that." });
+    }
+  }
+
+  /** His one lasting conversation: the newest one a window started (not an article's or a project thread's). */
+  private async lastingSession(): Promise<string | undefined> {
+    try {
+      const sessions = await this.source.listSessions();
+      return sessions.find((session) => /^window:[a-f0-9]{32}$/.test(session.id))?.id;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * What needs him now, by the one placement rule: the column's own board when a window drew one
+   * lately, else the same board built for the island alone (no readings asked for, nothing written).
+   */
+  private placedNeeds(snapshot: ConversationSnapshot): Job[] {
+    if (this.boardJobs.length && Date.now() - this.boardJobsAt < 60_000) return this.boardJobs.filter((job) => job.group === "needs");
+    if (this.islandNeeds && Date.now() - this.islandNeeds.at < 5_000) return this.islandNeeds.jobs;
+    try {
+      const show = showOf(snapshot, { projects: this.show?.projects?.() ?? [], artefact: this.artefactInputs() });
+      const jobs = jobsFrom({ projects: readProjects(), runs: listDomainRuns().map(jobRunFromDomain), show, cardWords: readCardWords(), exhausted: exhaustedCardWords() })
+        .jobs.filter((job) => job.group === "needs");
+      this.islandNeeds = { at: Date.now(), jobs };
+      return jobs;
+    } catch (error) {
+      console.error(`[island] ${error instanceof Error ? error.message : String(error)}`);
+      return [];
     }
   }
 

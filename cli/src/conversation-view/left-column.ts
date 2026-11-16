@@ -111,50 +111,20 @@ export const LEFT_SCRIPT = `
     leftOpenEl.setAttribute("aria-pressed", String(on));
     leftToggleEl.setAttribute("aria-checked", String(leftIsOpen()));
   }
-  // Clicking a card takes it to the main chat: the message box says what it is about, and he talks there.
+  // Clicking a card takes it to the main chat: the message box says it is replying to that card, and he talks there.
   function aboutCard(info) {
-    if (leftAbout === info.key) { chatAbout(null); return; }
-    chatAbout(Object.assign({ body: aboutBody(info) }, info), function () { leftAbout = null; drawActivity(); });
+    if (leftAbout === info.key) { replyTo(null); leftAbout = null; drawActivity(); return; }
+    replyTo(info.title, function (text, pictures, kept) {
+      leftAbout = null;
+      drawActivity();
+      attachments = (kept || []).slice();
+      renderAttachments();
+      input.value = "About “" + info.title + "”:\\n\\n" + text;
+      composer.requestSubmit();
+    }, undefined, true);
     leftAbout = info.key;
     drawActivity();
   }
-  // Everything a card has to say, shown over the message box: its line, its full detail, exactly when.
-  function aboutBody(info) {
-    var box = el("div", "");
-    if (info.line) box.appendChild(el("p", "about-text", info.line));
-    if (info.detail && info.detail !== info.line && info.detail !== info.title) box.appendChild(el("p", "about-text", info.detail));
-    // Its pictures (the designs a call asks him to pick between), each named, opening full size; then its links.
-    var evidence = info.evidence || [];
-    var pictures = evidence.filter(function (object) { return object.kind === "image" && !object.closed; });
-    if (pictures.length) {
-      var grid = el("div", "about-shots");
-      pictures.forEach(function (picture) {
-        var src = withToken(picture.ref);
-        var shot = el("button", "about-shot");
-        shot.type = "button";
-        shot.setAttribute("aria-label", "Open " + (picture.label || "image"));
-        var img = el("img", "");
-        img.src = src;
-        img.alt = "";
-        img.loading = "lazy";
-        shot.appendChild(img);
-        if (picture.label) shot.appendChild(el("span", "about-shot-name", picture.label.replace(/\\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ")));
-        shot.addEventListener("click", function () { openImage(src); });
-        grid.appendChild(shot);
-      });
-      box.appendChild(grid);
-    }
-    evidence.filter(function (object) { return object.kind === "web" && !object.closed; }).forEach(function (link) {
-      var a = el("a", "card-link", (link.label || "Open") + " ↗");
-      a.href = link.ref;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      box.appendChild(a);
-    });
-    if (info.detailWhen) box.appendChild(el("p", "about-at", info.detailWhen));
-    return box;
-  }
-  // What a card hands the chat when he clicks it.
   function chatOpts(info) {
     return { open: leftAbout === info.key, onOpen: function () { aboutCard(info); } };
   }
@@ -255,7 +225,7 @@ export const LEFT_SCRIPT = `
   window.addEventListener("keydown", function (event) {
     if (event.key !== "Escape" || event.defaultPrevented) return;
     // An open card's detail closes first; only then does Escape take the column itself away, never from a box he types in.
-    if (leftAbout) { chatAbout(null); return; }
+    if (leftAbout) { replyTo(null); leftAbout = null; drawActivity(); return; }
     var from = event.target;
     if (from && from.closest && from.closest("input, textarea, select, [contenteditable]")) return;
     if (!leftEl.hidden) chooseLeft(false);

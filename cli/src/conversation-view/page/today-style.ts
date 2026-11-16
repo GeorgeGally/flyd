@@ -1,6 +1,5 @@
 /**
- * Flyd today: the header's Today and News tabs, the Today feed of the day's
- * events as cards in two columns, the News page with its weather card, the job
+ * The header's tabs, the News page with its weather card, the job
  * cards (project and time along the top, the picture flush with the words, the
  * next step in real counts).
  * Comes last in the page's style, so it wins over the older front rules it
@@ -38,32 +37,16 @@ export const TODAY_STYLE = `
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
 }
 .today-feed::-webkit-scrollbar, .news-page::-webkit-scrollbar, .news-side::-webkit-scrollbar { display: none; }
-:root[data-screen="show"] .today-feed, :root[data-screen="show"] .news-page, :root[data-screen="show"] .news-side { display: none !important; }
 
-/* Whether the news is working, over the day's cards: one line, and what stopped when something did. */
+.feed-empty { grid-column: 1 / -1; margin: 0; font: 400 17px/1.42 var(--sans); color: var(--mute); }
+
+/* News: the stories in two columns, the weather beside them. */
 .news-status { margin: 0 0 16px; }
 .news-status[hidden] { display: none; }
 .news-status p { margin: 0; font: 400 15px/1.45 var(--sans); color: var(--mute); text-wrap: pretty; }
 .news-status .news-status-warn { margin-top: 4px; color: var(--hot); }
 .news-status .news-status-warn::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: currentColor; vertical-align: 1px; }
 .news-status .news-status-warn[hidden] { display: none; }
-
-/* Today: the day's events as cards, two across. */
-.feed { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.ev { display: block; width: 100%; margin: 0; padding: 14px 18px 16px; border: 0; border-radius: 12px; background: var(--card); color: var(--ink); font: inherit; text-align: left; }
-button.ev { cursor: pointer; transition: background-color .2s ease; }
-button.ev:hover { background: var(--sheet); }
-.ev:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.ev time { display: block; margin: 0 0 3px; font: 400 14px/1.4 var(--sans); color: var(--mute); font-variant-numeric: tabular-nums; }
-.ev time .fdot { margin-left: 9px; vertical-align: 1px; }
-.ev p { margin: 0; font: 400 18px/1.36 var(--sans); letter-spacing: -.008em; color: var(--ink); text-wrap: pretty; overflow-wrap: anywhere; }
-.ev.pic { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); padding: 0; background: var(--sheet); overflow: hidden; }
-.ev.pic img { display: block; width: 100%; height: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: left top; }
-.ev.pic > div { padding: 32px; }
-.ev.pic p { font-size: 20px; }
-.feed-empty { grid-column: 1 / -1; margin: 0; font: 400 17px/1.42 var(--sans); color: var(--mute); }
-
-/* News: the stories in two columns, the weather beside them. */
 .news-when { margin: 0 0 12px; font: 400 14px/1.4 var(--sans); color: var(--mute); }
 .news-when[hidden] { display: none; }
 .news-cols { columns: 2; column-gap: 28px; }
@@ -146,8 +129,8 @@ button.ev:hover { background: var(--sheet); }
 .job .act .fdot { margin-right: 9px; vertical-align: 2px; }
 
 @media (max-width: 1000px) {
-  .feed { grid-template-columns: minmax(0, 1fr); }
-  .ev.pic { grid-template-columns: minmax(0, 1fr); }
+  
+  
   .news-cols { columns: 1; }
   .wxcard .wx-deg { font-size: 80px; }
   .wxcard .wx-ic.big { width: 70px; height: 70px; }
@@ -160,12 +143,11 @@ button.ev:hover { background: var(--sheet); }
   :root[data-layout="front"] .centre-tabs { gap: 14px; margin-left: 0; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   :root[data-layout="front"] .centre-tabs::-webkit-scrollbar { display: none; }
   :root[data-layout="front"] .ctab { flex: none; }
-  :root[data-layout="front"] #flip { display: none !important; }
+  
   :root[data-layout="front"] .rtabs { display: flex !important; position: static; width: auto; height: 48px; padding: 0 var(--gut); background: none; }
   :root[data-layout="front"][data-rtab]:not([data-rtab="jobs"]) .jobs,
   :root[data-layout="front"][data-rtab]:not([data-rtab="arts"]) .rail:not([hidden]),
   :root[data-layout="front"][data-rtab]:not([data-rtab="arts"]) .rail,
-  :root[data-layout="front"][data-rtab]:not([data-rtab="todo"]) .todos,
   :root[data-layout="front"][data-rtab]:not([data-rtab="threads"]) .threads { display: none !important; }
   :root[data-layout="front"] .fstrip { display: block; margin: 0; padding: 0; overflow: visible; }
   :root[data-layout="front"] .fstrip > * { width: auto; margin: 0 0 16px; }
@@ -175,8 +157,8 @@ button.ev:hover { background: var(--sheet); }
   :root[data-layout="front"][data-centre="news"]:not([data-job]) .news-page {
     position: static; padding: 4px var(--gut) calc(var(--composer-h, 130px) + 24px); overflow: visible; -webkit-mask-image: none; mask-image: none;
   }
-  :root[data-layout="front"][data-centre="today"]:not([data-rtab="jobs"]) .today-feed { display: none !important; }
-  :root[data-layout="front"][data-centre="today"] .jobs { padding-bottom: 8px !important; }
+  
+  
   :root[data-layout="front"][data-rtab][data-centre="news"]:not([data-job]) :is(.rtabs, .jobs, .rail, .rail:not([hidden]), .todos, .threads, .news-side) { display: none !important; }
   :root[data-layout="front"][data-centre="news"] .news-side-phone { display: block; margin: 0 0 36px; }
   .wxcard .wx-deg { font-size: 72px; }

@@ -1,35 +1,12 @@
-/** The Todo tab: a field to add to the list, then each item as a card with its tick. */
+/** His own to-dos, inside Needs you under the calls: each item a card with its tick. */
 export const TODO_STYLE = `
 .todos { display: none; }
-:root[data-layout="front"] .todos {
-  display: block; position: fixed; top: calc(var(--top) + var(--tabs-h)); bottom: 0; right: var(--gut); width: var(--arts-w); z-index: 3;
-  overflow-y: auto; scrollbar-width: none; padding: 0 0 28px; animation: column-in .24s ease both;
-}
-.todos::-webkit-scrollbar { display: none; }
-:root[data-layout="front"]:not([data-rtab="todo"]) .todos { display: none; }
-:root[data-screen="show"] .todos { display: none !important; }
-@media (min-width: 761px) {
-  :root[data-layout="front"][data-rtab="todo"] .jobs,
-  :root[data-layout="front"][data-rtab="todo"] .rail { display: none !important; }
-}
-/* Four tabs in the column's narrowest width: they close up rather than wrap. */
+:root[data-layout="front"] .jobs .todos { display: block; margin-top: 8px; }
+:root[data-layout="front"] .jobs .todos:has(#todo-lists:empty):has(.todo-said[hidden]) { display: none; }
+/* Three tabs in the column's narrowest width: they close up rather than wrap. */
 .rtab { flex: none; white-space: nowrap; }
 @media (max-width: 960px) { :root[data-layout="front"] .rtabs { gap: 16px; } }
-.todo-new { display: flex; gap: 10px; margin: 16px 0 32px; }
-.todo-new[hidden] { display: none; }
-.todo-new input {
-  flex: 1; min-width: 0; height: 44px; padding: 0 14px; border: 0; border-radius: var(--card-radius);
-  background: var(--card); color: var(--ink); font: 400 15px/1.3 var(--sans);
-}
-.todo-new input::placeholder { color: var(--mute); }
-.todo-new input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.todo-new button {
-  flex: none; height: 44px; padding: 0 18px; border: 0; border-radius: var(--card-radius);
-  background: var(--ink); color: var(--sheet); font: 500 14px/1 var(--sans); cursor: pointer;
-}
-.todo-new button:disabled { opacity: .5; cursor: default; }
-.todo-new button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.todo-said { margin: -20px 0 24px; padding: 0 var(--card-pad); font: 400 14px/1.4 var(--sans); color: var(--ink2); }
+.todo-said { margin: 0 0 8px; padding: 0 var(--card-pad); font: 400 14px/1.4 var(--sans); color: var(--ink2); }
 .todo-said[hidden] { display: none; }
 .todo-list { display: grid; gap: 8px; }
 .todo {
@@ -58,12 +35,6 @@ button.todo-text:focus-visible { outline: 2px solid var(--ink); outline-offset: 
 .todo-line { margin: 6px 0 0; font: 400 14px/1.4 var(--sans); color: var(--mute); overflow-wrap: anywhere; }
 
 @media (max-width: 760px) {
-  :root[data-layout="front"] .todos, :root[data-layout="front"]:not([data-rtab="todo"]) .todos {
-    display: block; position: static; width: auto; overflow: visible; padding: 0 var(--gut) !important; margin-bottom: 26px;
-  }
-  :root[data-layout="front"][data-rtab][data-thread] .todos { display: none; }
-  .todo-new { margin: 20px 0 22px; }
-  .todo-said { margin: -10px 0 18px; padding: 0; }
   .todo-list { display: flex; gap: 10px; }
   .todo { grid-template-columns: 24px minmax(0, 1fr); gap: 14px; padding: 20px var(--card-pad); }
 }

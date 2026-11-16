@@ -1320,7 +1320,7 @@ export async function startServer(port = 4815, host = "127.0.0.1", options: { so
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
         if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
         void parseBody(req).then(raw => {
-          const body = JSON.parse(raw) as { title?: unknown; message?: unknown; kind?: unknown };
+          const body = JSON.parse(raw) as { title?: unknown; message?: unknown; kind?: unknown; item?: unknown };
           if (typeof body.title !== "string" || typeof body.message !== "string" || !body.title.trim() || !body.message.trim()) {
             sendJson(res, 400, { error: "Missing title or message" });
             return;
@@ -1335,7 +1335,9 @@ export async function startServer(port = 4815, host = "127.0.0.1", options: { so
             sendJson(res, 202, { delivered: 0, held: gated.kind });
             return;
           }
-          const data = JSON.stringify({ title: body.title.slice(0, 120), message: notificationLine(gated.line) });
+          // A click on it opens the conversation at its item: the one named, or what needs him when it asks his call.
+          const item = typeof body.item === "string" && body.item.trim() ? body.item.trim().slice(0, 200) : kind === "decision" || kind === "blocker" ? "needs" : undefined;
+          const data = JSON.stringify({ title: body.title.slice(0, 120), message: notificationLine(gated.line), ...(item ? { item } : {}) });
           for (const subscriber of notificationSubscribers) subscriber.write(`event: notification\ndata: ${data}\n\n`);
           sendJson(res, 202, { delivered: notificationSubscribers.size });
         }).catch(() => sendJson(res, 400, { error: "Invalid JSON" }));

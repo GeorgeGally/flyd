@@ -7,7 +7,7 @@ const ASKS_HIM = /\?|\b(?:which|whether|or not|pick(?:s|ed)?|choos(?:e|es|ing)|c
  * Words that report where something stands ("Picture desk not shipping; worker stopped on purpose"). An instruction
  * ("Publish the launch post") reports nothing: it is still his call.
  */
-const REPORTS = /\b(?:stop(?:s|ped)|kept|keeps|not (?:shipping|shipped|going to ship)|won'?t ship|replac(?:es|ed|ing)|supersed(?:es|ed|ing)|done|(?:is|are|went|gone|now|already) live)\b/i;
+const REPORTS = /\b(?:stop(?:s|ped)|kept|keeps|not (?:shipping|shipped|going to ship)|won'?t ship|replac(?:es|ed|ing)|supersed(?:es|ed|ing)|done|(?:is|are|went|gone|now|already) live|(?:isn'?t|is not|aren'?t|not) supported(?: yet)?)\b/i;
 
 /** Whether a line asks him anything (see ASKS_HIM), or offers him answers to pick between. Pure. */
 export function asksSomething(text: string, choices: readonly string[] = []): boolean {

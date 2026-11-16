@@ -31,8 +31,8 @@ describe("what the Todo tab reads", () => {
 
   it("leaves out jobs that are Flyd's to move, and his idle projects with nothing asked", () => {
     const list = todosFrom({ ...empty, jobs: [
-      job({ id: "a", group: "working", owner: "Flyd", ask: "" }),
-      job({ id: "b", group: "waiting", owner: "you", ask: "", next: "Nothing is moving this." }),
+      job({ id: "a", group: "moving", state: "Working", owner: "Flyd", ask: "" }),
+      job({ id: "b", group: "moving", owner: "you", ask: "", next: "Nothing is moving this." }),
       job({ id: "c", group: "done", owner: "", ask: "" }),
     ] });
     expect(list).toEqual([]);

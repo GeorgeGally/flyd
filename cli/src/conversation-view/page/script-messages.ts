@@ -442,7 +442,9 @@ export const MESSAGES_SCRIPT = `
     clearLanded();
     var keep = new Set(update.order);
     nodes.forEach(function (el, id) { if (!keep.has(id)) { el.remove(); nodes.delete(id); } });
+    // The fold of earlier conversations stays at the top of the timeline.
     var cursor = main.firstElementChild;
+    if (cursor && cursor.classList.contains("earlier")) cursor = cursor.nextElementSibling;
     var day = "";
     var previous = null;
     update.order.forEach(function (id) {
@@ -477,7 +479,6 @@ export const MESSAGES_SCRIPT = `
     if (!onConversation()) { /* the terminal is hidden; it finds its place when it comes back */ }
     else if (stick) { toBottom(); jump.hidden = true; } else { restore(at); if (added) jump.hidden = false; }
     first = false;
-    if (update.show) renderShow(update.show, update.boxes);
     renderSite(update.page);
     notices = (update.rail && update.rail.notices) || [];
     if (update.rail) renderArtefacts(update.rail.artefacts || []);

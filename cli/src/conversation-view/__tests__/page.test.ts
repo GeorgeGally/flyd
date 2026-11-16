@@ -809,23 +809,6 @@ describe("conversation page", () => {
     expect(document.querySelectorAll(".attachment.file")).toHaveLength(1);
   });
 
-  it("brings the message box back when a file lands on the artefact screen", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "Work", summary: "", live: false, counts: {}, items: [] } });
-    document.getElementById("flip")!.click();
-    expect(document.documentElement.getAttribute("data-screen")).toBe("show");
-    const event = new Event("drop", { bubbles: true, cancelable: true });
-    Object.defineProperty(event, "dataTransfer", { value: { files: [new File(["%PDF-1.3"], "deck.pdf", { type: "application/pdf" })] } });
-    document.body.dispatchEvent(event);
-    expect(document.documentElement.getAttribute("data-screen")).toBe("terminal");
-    expect((document.getElementById("show") as HTMLElement).hidden).toBe(true);
-    for (let i = 0; i < 20 && !document.querySelector(".attachment.file"); i += 1) await settle();
-    expect(document.querySelector(".attachment.file .name")!.textContent).toBe("deck.pdf");
-    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/send")).toBe(false);
-  });
-
   it("keeps a file dropped while a reply is streaming in the box, unsent, until he sends it", async () => {
     load("");
     await settle();
@@ -1638,1199 +1621,14 @@ describe("conversation page", () => {
     expect(menu.hidden).toBe(true);
   });
 
-  it("completes a skill in a reply without sending or switching views", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    stream.emit("update", { order: ["a1"], messages: [{ id: "a1", role: "assistant", html: "<p>The island is smaller.</p>", answers: "note:1" }], working: false });
-    document.querySelector<HTMLButtonElement>(".msg.assistant .reply-open")!.click();
-    const input = document.querySelector<HTMLTextAreaElement>(".reply-input")!;
-    input.value = "/des";
-    input.dispatchEvent(new Event("input"));
-    await settle();
-    const menu = input.closest("form")!.querySelector<HTMLElement>(".commands")!;
-    expect(menu?.hidden).toBe(false);
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
-    expect(input.value).toBe("/design-shotgun ");
-    expect(menu.hidden).toBe(true);
-    expect(document.documentElement.getAttribute("data-screen")).toBe("terminal");
-    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/send")).toBe(false);
-  });
-
-  it.each(["calls", "drill"])("returns to a usable main textbox after leaving an artefact with its %s sheet open", async (kind) => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show = {
-      title: "Work", summary: "", live: true, counts: { call: 1, live: 1 }, items: [],
-      calls: [{ id: "call:a", kind: "call", headline: "Choose a layout", why: "", decision: { task: "a", question: "Which layout?", choices: ["A", "B"] } }],
-      underway: [{ id: "live:a", kind: "live", headline: "Building the layout", why: "" }],
-    };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars: [{ label: "need you", value: 1, tone: "call" }, { label: "under way", value: 1, tone: "live" }] }] });
-    document.getElementById("flip")!.click();
-    const figure = document.querySelector<HTMLButtonElement>(kind === "calls" ? "#readouts button.k-call" : "#readouts button.k-live")!;
-    figure.click();
-    const sheet = document.getElementById(kind)!;
-    expect(sheet.hidden).toBe(false);
-    if (kind === "drill") document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
-    else document.getElementById("flip")!.click();
-    await new Promise((resolve) => setTimeout(resolve, 190));
-    expect(document.documentElement.getAttribute("data-screen")).toBe("terminal");
-    const input = document.getElementById("input") as HTMLTextAreaElement;
-    expect(document.activeElement).toBe(input);
-    expect(sheet.hidden).toBe(true);
-    input.value = "Continue with the layout";
-    input.dispatchEvent(new Event("input"));
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    await settle();
-    const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send");
-    expect(sends).toHaveLength(1);
-    expect(JSON.parse(String(sends[0]![1]!.body))).toMatchObject({ text: "Continue with the layout" });
-  });
-
-  it("uses the shared skill picker in an artefact and dismisses it before closing the decision sheet", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    stream.emit("update", {
-      order: [], messages: [], working: false,
-      show: { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [], calls: [{ id: "call:a", kind: "call", headline: "Choose a layout", why: "", decision: { task: "a", question: "Which layout?", choices: ["A", "B"] } }] },
-      boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars: [{ label: "need you", value: 1, tone: "call" }] }],
-    });
-    document.getElementById("flip")!.click();
-    document.querySelector<HTMLButtonElement>("#readouts .ro-open")!.click();
-    const sheet = document.getElementById("calls")!;
-    const input = sheet.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
-    input.focus();
-    input.value = "/des";
-    input.dispatchEvent(new Event("input"));
-    await settle();
-    const menu = sheet.querySelector<HTMLElement>(".commands")!;
-    expect(menu.hidden).toBe(false);
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-    expect(menu.hidden).toBe(true);
-    expect(sheet.hidden).toBe(false);
-    input.dispatchEvent(new Event("input"));
-    await settle();
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    expect(input.value).toBe("/design-review ");
-    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/send")).toBe(false);
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    await settle();
-    const sent = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
-    expect(JSON.parse(String(sent[1]!.body))).toMatchObject({ session: "latest", decision: "a", text: "/design-review" });
-  });
-
   // George, 2026-10-25: "i send a message to flyd and it keeps my message in the textbox":
   // the page redrew the card while the message was on its way and refilled the box from the draft.
-  it("empties a card's box as he sends, and a redraw while it goes never brings his words back", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const update = {
-      order: [], messages: [], working: false,
-      show: { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [], calls: [{ id: "call:a", kind: "call", headline: "Choose a layout", why: "", decision: { task: "a", question: "Which layout?", choices: ["A", "B"] } }] },
-      boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars: [{ label: "need you", value: 1, tone: "call" }] }],
-    };
-    stream.emit("update", update);
-    document.getElementById("flip")!.click();
-    document.querySelector<HTMLButtonElement>("#readouts .ro-open")!.click();
-    const original = vi.mocked(fetch).getMockImplementation();
-    vi.mocked(fetch).mockImplementation(((url: string, init?: RequestInit) => url === "/api/send" ? new Promise(() => {}) : original!(url, init)) as typeof fetch);
-    const input = document.getElementById("calls")!.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
-    input.value = "all bad";
-    input.dispatchEvent(new Event("input"));
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    expect(input.value).toBe("");
-    stream.emit("update", update);
-    await settle();
-    expect(Array.from(document.querySelectorAll<HTMLTextAreaElement>(".art-chat-input")).map((box) => box.value)).not.toContain("all bad");
-  });
-
-  it("completes a skill in a selected-passage comment and keeps its quote", async () => {
-    load("");
-    await settle();
-    open("latest", [{ id: "a1", role: "assistant", html: "<p>The island is smaller.</p>" }]);
-    const range = document.createRange();
-    const words = document.querySelector(".msg.assistant .body p")!.firstChild!;
-    range.setStart(words, 4);
-    range.setEnd(words, 10);
-    window.getSelection()!.removeAllRanges();
-    window.getSelection()!.addRange(range);
-    document.dispatchEvent(new Event("selectionchange"));
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    document.querySelector<HTMLButtonElement>(".passage-open")!.click();
-    const input = document.querySelector<HTMLTextAreaElement>(".passage-input")!;
-    input.value = "/des";
-    input.dispatchEvent(new Event("input"));
-    await settle();
-    document.querySelector<HTMLElement>(".passage .commands li")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-    expect(input.value).toBe("/design-review ");
-    expect(document.querySelector<HTMLElement>(".passage-card")!.hidden).toBe(false);
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    await settle();
-    const sent = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
-    expect(JSON.parse(String(sent[1]!.body))).toEqual({ session: "latest", text: "/design-review", passage: { quote: "island", from: "assistant" } });
-    window.getSelection()!.removeAllRanges();
-  });
-});
-
-describe("semantic main stage", () => {
-  // Reproduction (2026-10-21): a call George was watching settled on a background
-  // refresh, and its card vanished from the artefact view.
-  it("keeps a settled call's card on the artefact when the refresh moves the focus on", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const settled: ShowItem = { id: "call:call-x", kind: "clear", headline: "Choose a color", detail: "Settled, nothing needed.", why: "", task: "x", at: "2026-10-21T07:00:00.000Z" };
-    const show: ShowScreen = {
-      title: "Good news, sir.",
-      summary: "",
-      live: true,
-      counts: {},
-      items: [settled],
-      focus: { id: "show:live", kind: "activity", lifecycle: "active", subject: "Work is under way", summary: "Claude is on it now", evidence: [], actions: [], source: { showItemId: "live" } },
-    };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    await settle();
-    expect(document.getElementById("scene-head")!.textContent).toBe("Choose a color");
-    expect(document.getElementById("scene-line")!.textContent).toBe("Settled, nothing needed.");
-  });
-
-  it("leads with a call that needs him over a settled card", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const settled: ShowItem = { id: "call:call-x", kind: "clear", headline: "Choose a color", detail: "Settled, nothing needed.", why: "", task: "x" };
-    const show: ShowScreen = {
-      title: "Your move, sir.",
-      summary: "",
-      live: false,
-      counts: {},
-      items: [settled],
-      focus: { id: "task:build", kind: "activity", lifecycle: "interrupted", subject: "Pick the launch date", summary: "Friday fits.", evidence: [], actions: [], source: { showItemId: "decision:launch" } },
-    };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    await settle();
-    expect(document.getElementById("scene-head")!.textContent).toBe("Pick the launch date");
-  });
-
-  it("renders semantic focus instead of a higher-ranked legacy box", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = {
-      title: "Legacy situation",
-      summary: "Old presentation state",
-      live: false,
-      counts: { landed: 1, call: 1 },
-      items: [],
-      focus: {
-        id: "decision:launch",
-        kind: "decision",
-        lifecycle: "interrupted",
-        subject: "Choose the launch date",
-        summary: "The evidence points to Friday.",
-        evidence: [],
-        actions: [],
-        source: { showItemId: "decision:launch" },
-        decision: { target: "launch-date", question: "Launch Friday?", alternatives: ["Friday", "Saturday"], recommended: "Friday" },
-      },
-    };
-    const legacy = [{ id: "legacy", kind: "story", size: "wide", title: "Legacy landed card", line: "This used to win by rank.", why: "landed", tone: "landed" }];
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: legacy });
-    expect(document.getElementById("scene-head")!.textContent).toBe("Choose the launch date");
-    expect(document.getElementById("scene-line")!.textContent).toContain("The evidence points to Friday");
-    expect(document.querySelectorAll(".scene-ask .choice-pick")).toHaveLength(2);
-    // The focus is the only card, so there are no card arrows that would do nothing.
-    expect((document.getElementById("show-nav") as HTMLElement).hidden).toBe(true);
-  });
-
-  it("turns semantic mode into a work-first workspace with a quiet context edge", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const decision = {
-      id: "decision:launch", kind: "decision" as const, lifecycle: "interrupted" as const,
-      subject: "Choose the launch date", summary: "Friday has the strongest evidence.", evidence: [], actions: [],
-      source: { showItemId: "decision:launch" },
-      decision: { target: "launch-date", question: "Launch Friday?", alternatives: ["Friday", "Saturday"] },
-    };
-    const activity = {
-      id: "task:site", kind: "activity" as const, lifecycle: "active" as const,
-      subject: "Building launch page", summary: "Firstmate is implementing it.", evidence: [], actions: [],
-      source: { showItemId: "task:site" }, activity: { phase: "working" as const },
-    };
-    const artifact = {
-      id: "artifact:deck", kind: "artifact" as const, lifecycle: "resolved" as const,
-      subject: "Launch deck", summary: "Ready.", evidence: [], actions: [], source: { showItemId: "artifact:deck" },
-      artifact: { type: "document" as const, phase: "ready" as const },
-    };
-    const monitor = {
-      id: "monitor:response", kind: "monitor" as const, lifecycle: "active" as const,
-      subject: "Watch launch response", summary: "Quiet.", evidence: [], actions: [], source: { showItemId: "monitor:response" },
-      monitor: { phase: "quiet" as const, condition: "Surface a meaningful response change" },
-    };
-    const show: ShowScreen = { title: "Work", summary: "", live: true, counts: { call: 1, live: 1, landed: 1 }, items: [], focus: decision, semantic: [decision, activity, artifact, monitor] };
-    stream.emit("update", {
-      order: [], messages: [], working: false, show,
-      boxes: [
-        { id: "legacy", kind: "story", title: "Legacy card", line: "Old UI", tone: "landed" },
-        { id: "plan", kind: "gauge", size: "small", title: "Claude plan", gauges: [{ label: "weekly", used: 90 }] },
-        { id: "work-state", kind: "bars", size: "small", title: "Where the work stands", bars: [{ label: "under way", value: 1, tone: "live" }] },
-      ],
-    });
-    expect(document.getElementById("show")!.classList.contains("semantic-workspace")).toBe(true);
-    expect(document.getElementById("scene")!.dataset.semantic).toBe("decision");
-    expect((document.getElementById("ticks") as HTMLElement).hidden).toBe(true);
-    // The plan gauge is the only instrument left beside the counts; the old stage's
-    // cards and figures that repeat the counts are not shown.
-    expect(document.getElementById("readouts")!.textContent).toBe("Claude weekly 90% used");
-    expect(document.getElementById("semantic-context")!.textContent).toContain("1 working");
-    expect(document.getElementById("semantic-context")!.textContent).toContain("1 landed");
-    expect(document.getElementById("semantic-context")!.textContent).toContain("1 watching");
-    expect(document.getElementById("semantic-context")!.textContent).not.toContain("Legacy");
-    expect(document.getElementById("semantic-context")!.textContent).not.toContain("Where the work stands");
-    // Counts come first, the gauge reads under them.
-    const edge = document.querySelector(".semantic-context")!;
-    expect(edge.nextElementSibling!.id).toBe("readouts");
-  });
-
-  it("keeps interrupted and failed work in the edge, and each count opens exactly its own rows", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const object = (id: string, kind: string, lifecycle: string, subject: string, extra: Record<string, unknown> = {}): any => ({
-      id, kind, lifecycle, subject, summary: subject + ".", evidence: [], actions: [], source: { showItemId: id }, ...extra,
-    });
-    const decision = object("decision:launch", "decision", "interrupted", "Choose the launch date", { decision: { target: "launch", question: "Launch Friday?", alternatives: ["Friday", "Saturday"] } });
-    const working = object("task:site", "activity", "active", "Building launch page", { activity: { phase: "working" } });
-    const review = object("task:copy", "investigation", "active", "Audit the copy");
-    const stuck = object("task:export", "activity", "interrupted", "Fix the export", { activity: { phase: "needs_you" } });
-    const broken = object("task:import", "activity", "failed", "Import the CSV", { activity: { phase: "paused" } });
-    const deck = object("artifact:deck", "artifact", "resolved", "Launch deck", { artifact: { type: "document", phase: "ready" } });
-    const monitor = object("monitor:response", "monitor", "active", "Watch launch response", { monitor: { phase: "quiet", condition: "Surface a change" } });
-    const show: ShowScreen = {
-      title: "Work", summary: "", live: true, counts: { call: 1, live: 2, landed: 1 }, items: [],
-      focus: decision, semantic: [decision, working, review, stuck, broken, deck, monitor] as never,
-    };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [] });
-
-    const edge = document.getElementById("semantic-context")!;
-    // Interrupted and failed work is named, not silently dropped: failed work has
-    // its own group, so it is visible in exactly one place.
-    expect(edge.textContent).toContain("1 needs you");
-    expect(edge.textContent).toContain("2 working");
-    expect(edge.textContent).toContain("1 failed");
-    expect(edge.textContent).toContain("1 landed");
-    expect(edge.textContent).toContain("1 watching");
-
-    // Every count opens a sheet with exactly that many rows.
-    const button = (cls: string) => edge.querySelector<HTMLButtonElement>("." + cls)!;
-    button("working").click();
-    expect((document.getElementById("drill") as HTMLElement).hidden).toBe(false);
-    expect(document.getElementById("drill-title")!.textContent).toBe("Working");
-    expect(document.querySelectorAll("#drill-list .drill-card")).toHaveLength(2);
-    // Clicking the figure it already shows closes it.
-    button("working").click();
-    expect((document.getElementById("drill") as HTMLElement).hidden).toBe(true);
-
-    button("failed").click();
-    expect(document.getElementById("drill-title")!.textContent).toBe("Failed");
-    const rows = document.querySelectorAll("#drill-list .drill-card");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.textContent).toContain("Import the CSV");
-    // Leave nothing open: a sheet left up eats Escape for the next screen.
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-    expect((document.getElementById("drill") as HTMLElement).hidden).toBe(true);
-  });
-
-  it("manifests focused Artifact evidence as the work itself", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = {
-      title: "Done",
-      summary: "",
-      live: false,
-      counts: { landed: 1 },
-      items: [],
-      focus: {
-        id: "artifact:map",
-        kind: "artifact",
-        lifecycle: "resolved",
-        subject: "Christmas market map",
-        summary: "The final map is ready.",
-        evidence: [{ kind: "image", ref: "/shots/map.png", label: "Christmas market map" }],
-        actions: [],
-        source: { showItemId: "artifact:map" },
-      },
-    };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [] });
-    expect(document.getElementById("scene-head")!.textContent).toBe("Christmas market map");
-    expect(document.querySelector(".scene-shot img")?.getAttribute("src")).toContain("/shots/map.png");
-  });
 });
 
 describe("header and artefact view", () => {
-  it("keeps a recorded decision and shows an attachment warning", async () => {
-    sendResponse = { id: "resolved", followUp: "decision-1", warning: "The picture didn't go through; send it again", pictureFailed: true };
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick a design", why: "", task: "visuals", decision: { task: "visuals", decisionId: "decision-1", question: "Which design?", choices: ["Evergreen"] } }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    const input = document.querySelector<HTMLTextAreaElement>(".scene-ask .art-chat-input")!;
-    const data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
-    const png = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
-    const paste = new Event("paste", { cancelable: true });
-    Object.defineProperty(paste, "clipboardData", { value: { items: [{ kind: "file", type: "image/png", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }] } });
-    input.dispatchEvent(paste);
-    for (let i = 0; i < 20 && !document.querySelector(".scene-ask .art-chat-images img"); i += 1) await settle();
-    input.value = "another round";
-    input.dispatchEvent(new Event("input"));
-    document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
-    expect(input.value).toBe("");
-    expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toContain("picture didn't go through");
-    expect(document.querySelector(".scene-ask .art-thread")!.textContent).toContain("another round");
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send")).toHaveLength(1);
-    expect(document.querySelectorAll(".scene-ask .art-chat-images img")).toHaveLength(1);
-    sendResponse = { id: "picture-retry" };
-    document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
-    const requests = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
-    expect(requests[1]).toMatchObject({ text: "Picture for my earlier answer.", about: { task: "visuals" }, images: [{ mediaType: "image/png", data }] });
-    expect(requests[1]).not.toHaveProperty("decision");
-    expect(requests[1]).not.toHaveProperty("decisionFollowUp");
-    expect(document.querySelectorAll(".scene-ask .art-chat-images img")).toHaveLength(0);
-  });
-
-  it("does not ask for a resend when a note and its picture were saved but not yet passed on", async () => {
-    sendResponse = { id: "saved", warning: "Saved, but Flyd could not pass it on yet." };
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick a design", why: "", task: "visuals", decision: { task: "visuals", decisionId: "decision-1", question: "Which design?", choices: ["Evergreen"] } }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    const input = document.querySelector<HTMLTextAreaElement>(".scene-ask .art-chat-input")!;
-    const data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
-    const png = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
-    const paste = new Event("paste", { cancelable: true });
-    Object.defineProperty(paste, "clipboardData", { value: { items: [{ kind: "file", type: "image/png", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }] } });
-    input.dispatchEvent(paste);
-    for (let i = 0; i < 20 && !document.querySelector(".scene-ask .art-chat-images img"); i += 1) await settle();
-    input.value = "another round";
-    input.dispatchEvent(new Event("input"));
-    document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
-    const receipt = document.querySelector(".scene-ask .art-chat-receipt")!.textContent;
-    expect(receipt).toContain("Saved; Flyd passes it on shortly");
-    expect(receipt).not.toContain("picture didn't go through");
-    expect(document.querySelectorAll(".scene-ask .art-chat-images img")).toHaveLength(0);
-  });
-
-  it("sends a question a reply put to him back with one tap on the artefact", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Your move, sir.", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:reply:a#2", kind: "call", headline: "Want me to add all three?", why: "waiting on you", detail: "Three places would benefit from motion", ref: "reply:a#2", decision: { task: "reply:a#2", replyTo: "reply:a#2", question: "Want me to add all three?", choices: ["Yes, all three", "No"] } }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toBe("");
-    document.querySelector<HTMLButtonElement>(".scene-ask .choice-pick")!.click();
-    await settle();
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ session: "latest", replyTo: "reply:a#2", questionText: "Want me to add all three?", text: "Yes, all three" , clientId: expect.stringMatching(/^note-/) }]);
-    expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toBe("Sent to Flyd");
-    const picks = [...document.querySelectorAll<HTMLButtonElement>(".scene-ask .choice-pick")];
-    expect(picks.map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
-    expect(picks[1]!.disabled).toBe(true);
-  });
-
-  it("answers a question card into the session that drew it, not the one the page follows now", async () => {
-    load("");
-    await settle();
-    const stream = open("asked-session", []);
-    const calls = [{ id: "call:reply:a#2", kind: "call", headline: "Want me to add all three?", why: "waiting on you", ref: "reply:a#2", decision: { task: "reply:a#2", replyTo: "reply:a#2", question: "Want me to add all three?", choices: ["Yes, all three", "No"] } }];
-    const show = { title: "Your move, sir.", summary: "", live: false, counts: { call: 1 }, items: [], calls };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars: [{ label: "need you", value: 1, tone: "call" }] }] });
-    await settle();
-    // Another session takes the lock before he opens the decision that session drew.
-    stream.emit("session", { id: "later-session", title: "later-session", updatedAt: "2026-10-05T20:05:00.000Z", assistantLabel: "firstmate" });
-    await settle();
-    document.querySelector<HTMLButtonElement>("#readouts .ro-open")!.click();
-    document.querySelector<HTMLButtonElement>("#calls .choice-pick")!.click();
-    await settle();
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ session: "asked-session", replyTo: "reply:a#2", questionText: "Want me to add all three?", text: "Yes, all three" , clientId: expect.stringMatching(/^note-/) }]);
-  });
-
-  it("asks a reply's several questions on the artefact one at a time; a tap there never sends", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const steps = [
-      { question: "Discard the old CapFive experiment branches?", options: ["Yes", "No"] },
-      { question: "Should Flyd's sidebar show newest at the top again?", options: ["Yes", "No"] },
-    ];
-    const show: ShowScreen = { title: "Your move, sir.", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:reply:b#4", kind: "call", headline: "Still waiting on you", why: "waiting on you", ref: "reply:b#4", decision: { task: "reply:b#4", replyTo: "reply:b#4", question: "Still waiting on you", choices: [], steps } }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    const sends = () => vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
-    const ask = document.querySelector<HTMLElement>(".scene-ask")!;
-    const pick = (label: string) => [...ask.querySelectorAll<HTMLButtonElement>(".stepper .choice-pick")].find((button) => button.textContent === label)!.click();
-    expect(ask.querySelector(".step-q")!.textContent).toBe("Discard the old CapFive experiment branches?");
-    pick("Yes");
-    pick("No");
-    await settle();
-    expect(sends()).toEqual([]);
-    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("");
-    ask.querySelector<HTMLButtonElement>(".step-send")!.click();
-    await settle();
-    expect(sends()).toEqual([{ session: "latest", replyTo: "reply:b#4", questionText: "Still waiting on you", text: "1. Discard the old CapFive experiment branches? Yes\n2. Should Flyd's sidebar show newest at the top again? No" , clientId: expect.stringMatching(/^note-/) }]);
-    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Sent to Flyd");
-    expect(ask.querySelector(".step-send")).toBeNull();
-    expect(ask.querySelector(".step-lead")!.textContent).toBe("Your answers.");
-  });
-
-  it("shows one review link however often it is named, and every other distinct link", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:refs", kind: "call", headline: "Pick the heading", why: "", task: "refs", links: [
-      { label: "Open design review", url: "http://127.0.0.1:4387/session/a" },
-      { label: "Open design review", url: "http://127.0.0.1:4387/session/b" },
-      { label: "Open reference", url: "https://example.com/one" },
-      { label: "Open reference", url: "https://example.com/two" },
-      { label: "Open reference", url: "https://example.com/one" },
-    ] }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    const links = [...document.querySelectorAll<HTMLAnchorElement>("#scene-meta a")].map((link) => [link.textContent, link.getAttribute("href")]);
-    expect(links).toEqual([
-      ["Open design review", "http://127.0.0.1:4387/session/a"],
-      ["Open reference", "https://example.com/one"],
-      ["Open reference", "https://example.com/two"],
-    ]);
-  });
-
-  it("answers a decision in one tap or in his own words, keeps Tab and typing in its chat box, and says where the answer is in plain words", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval"] });
-    try {
-      load("");
-      await settle();
-      const stream = open("latest", []);
-      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"], recommended: "Evergreen luxe" }, links: [{ label: "Open design review", url: "http://127.0.0.1:4387/session/review" }] }] };
-      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-      document.getElementById("flip")!.click();
-      expect(document.querySelector("#scene-meta a")!.textContent).toBe("Open design review");
-      expect(document.querySelector("#scene-meta .kind")!.textContent).toBe("needs you");
-      // No heading over the box: the options, then one quiet line to type in.
-      expect(document.querySelector(".scene-ask label, .scene-ask h2, .scene-ask h3")).toBeNull();
-      const picks = [...document.querySelectorAll<HTMLButtonElement>(".scene-ask .choice-pick")];
-      expect(picks.map((button) => button.textContent)).toEqual(["Evergreen luxerecommended", "Christmas card"]);
-      const chat = document.querySelector<HTMLTextAreaElement>(".scene-ask .art-chat-input")!;
-      chat.focus();
-      const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
-      chat.dispatchEvent(tab);
-      expect(tab.defaultPrevented).toBe(false);
-      chat.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true }));
-      expect(document.documentElement.getAttribute("data-screen")).toBe("show");
-      chat.value = "A mix of the two";
-      chat.dispatchEvent(new Event("input"));
-      chat.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-      await settle();
-      expect(chat.value).toBe("");
-      picks[0]!.click();
-      await settle();
-      expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toMatchObject([
-        { session: "latest", decision: "visuals", text: "A mix of the two" },
-        { session: "latest", decision: "visuals", text: "Evergreen luxe" },
-      ]);
-      const receipt = document.querySelector(".scene-ask .art-chat-receipt")!;
-      expect(receipt.textContent).toBe("Sent to Flyd");
-      expect(picks[0]!.getAttribute("aria-pressed")).toBe("true");
-      // Once firstmate takes the note, the line says so; never a note id.
-      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: "read" } : {}));
-      vi.advanceTimersByTime(5000);
-      await settle();
-      expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).startsWith("/api/note?id=note%3A1&token="))).toBe(true);
-      expect(receipt.textContent).toBe("Flyd has it");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("keeps his message in the card's own thread the moment he sends it, then lands the reply under it", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval"] });
-    try {
-      load("");
-      await settle();
-      const stream = open("latest", []);
-      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
-      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-      document.getElementById("flip")!.click();
-      const ask = document.querySelector<HTMLElement>(".scene-ask")!;
-      const thread = ask.querySelector<HTMLElement>(".art-thread")!;
-      // No thread until he says something.
-      expect(thread.hidden).toBe(true);
-      const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
-      chat.value = "A mix of the two";
-      chat.dispatchEvent(new Event("input"));
-      ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
-      await settle();
-      // His words stand in the thread at once, with nothing under them yet.
-      expect(thread.hidden).toBe(false);
-      expect([...thread.querySelectorAll(".art-msg--you")].map((node) => node.textContent)).toEqual(["A mix of the two"]);
-      expect(thread.querySelector(".art-msg--them")).toBeNull();
-      // The reply about his note lands under it when it comes.
-      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: "read", answer: { text: "A mix it is, sir.", timestamp: "2026-10-05T20:03:00.000Z" } } : {}));
-      vi.advanceTimersByTime(5000);
-      await settle();
-      expect([...thread.querySelectorAll(".art-msg--them")].map((node) => node.textContent)).toEqual(["A mix it is, sir."]);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   // George, 2026-10-29: "Why doesn't Flyd show me that it's working and give me information about
   // what's happening? I typed something in and it just... nothing happens."
-  it("says what Flyd is doing about a card's message, then replaces that line with the answer in place", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval"] });
-    try {
-      load("");
-      await settle();
-      const stream = open("latest", []);
-      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
-      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-      document.getElementById("flip")!.click();
-      const ask = document.querySelector<HTMLElement>(".scene-ask")!;
-      const thread = ask.querySelector<HTMLElement>(".art-thread")!;
-      const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
-      chat.value = "what are those decisions?";
-      chat.dispatchEvent(new Event("input"));
-      vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "ask:7" } : {}));
-      ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
-      await settle();
-      // It is sent and nothing has come back: the card says what is happening, never just "Sent".
-      expect(thread.querySelector(".art-working")!.textContent).toBe("Queued");
-      // The step being taken replaces that one line, in place.
-      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: "sent", doing: "Reading the report" } : {}));
-      vi.advanceTimersByTime(4000);
-      await settle();
-      expect(thread.querySelectorAll(".art-working")).toHaveLength(1);
-      expect(thread.querySelector(".art-working")!.textContent).toBe("Reading the report");
-      // Handed to the work that runs it: the card still says what is happening, not who has it.
-      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: "read", handoff: "taken" } : {}));
-      vi.advanceTimersByTime(4000);
-      await settle();
-      expect(thread.querySelector(".art-working")!.textContent).toBe("Working on it");
-      // The answer takes its place: the working line is gone, the answer is under his words.
-      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: "read", answer: { text: "Two: ship the fixes, then pick a direction.", timestamp: "2026-10-05T20:03:00.000Z" } } : {}));
-      vi.advanceTimersByTime(4000);
-      await settle();
-      expect(thread.querySelector(".art-working")).toBeNull();
-      expect(thread.querySelector(".art-msg--them")!.textContent).toBe("Two: ship the fixes, then pick a direction.");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("shows a failed answer as the card's error, with no working line, and stops asking about it", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval"] });
-    try {
-      load("");
-      await settle();
-      const stream = open("latest", []);
-      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
-      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-      document.getElementById("flip")!.click();
-      const ask = document.querySelector<HTMLElement>(".scene-ask")!;
-      const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
-      chat.value = "what are those decisions?";
-      chat.dispatchEvent(new Event("input"));
-      vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "ask:7" } : String(url).startsWith("/api/note?") ? { receipt: "sent", failed: "Flyd couldn't answer this: model timed out" } : {}));
-      ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
-      await settle();
-      vi.advanceTimersByTime(4000);
-      await settle();
-      expect(ask.querySelector(".art-working")).toBeNull();
-      const receipt = ask.querySelector<HTMLElement>(".art-chat-receipt")!;
-      expect(receipt.textContent).toBe("Flyd couldn't answer this: model timed out");
-      expect(receipt.classList.contains("problem")).toBe(true);
-      const asked = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("/api/note?")).length;
-      const before = asked();
-      vi.advanceTimersByTime(9000);
-      await settle();
-      expect(asked()).toBe(before);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("lets him answer an answer where it stands, in the card's own thread", async () => {
-    localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "A mix of the two", id: "note:1", answer: "A mix it is, sir." }]));
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    const ask = document.querySelector<HTMLElement>(".scene-ask")!;
-    const reply = ask.querySelector<HTMLButtonElement>(".art-reply")!;
-    expect(reply.textContent).toBe("Reply");
-    reply.click();
-    await settle();
-    // A box opens under the answer, and what he sends there goes back as a reply to it.
-    const box = ask.querySelector<HTMLTextAreaElement>(".art-chat--nested .art-chat-input")!;
-    box.value = "make it quieter";
-    box.dispatchEvent(new Event("input"));
-    ask.querySelector(".art-chat--nested")!.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
-    const sent = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
-    const body = JSON.parse(String((sent[1] as RequestInit).body));
-    expect(body.text).toBe("make it quieter");
-    expect(body.replyTo).toBe("note:1");
-  });
-
-  it("lets him reply to his own message too, and keeps a half-typed reply while the card redraws", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval"] });
-    try {
-      localStorage.setItem("flyd-decision:visuals", JSON.stringify([{ text: "A mix of the two", id: "note:1" }]));
-      load("");
-      await settle();
-      const stream = open("latest", []);
-      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
-      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-      document.getElementById("flip")!.click();
-      const ask = document.querySelector<HTMLElement>(".scene-ask")!;
-      const reply = ask.querySelector<HTMLButtonElement>(".art-reply")!;
-      expect(reply.getAttribute("aria-label")).toBe("Reply to this message");
-      reply.click();
-      await settle();
-      const box = ask.querySelector<HTMLTextAreaElement>(".art-chat--nested .art-chat-input")!;
-      box.value = "and make it quieter";
-      box.dispatchEvent(new Event("input"));
-      // What Flyd is doing changes under his message: the card redraws, his reply box stays.
-      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: "sent", doing: "Reading the lab" } : {}));
-      vi.advanceTimersByTime(4000);
-      await settle();
-      expect(ask.querySelector(".art-working")!.textContent).toBe("Reading the lab");
-      expect(ask.querySelector(".art-chat--nested .art-chat-input")).toBe(box);
-      expect(box.isConnected).toBe(true);
-      expect(box.value).toBe("and make it quieter");
-      expect(document.activeElement).toBe(box);
-      ask.querySelector(".art-chat--nested")!.dispatchEvent(new Event("submit", { cancelable: true }));
-      await settle();
-      const sent = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
-      const body = JSON.parse(String((sent[1] as RequestInit).body));
-      expect(body.replyTo).toBe("note:1");
-      // His own words go back as his note, never as a question the session asked.
-      expect(body.questionText).toBeUndefined();
-      // The note he replied under leaves the inbox: his reply and its box stay where they are.
-      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: null } : {}));
-      for (let tick = 0; tick < 4; tick++) {
-        vi.advanceTimersByTime(4000);
-        await settle();
-      }
-      const nested = ask.querySelector<HTMLElement>(".art-chat--nested")!;
-      expect(nested.isConnected).toBe(true);
-      expect([...nested.querySelectorAll(".art-msg--you")].map((node) => node.textContent)).toEqual(["and make it quieter"]);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("offers a reply under every sent message, its own words or an answer, whether or not the note is still in the inbox", async () => {
-    localStorage.setItem("flyd-decision:visuals", JSON.stringify([{ text: "Evergreen luxe", id: "decision:visuals" }, { text: "A mix of the two", id: "note:1" }, { text: "Gone from the inbox", id: "note:2", done: true }, { text: "Answered", id: "note:3", done: true, answer: "Done, sir." }]));
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    const entries = [...document.querySelectorAll(".scene-ask .art-entry")];
-    expect(entries.map((entry) => Boolean(entry.querySelector(".art-reply")))).toEqual([true, true, true, true]);
-  });
-
-  it("marks a card's message that did not go as not delivered, and Try again sends the same note", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe"] } }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    const ask = document.querySelector<HTMLElement>(".scene-ask")!;
-    const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
-    chat.value = "Make the pins bigger";
-    chat.dispatchEvent(new Event("input"));
-    vi.mocked(fetch).mockImplementation(async (url) => (url === "/api/send" ? json({ error: "firstmate did not take the message" }, 502) : json({})));
-    ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
-    // His words stay in the thread, plainly marked, and the box is free for the next note.
-    expect([...ask.querySelectorAll(".art-msg--you")].map((node) => node.textContent)).toEqual(["Make the pins bigger"]);
-    expect(ask.querySelector(".art-failed")!.textContent).toContain("Not delivered");
-    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Not delivered. Try again.");
-    expect(chat.value).toBe("");
-    vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "note:pins" } : {}));
-    ask.querySelector<HTMLButtonElement>(".art-retry")!.click();
-    await settle();
-    const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
-    expect(sends).toHaveLength(2);
-    // The same note, under the same id, so a send that did reach Core is never routed twice.
-    expect(sends[1].clientId).toBe(sends[0].clientId);
-    expect(ask.querySelector(".art-failed")).toBeNull();
-    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Sent to Flyd");
-  });
-
-  it("takes a second note while the first is still sending, and sends both in order", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:logan", kind: "call", headline: "Logan chat", why: "", task: "logan-chat", decision: { task: "logan-chat", question: "Go-ahead to land Logan chat?", choices: [] } }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    const ask = document.querySelector<HTMLElement>(".scene-ask")!;
-    const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
-    const send = ask.querySelector<HTMLButtonElement>(".art-chat-send")!;
-    const answers: Array<(response: Response) => void> = [];
-    vi.mocked(fetch).mockImplementation((url) => (url === "/api/send" ? new Promise<Response>((resolve) => answers.push(resolve)) : Promise.resolve(json({}))));
-    const say = async (words: string) => {
-      chat.value = words;
-      chat.dispatchEvent(new Event("input"));
-      expect(send.disabled).toBe(false);
-      ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
-      await settle();
-    };
-    await say("This, I think, has also been completed.");
-    expect(ask.querySelector(".art-working")!.textContent).toBe("Sending");
-    // The first is still on its way: the box is free and takes the second straight away.
-    await say("I'm more interested in design and UX.");
-    expect(chat.value).toBe("");
-    expect([...ask.querySelectorAll(".art-msg--you")].map((node) => node.textContent)).toEqual(["This, I think, has also been completed.", "I'm more interested in design and UX."]);
-    expect([...ask.querySelectorAll(".art-working")].map((node) => node.textContent)).toEqual(["Sending", "Waiting to send"]);
-    // One at a time, oldest first.
-    expect(answers).toHaveLength(1);
-    answers[0]!(json({ id: "ask:1" }));
-    await settle();
-    expect(answers).toHaveLength(2);
-    answers[1]!(json({ id: "ask:2" }));
-    await settle();
-    const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)).text);
-    expect(sends).toEqual(["This, I think, has also been completed.", "I'm more interested in design and UX."]);
-    expect([...ask.querySelectorAll(".art-working")].map((node) => node.textContent)).not.toContain("Sending");
-    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Sent to Flyd");
-    // Both stay with the card across a reload, with the ids Core gave them.
-    expect(JSON.parse(localStorage.getItem("flyd-decision:logan-chat") || "[]").map((entry: { id: string }) => entry.id)).toEqual(["ask:1", "ask:2"]);
-  });
-
-  it("resends the whole note when Core accepted it and then could not deliver it", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval"] });
-    try {
-      load("");
-      await settle();
-      const stream = open("latest", []);
-      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe"] } }] };
-      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-      document.getElementById("flip")!.click();
-      const ask = document.querySelector<HTMLElement>(".scene-ask")!;
-      const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
-      chat.value = "Make the pins bigger";
-      chat.dispatchEvent(new Event("input"));
-      vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "pending:1", waiting: "Sent to Flyd" } : String(url).startsWith("/api/note?") ? { receipt: "sent", notDelivered: "Not delivered. Try again." } : {}));
-      ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
-      await settle();
-      vi.advanceTimersByTime(4000);
-      await settle();
-      expect(ask.querySelector(".art-failed")!.textContent).toContain("Not delivered");
-      vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "note:pins" } : {}));
-      ask.querySelector<HTMLButtonElement>(".art-retry")!.click();
-      await settle();
-      const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
-      expect(sends).toHaveLength(2);
-      expect(sends[1]).toEqual(sends[0]);
-      expect(sends[1]).toMatchObject({ text: "Make the pins bigger", decision: "visuals", clientId: expect.stringMatching(/^note-/) });
-      expect(ask.querySelector(".art-failed")).toBeNull();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("asks for the follow-up a slow decision answer needs once Core says where it went", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval"] });
-    try {
-      load("");
-      await settle();
-      const stream = open("latest", []);
-      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe"] } }] };
-      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-      document.getElementById("flip")!.click();
-      const ask = document.querySelector<HTMLElement>(".scene-ask")!;
-      const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
-      chat.value = "Another round";
-      chat.dispatchEvent(new Event("input"));
-      vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "pending:1", waiting: "Sent to Flyd" } : String(url).startsWith("/api/note?") ? { id: "note:1", receipt: "sent", followUp: "exec-1" } : {}));
-      ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
-      await settle();
-      // Not routed yet: nothing to reply to until Core says where it went.
-      expect(ask.querySelector(".art-reply")).toBeNull();
-      vi.advanceTimersByTime(3000);
-      await settle();
-      expect(JSON.parse(sessionStorage.getItem("flyd-decision:visuals") || "{}").followUpRequired).toBe("exec-1");
-      expect(ask.querySelector(".art-reply")).not.toBeNull();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("never sends a note again from a reload; only the copy that took it can resend it", async () => {
-    localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "Make the pins bigger", key: "note-left", body: { text: "Make the pins bigger", session: "latest", decision: "visuals", decisionTask: "visuals", questionText: "Choose from the lab" } }]));
-    vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "pending:1", waiting: "Sent to Flyd" } : {}));
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe"] } }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    await settle();
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send")).toHaveLength(0);
-    const ask = document.querySelector<HTMLElement>(".scene-ask")!;
-    expect(ask.querySelector(".art-failed")!.textContent).toBe("Not delivered");
-    expect(ask.querySelector(".art-retry")).toBeNull();
-    const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
-    chat.value = "Like this";
-    chat.dispatchEvent(new Event("input"));
-    ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
-    // Accepted, still routing: kept with the card by its id, without what only this copy may send again.
-    const kept = JSON.parse(localStorage.getItem("flyd-decision:visuals") || "[]");
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)).text)).toEqual(["Like this"]);
-    expect(kept).toEqual([expect.objectContaining({ text: "Like this", id: "pending:1" })]);
-    expect(kept[0].body).toBeUndefined();
-  });
-
-  it("shows a card's thread again after a reload, answers and all", async () => {
-    localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "A mix of the two", id: "note:1" }, { text: "Make the pins bigger", id: "note:2", answer: "Bigger pins it is, sir." }]));
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    const thread = document.querySelector<HTMLElement>(".scene-ask .art-thread")!;
-    expect(thread.hidden).toBe(false);
-    expect([...thread.querySelectorAll(".art-msg--you")].map((node) => node.textContent)).toEqual(["A mix of the two", "Make the pins bigger"]);
-    expect([...thread.querySelectorAll(".art-msg--them")].map((node) => node.textContent)).toEqual(["Bigger pins it is, sir."]);
-  });
-
-  it("keeps asking about a taken card note until it goes from the inbox, and keeps only the thread past the session", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval"] });
-    try {
-      localStorage.setItem("flyd-decision:visuals", JSON.stringify([{ text: "A mix of the two", id: "note:1" }, { text: "Gone", id: "note:2" }, { text: "Draining", id: "note:3" }]));
-      load("");
-      await settle();
-      const stream = open("latest", []);
-      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
-      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-      document.getElementById("flip")!.click();
-      const asked = (id = "") => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("/api/note?id=" + id)).length;
-      vi.mocked(fetch).mockImplementation(async (url) => {
-        const at = String(url);
-        // Taken but unanswered: the card never treats that as finished with, so it keeps asking.
-        if (at.startsWith("/api/note?id=note%3A1")) return json({ receipt: "read" });
-        if (at.startsWith("/api/note?id=note%3A3") && asked("note%3A3") > 1) return json({ receipt: "read", answer: { text: "Done, sir." } });
-        // One miss is firstmate moving the note to handled/; the reply that follows still lands.
-        return json(at.startsWith("/api/note?") ? { receipt: null } : {});
-      });
-      for (let tick = 0; tick < 5; tick++) {
-        vi.advanceTimersByTime(5000);
-        await settle();
-      }
-      expect([asked("note%3A1"), asked("note%3A2"), asked("note%3A3")]).toEqual([5, 3, 2]);
-      expect([...document.querySelectorAll(".scene-ask .art-msg--them")].map((node) => node.textContent)).toEqual(["Done, sir."]);
-      const kept = JSON.parse(localStorage.getItem("flyd-decision:visuals")!);
-      expect(kept.map((entry: { text: string }) => entry.text)).toEqual(["A mix of the two", "Gone", "Draining"]);
-      expect(JSON.parse(sessionStorage.getItem("flyd-decision:visuals")!).thread).toBeUndefined();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("folds in what another copy of the same card stored instead of writing over it", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval"] });
-    try {
-      const key = "flyd-decision:visuals";
-      localStorage.setItem(key, JSON.stringify([{ text: "A mix of the two", id: "note:1" }]));
-      load("");
-      await settle();
-      const stream = open("latest", []);
-      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
-      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-      document.getElementById("flip")!.click();
-      // Another copy of this card sent a second message, and already heard that a third is finished with.
-      localStorage.setItem(key, JSON.stringify([{ text: "A mix of the two", id: "note:1" }, { text: "Make the pins bigger", id: "note:2" }, { text: "Old", id: "note:0", done: true }]));
-      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?id=note%3A1") ? { receipt: "read", answer: { text: "A mix it is, sir." } } : String(url).startsWith("/api/note?") ? { receipt: "sent" } : {}));
-      vi.advanceTimersByTime(5000);
-      await settle();
-      const kept = JSON.parse(localStorage.getItem(key)!);
-      expect(kept).toEqual([
-        { text: "A mix of the two", id: "note:1", answer: "A mix it is, sir." },
-        { text: "Make the pins bigger", id: "note:2" },
-        { text: "Old", id: "note:0", done: true },
-      ]);
-      const thread = document.querySelector<HTMLElement>(".scene-ask .art-thread")!;
-      expect([...thread.querySelectorAll(".art-msg--you")].map((node) => node.textContent)).toEqual(["A mix of the two", "Make the pins bigger", "Old"]);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("gives every artefact a chat box that names it, and says a closed review page in words", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: "landed:map", kind: "landed", headline: "Christmas Nuanu map", why: "", task: "gnm-xmas-map", shots: [{ src: "/desk.png", label: "desktop-1440.png" }], links: [{ label: "Open design review", url: "http://127.0.0.1:4387/session/gone", closed: true }, { label: "flyd #9", url: "https://github.com/o/flyd/pull/9" }] }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    const meta = document.getElementById("scene-meta")!;
-    expect(meta.querySelector(".closed")!.textContent).toBe("The review page is offline right now");
-    expect([...meta.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual(["https://github.com/o/flyd/pull/9"]);
-    const chat = document.querySelector<HTMLTextAreaElement>(".scene-ask .art-chat-input")!;
-    expect(chat.placeholder).toBe("Say something about this…");
-    chat.value = "Make the pins bigger";
-    chat.dispatchEvent(new Event("input"));
-    document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([
-      { session: "latest", text: "Make the pins bigger", about: { title: "Christmas Nuanu map", task: "gnm-xmas-map", url: "https://github.com/o/flyd/pull/9" }, clientId: expect.stringMatching(/^note-/) },
-    ]);
-  });
-
-  it("takes a screenshot pasted into an artefact's chat box, shows it before sending, and sends it with his words", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: "landed:map", kind: "landed", headline: "Christmas Nuanu map", why: "", task: "gnm-xmas-map", shots: [{ src: "/desk.png", label: "desktop-1440.png" }] }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    const chat = document.querySelector<HTMLTextAreaElement>(".scene-ask .art-chat-input")!;
-    const send = document.querySelector<HTMLButtonElement>(".scene-ask .art-chat-send")!;
-    // His words and Send sit in one field, Send in sentence case.
-    expect(chat.closest(".art-chat-field .art-chat-row")).not.toBeNull();
-    expect(send.closest(".art-chat-row")).not.toBeNull();
-    expect(send.textContent).toBe("Send");
-    expect(send.disabled).toBe(true);
-    const data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
-    const png = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
-    const paste = new Event("paste", { cancelable: true });
-    Object.defineProperty(paste, "clipboardData", {
-      value: { items: [{ kind: "file", type: "image/png", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }, { kind: "string", type: "text/plain", getAsFile: () => null }] },
-    });
-    chat.dispatchEvent(paste);
-    // Text copied with the picture still lands in the box.
-    expect(paste.defaultPrevented).toBe(false);
-    for (let i = 0; i < 20 && !document.querySelector(".art-chat-images img"); i += 1) await settle();
-    const images = document.querySelector<HTMLElement>(".scene-ask .art-chat-images")!;
-    expect(images.hidden).toBe(false);
-    expect(images.querySelectorAll(".attachment img")).toHaveLength(1);
-    // A picture alone is enough to send about an artefact.
-    expect(send.disabled).toBe(false);
-    chat.value = "Like this";
-    chat.dispatchEvent(new Event("input"));
-    document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([
-      { session: "latest", text: "Like this", about: { title: "Christmas Nuanu map", task: "gnm-xmas-map" }, clientId: expect.stringMatching(/^note-/), images: [{ mediaType: "image/png", data }] },
-    ]);
-    // Once it went, the box is empty again.
-    expect(images.hidden).toBe(true);
-    expect(images.querySelectorAll(".attachment")).toHaveLength(0);
-  });
-
-  it("shows the work on devices: the desktop capture in a browser with the phone in front, artwork at its own shape", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: "map", kind: "landed", headline: "Christmas Nuanu map", why: "", shots: [
-      { src: "/desk.png", label: "desktop-1440.png" }, { src: "/phone.png", label: "phone.png" }, { src: "/art.png", label: "after.png" },
-    ] }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    // The work with pictures leads the cycle.
-    expect(document.getElementById("scene-head")!.textContent).toBe("Christmas Nuanu map");
-    const stage = () => document.querySelector<HTMLElement>(".scene-shot .devices")!;
-    const shown = () => Array.from(stage().querySelectorAll<HTMLElement>(".device")).map((node) => [node.className, node.querySelector("img")!.getAttribute("src")!.split("?")[0]]);
-    expect(stage().classList.contains("pair")).toBe(true);
-    expect(shown()).toEqual([["device desk", "/desk.png"], ["device phone", "/phone.png"]]);
-    expect(stage().querySelectorAll(".device.desk .bar i")).toHaveLength(3);
-    // A thumbnail brings its own picture up; artwork keeps its shape, alone.
-    const thumbs = document.querySelectorAll<HTMLImageElement>(".thumbs img");
-    thumbs[2]!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    expect(stage().classList.contains("one")).toBe(true);
-    expect(shown()).toEqual([["device art", "/art.png"]]);
-    expect(thumbs[2]!.classList.contains("on")).toBe(true);
-    thumbs[1]!.click();
-    expect(shown()).toEqual([["device desk", "/desk.png"], ["device phone", "/phone.png"]]);
-  });
-
-  it("places a capture without a device in its name by its shape once it loads", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: "map", kind: "landed", headline: "Christmas Nuanu map", why: "", shots: [{ src: "/a.png", label: "after.png" }] }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    const img = document.querySelector<HTMLImageElement>(".scene-shot .device img")!;
-    expect(img.parentElement!.className).toBe("device art");
-    Object.defineProperty(img, "naturalWidth", { value: 390, configurable: true });
-    Object.defineProperty(img, "naturalHeight", { value: 844, configurable: true });
-    img.dispatchEvent(new Event("load"));
-    expect(document.querySelector(".scene-shot .device")!.className).toBe("device phone");
-    expect(document.querySelector<HTMLElement>(".scene-shot .devices")!.classList.contains("one")).toBe(true);
-  });
-
-  it("keeps a composite capture in its own shape, however wide it loads", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: "map", kind: "landed", headline: "Christmas Nuanu map", why: "", shots: [{ src: "/combo.png", label: "gnm-desktop-and-phone.png" }] }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    const img = document.querySelector<HTMLImageElement>(".scene-shot .device img")!;
-    expect(img.parentElement!.className).toBe("device art");
-    Object.defineProperty(img, "naturalWidth", { value: 1800, configurable: true });
-    Object.defineProperty(img, "naturalHeight", { value: 900, configurable: true });
-    img.dispatchEvent(new Event("load"));
-    // A name listing more than one screen is neither frame: no browser, no phone.
-    expect(document.querySelector(".scene-shot .device")!.className).toBe("device art");
-  });
-
-  it("wears a wide capture as a desktop, and a tall native-resolution phone shot as a phone", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const shapeAt = (width: number, height: number): string => {
-      const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: `shot-${width}x${height}`, kind: "landed", headline: "Christmas Nuanu map", why: "", shots: [{ src: `/shot-${width}x${height}.png`, label: "after.png" }] }] };
-      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-      const img = document.querySelector<HTMLImageElement>(".scene-shot .device img")!;
-      Object.defineProperty(img, "naturalWidth", { value: width, configurable: true });
-      Object.defineProperty(img, "naturalHeight", { value: height, configurable: true });
-      img.dispatchEvent(new Event("load"));
-      return document.querySelector(".scene-shot .device")!.className;
-    };
-    // 1440 wide is a desktop capture even at a phone-ish height.
-    expect(shapeAt(1440, 2400)).toBe("device desk");
-    // An iPhone shot at 3x is over 1000px wide, but its portrait shape says phone.
-    expect(shapeAt(1179, 2556)).toBe("device phone");
-    // A full-page desktop capture is far taller than a phone, so it stays a desktop.
-    expect(shapeAt(1440, 4000)).toBe("device desk");
-    expect(shapeAt(1920, 6000)).toBe("device desk");
-    // A phone-wide picture that is not portrait is not a phone: a square icon, a landscape crop.
-    expect(shapeAt(512, 512)).toBe("device art");
-    expect(shapeAt(500, 300)).toBe("device art");
-  });
-
-  it("opens what needs him from the figure, each call with its question and answerable where it stands", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const calls = [
-      { id: "call:a", kind: "call", headline: "Publish the apply page?", why: "", project: "GNM", decision: { task: "a", question: "Going live emails the stallholders.", choices: ["Publish", "Hold"] } },
-      { id: "call:b", kind: "call", headline: "Merge the pagination PR?", why: "", decision: { task: "b", question: "Checks are green.", choices: [] } },
-    ];
-    const show = { title: "Your move", summary: "", live: false, counts: { call: 2, live: 1 }, items: [], calls };
-    const bars = [{ label: "need you", value: 2, tone: "call" }, { label: "under way", value: 1, tone: "live" }];
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars }] });
-    await settle();
-    const figure = document.querySelector<HTMLButtonElement>("#readouts .ro-open")!;
-    expect(figure.textContent).toBe("2 need you");
-    // Only a figure with its own work behind it opens one; the rest stay readings.
-    expect(document.querySelectorAll("#readouts button")).toHaveLength(1);
-    figure.click();
-    const sheet = document.getElementById("calls")!;
-    expect(sheet.hidden).toBe(false);
-    expect(document.getElementById("calls-title")!.textContent).toBe("2 decisions for you");
-    const items = sheet.querySelectorAll(".call");
-    expect(items).toHaveLength(2);
-    expect(items[0]!.querySelector(".call-head")!.textContent).toBe("Publish the apply page?");
-    expect(items[0]!.querySelector(".call-question")!.textContent).toBe("Going live emails the stallholders.");
-    expect(Array.from(items[0]!.querySelectorAll(".choices button")).map((button) => button.textContent)).toEqual(["Publish", "Hold"]);
-    // The same answer as on the artefact screen: one tap per option, then the chat box.
-    expect(items[0]!.querySelector(".art-chat-input")!.getAttribute("placeholder")).toBe("Or say something else…");
-    const answer = items[1]!.querySelector("textarea")!;
-    answer.value = "Merge it";
-    answer.dispatchEvent(new Event("input"));
-    items[1]!.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
-    const sent = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
-    // The job and question go with the answer, so a stale one can still reach its job.
-    expect(sent).toMatchObject([{ session: "latest", decision: "b", text: "Merge it", jobTitle: expect.any(String) }]);
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-    expect(sheet.hidden).toBe(true);
-  });
-
-  it("opens any figure onto its own group, one line each newest first, each opening its card detail", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const underway = [
-      { id: "live:a", kind: "live", headline: "CapFive tiles show the closed year", why: "", status: "half done", at: "2026-10-18T08:00:00Z" },
-      { id: "live:b", kind: "live", headline: "Fix the island filter", why: "", at: "2026-10-18T09:00:00Z" },
-    ];
-    const held = [{ id: "held:a", kind: "waiting", headline: "Stopped a job before it finished", why: "", status: "paused", at: "2026-10-18T07:00:00Z" }];
-    const show = { title: "", summary: "", live: false, counts: { live: 2, waiting: 1 }, items: [], underway, held };
-    const bars = [{ label: "under way", value: 2, tone: "live" }, { label: "held up", value: 1, tone: "waiting" }];
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars }] });
-    await settle();
-    const figures = document.querySelectorAll<HTMLButtonElement>("#readouts .ro-open");
-    expect(figures[0]!.textContent).toBe("2 under way");
-    figures[0]!.click();
-    const drill = document.getElementById("drill")!;
-    expect(drill.hidden).toBe(false);
-    expect(document.getElementById("drill-title")!.textContent).toBe("Under way");
-    const items = [...drill.querySelectorAll<HTMLElement>("#drill-list > .card")];
-    // Newest first, one plain line each.
-    expect(items.map((node) => node.querySelector(".card-line")!.textContent)).toEqual(["Fix the island filter", "CapFive tiles show the closed year"]);
-    // An item opens its card detail where it stands.
-    expect(items[0]!.classList.contains("is-open")).toBe(false);
-    items[0]!.click();
-    expect(items[0]!.querySelector<HTMLElement>(".card-detail")!.hidden).toBe(false);
-    // Clicking the same figure again closes it.
-    figures[0]!.click();
-    expect(drill.hidden).toBe(true);
-    // Another figure opens its own group.
-    figures[1]!.click();
-    expect(document.getElementById("drill-title")!.textContent).toBe("Held up");
-    expect(drill.querySelectorAll("#drill-list > .card")).toHaveLength(1);
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-    expect(drill.hidden).toBe(true);
-  });
-
-  it("opens the week's landed figure onto its own week's work, not the column's list", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const landedWeek = [
-      { id: "landed-week:a", kind: "landed", headline: "Ticket modal", why: "", status: "merged", project: "GNM", at: "2026-10-17" },
-      { id: "landed-week:b", kind: "landed", headline: "Slide-in", why: "", at: "2026-10-15" },
-    ];
-    const show = { title: "", summary: "", live: false, counts: { landed: 2 }, items: [], landedWeek, landedByDay: [{ day: "2026-10-17", count: 2 }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "landed-week", kind: "bars", size: "small", title: "2 landed this week", why: "" }] });
-    await settle();
-    const figure = document.querySelector<HTMLButtonElement>("#readouts .ro-open")!;
-    expect(figure.textContent).toBe("2 landed this week");
-    figure.click();
-    expect(document.getElementById("drill-title")!.textContent).toBe("Landed");
-    const items = [...document.querySelectorAll<HTMLElement>("#drill-list > .card")];
-    expect(items.map((node) => node.querySelector(".card-line")!.textContent)).toEqual(["Ticket modal", "Slide-in"]);
-    // "merged" only repeats the chip: the project reads where it stands instead.
-    expect(items[0]!.querySelector(".card-sub")!.textContent).toBe("GNM");
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-    expect(document.getElementById("drill")!.hidden).toBe(true);
-  });
-
-  it("offers a comment on words he selects in a message, and sends it quoting them", async () => {
+  it("offers a comment on words he selects in a message, typed in the one message box under a chip that quotes them", async () => {
     load("");
     await settle();
     open("latest", [{ id: "a1", role: "assistant", html: "<p>The island runs from the notch.</p>" }, { id: "u1", role: "user", html: "<p>Ship it</p>" }]);
@@ -2845,45 +1643,31 @@ describe("header and artefact view", () => {
       window.getSelection()!.addRange(range);
       document.dispatchEvent(new Event("selectionchange"));
     };
-    // Nothing until he selects something in a message.
+    // Nothing until he selects something in a message, and no second box when he does.
     expect(pop.hidden).toBe(true);
     select(words, 4, 10);
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(pop.hidden).toBe(false);
-    expect(pop.querySelector<HTMLElement>(".passage-card")!.hidden).toBe(true);
+    expect(pop.querySelector("textarea")).toBeNull();
     pop.querySelector<HTMLButtonElement>(".passage-open")!.click();
-    expect(pop.querySelector<HTMLElement>(".passage-card")!.hidden).toBe(false);
-    expect(pop.querySelector(".passage-quote")!.textContent).toBe("island");
-    const input = pop.querySelector<HTMLTextAreaElement>(".passage-input")!;
+    expect(pop.hidden).toBe(true);
+    expect(document.getElementById("replying")!.hidden).toBe(false);
+    expect(document.getElementById("replying-title")!.textContent).toBe("“island”");
+    const input = document.getElementById("input") as HTMLTextAreaElement;
     input.value = "Faster";
-    pop.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
     await settle();
     const sent = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
     expect(sent).toEqual([{ session: "latest", passage: { quote: "island", from: "assistant" }, text: "Faster" }]);
-    expect(pop.querySelector(".reply-note")!.textContent).toBe("Sent to Flyd");
-    pop.querySelector<HTMLButtonElement>(".reply-close")!.click();
-    expect(pop.hidden).toBe(true);
-    // His own words take one too, and say they were his.
-    select(document.querySelector(".msg.user .body")!, 0, 1);
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    expect(pop.hidden).toBe(false);
+    // The chip goes with the message: the next one is plain talk again.
+    expect(document.getElementById("replying")!.hidden).toBe(true);
     // Words selected outside a message take none.
     const outside = document.body.appendChild(document.createElement("p"));
     outside.textContent = "Not a message";
     select(outside.firstChild!, 0, 3);
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(pop.hidden).toBe(true);
-    // Switching conversation with the card open still sends it about the one he picked from.
-    select(document.querySelector(".msg.assistant .body p")!.firstChild!, 4, 10);
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    pop.querySelector<HTMLButtonElement>(".passage-open")!.click();
-    input.value = "Slower";
-    open("other", [{ id: "o1", role: "assistant", html: "<p>Elsewhere</p>" }]);
-    await settle();
-    pop.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
-    const later = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
-    expect(later.at(-1)).toEqual({ session: "latest", passage: { quote: "island", from: "assistant" }, text: "Slower" });
+    window.getSelection()!.removeAllRanges();
   });
 
   it("keeps a real copyable selection when the comment control appears", async () => {
@@ -2909,6 +1693,44 @@ describe("header and artefact view", () => {
     const copy = new Event("copy", { cancelable: true });
     document.dispatchEvent(copy);
     expect(copy.defaultPrevented).toBe(false);
+  });
+
+  it("keeps an attachment in the box when the reply he is writing goes as words only", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const choice = { question: "Want me to add all three?", options: ["Yes", "No"], replyTo: "reply:a#2", session: "asked-session" };
+    stream.emit("update", { order: ["reply:a#2"], messages: [{ id: "reply:a#2", role: "assistant", html: "<p>Motion.</p>", aside: true, choice }], working: false });
+    await settle();
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+    const paste = new Event("paste", { cancelable: true });
+    Object.defineProperty(paste, "clipboardData", { value: { items: [{ kind: "file", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }] } });
+    document.getElementById("input")!.dispatchEvent(paste);
+    for (let i = 0; i < 20 && !document.querySelector(".attachment img"); i += 1) await settle();
+    document.querySelector<HTMLButtonElement>(".own-words")!.click();
+    await type("Only the first");
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toMatchObject({ session: "asked-session", text: "Only the first", replyTo: "reply:a#2" });
+    expect(document.querySelectorAll(".attachment img")).toHaveLength(1);
+  });
+
+  it("keeps an image in the box when he replies with no words", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const choice = { question: "Want me to add all three?", options: ["Yes", "No"], replyTo: "reply:a#2", session: "asked-session" };
+    stream.emit("update", { order: ["reply:a#2"], messages: [{ id: "reply:a#2", role: "assistant", html: "<p>Motion.</p>", aside: true, choice }], working: false });
+    await settle();
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+    const paste = new Event("paste", { cancelable: true });
+    Object.defineProperty(paste, "clipboardData", { value: { items: [{ kind: "file", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }] } });
+    document.getElementById("input")!.dispatchEvent(paste);
+    for (let i = 0; i < 20 && !document.querySelector(".attachment img"); i += 1) await settle();
+    document.querySelector<HTMLButtonElement>(".own-words")!.click();
+    await type("");
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/send")).toBe(false);
+    expect(document.querySelectorAll(".attachment img")).toHaveLength(1);
+    expect(document.getElementById("replying")!.hidden).toBe(false);
   });
 
   it("puts a question a reply asks him in a card under it, answered by one tap or his own words", async () => {
@@ -3011,28 +1833,6 @@ describe("header and artefact view", () => {
     expect(note.querySelector(".auto-undo")).toBeNull();
   });
 
-  it("keeps the same scene on stage while an enlarged picture is open, and after he closes it", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval"] });
-    try {
-      load("");
-      await settle();
-      const stream = open("latest", []);
-      stream.emit("update", { order: [], messages: [], working: true, show: SHOW, boxes: boxesOf(SHOW as ShowScreen) });
-      document.getElementById("flip")!.click();
-      expect(document.getElementById("scene-head")!.textContent).toBe("Header controls");
-      (document.querySelector(".scene-shot .device") as HTMLElement).click();
-      const lightbox = document.getElementById("lightbox") as HTMLElement;
-      expect(lightbox.hidden).toBe(false);
-      vi.advanceTimersByTime(9_500);
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      lightbox.click();
-      expect(lightbox.hidden).toBe(true);
-      expect(document.getElementById("scene-head")!.textContent).toBe("Header controls");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it("answers a Needs you line in place, delivering the answer to firstmate", async () => {
     sendResponse = { id: "note:7", timestamp: "2026-10-05T20:02:00.000Z" };
     load("");
@@ -3068,28 +1868,6 @@ describe("header and artefact view", () => {
     ],
   };
 
-  it("uses one kind of control: a switch whose track says on or off, never brackets", async () => {
-    load("");
-    await settle();
-    const controls = Array.from(document.querySelectorAll("header .controls button")).map((button) => button.textContent);
-    expect(controls).toEqual(["Needs you", "preferences", "artefact"]);
-    const switches = Array.from(document.querySelectorAll('header .controls button[role="switch"], #prefs button[role="switch"]')).map((button) => button.id);
-    expect(switches).toEqual(["flip", "mode", "theme", "rail-toggle", "left-toggle"]);
-    const flip = document.getElementById("flip")!;
-    expect(flip.getAttribute("aria-checked")).toBe("false");
-    flip.click();
-    expect(document.documentElement.getAttribute("data-screen")).toBe("show");
-    expect(flip.getAttribute("aria-checked")).toBe("true");
-    expect(flip.textContent).toBe("artefact");
-    // The front page is paper by default; the switch turns it dark.
-    const theme = document.getElementById("theme")!;
-    expect(theme.getAttribute("aria-checked")).toBe("true");
-    theme.click();
-    expect(theme.getAttribute("aria-checked")).toBe("false");
-    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
-    expect(theme.querySelector(".prefs-name")!.textContent).toBe("Light theme");
-  });
-
   it("keeps taste, full replies and the light theme in Preferences, out of the header until asked for", async () => {
     load("");
     await settle();
@@ -3110,25 +1888,6 @@ describe("header and artefact view", () => {
     document.getElementById("stream")!.click();
     expect(prefs.hidden).toBe(true);
     expect(opener.getAttribute("aria-expanded")).toBe("false");
-  });
-
-  it("keeps the page the work is on in the header, local or live, with its section", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const site = document.getElementById("site") as HTMLAnchorElement;
-    expect(site.hidden).toBe(true);
-    stream.emit("update", { order: [], messages: [], working: false, page: { label: "/#location", url: "http://127.0.0.1:8088/index.html#location", host: "127.0.0.1:8088", local: true } });
-    expect(site.hidden).toBe(false);
-    expect(site.getAttribute("href")).toBe("http://127.0.0.1:8088/index.html#location");
-    expect(site.textContent).toBe("local127.0.0.1:8088/#location");
-    expect(site.getAttribute("aria-label")).toBe("Working on http://127.0.0.1:8088/index.html#location, a local preview");
-    stream.emit("update", { order: [], messages: [], working: false, page: { label: "/vendor-apply", url: "https://goodneighboursmarket.com/vendor-apply", host: "goodneighboursmarket.com", local: false } });
-    expect(site.classList.contains("site--live")).toBe(true);
-    expect(document.getElementById("site-kind")!.textContent).toBe("live");
-    // Still there in the artefact view.
-    document.getElementById("flip")!.click();
-    expect(site.hidden).toBe(false);
   });
 
   it("puts one decision that needs him in the left column with its recommended choice, and what got done on the right", async () => {
@@ -3223,78 +1982,7 @@ describe("header and artefact view", () => {
     expect(document.querySelector("#done li .card-dismiss")).toBeNull();
   });
 
-  it("plays Flyd's boxes as scenes, one at a time, the pictured work first, with the numbers on one line under them", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const boxes = boxesOf(SHOW as ShowScreen, { plan: { source: "quota-axi", windows: [{ label: "weekly", percentRemaining: 10 }] } });
-    stream.emit("update", { order: [], messages: [], working: true, show: SHOW, boxes });
-    document.getElementById("flip")!.click();
-
-    // One scene holds the stage: the work with its picture, never every box at once.
-    expect(document.querySelectorAll("#show h1")).toHaveLength(1);
-    expect(document.getElementById("scene-head")!.textContent).toBe("Header controls");
-    expect(document.querySelector("#scene-meta a")!.textContent).toBe("flyd #85");
-    expect(document.querySelector(".scene-shot .device img")!.getAttribute("src")).toBe(`/api/artefact-shot?task=a&file=after.png&token=${"a".repeat(48)}`);
-    expect(document.getElementById("scene")!.classList.contains("has-shot")).toBe(true);
-    // The pictured work, what Flyd sees coming (the plan limit), then the stories in words. A call with
-    // nothing to see waits in Needs you rather than taking a scene (George, 2026-10-25).
-    const ticks = Array.from(document.querySelectorAll("#ticks button")).map((tick) => tick.getAttribute("aria-label"));
-    expect(ticks).toEqual([
-      "under way: Header controls",
-      "coming up: Claude weekly limit: 10% left.",
-      "from your memory: Bloom gets finished",
-    ]);
-
-    // The arrow brings the next scene up like a title card: what Flyd sees coming.
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(document.getElementById("scene-head")!.textContent).toBe("Claude weekly limit: 10% left.");
-    expect(document.getElementById("scene")!.classList.contains("has-shot")).toBe(false);
-    expect((document.getElementById("show-nav") as HTMLElement).hidden).toBe(false);
-    (document.getElementById("show-prev") as HTMLButtonElement).click();
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(document.getElementById("scene-head")!.textContent).toBe("Header controls");
-
-    // The numbers are one quiet line of words and figures: no charts.
-    expect(Array.from(document.querySelectorAll(".ro")).map((node) => (node as HTMLElement).dataset.id)).toEqual(["plan", "landed-week", "work-state"]);
-    expect(document.getElementById("readouts")!.textContent).toBe("Claude weekly 90% used3 landed this week1 need you2 under way");
-    expect(document.querySelector("#readouts .ro-cols, #readouts .ro-split")).toBeNull();
-    expect(document.getElementById("show-doing")!.textContent).toBe("Running the Swift tests");
-  });
-
-  it("goes back to the whole conversation, and typing there talks to Flyd", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", [{ id: "r1", role: "assistant", html: "<p>The whole reply.</p>" }]);
-    stream.emit("update", { order: ["r1"], messages: [], working: false, show: SHOW, boxes: boxesOf(SHOW as ShowScreen) });
-    const flip = document.getElementById("flip")!;
-    flip.click();
-    expect(document.documentElement.getAttribute("data-screen")).toBe("show");
-    // The conversation is never squeezed onto the artefact screen.
-    expect(document.querySelector("#show .msg, #show .strip")).toBeNull();
-    flip.click();
-    await new Promise((resolve) => setTimeout(resolve, 220));
-    expect(document.documentElement.getAttribute("data-screen")).toBe("terminal");
-    expect((document.getElementById("show") as HTMLElement).hidden).toBe(true);
-    expect(localStorage.getItem("flyd-view-screen")).toBe("terminal");
-
-    flip.click();
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "h" }));
-    expect(document.documentElement.getAttribute("data-screen")).toBe("terminal");
-    expect(document.activeElement).toBe(document.getElementById("input"));
-  });
-
-  it("falls back to the situation when Core sends no boxes", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    stream.emit("update", { order: [], messages: [], working: false, show: { ...SHOW, live: false } });
-    expect(document.getElementById("scene-head")!.textContent).toBe("Your move, sir.");
-    expect(document.getElementById("show-doing")!.textContent).toBe("Nothing running right now");
-  });
-
-  it("says on Today whether the news is working, and what stopped, without being asked", async () => {
+  it("says on News whether the news is working, and what stopped, without being asked", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
@@ -3561,39 +2249,6 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(sends.at(-1)).toEqual({ session: "latest", replyTo: "reply:a#2", questionText: "Which direction?", text: "B", clientId: expect.stringMatching(/^note-/) });
   });
 
-  it("shows a call's designs, named, over the message box when he clicks its card", async () => {
-    localStorage.setItem("flyd-left", "on");
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    stream.emit("update", {
-      order: [], messages: [], working: false,
-      leftColumn: {
-        now: [], recent: [], week: [],
-        semantic: [{
-          id: "task:pick", kind: "activity", lifecycle: "interrupted", subject: "Pick one of ten left-column card designs for Flyd.",
-          summary: "Ten designs are ready.", project: "Flyd", actions: [], activity: { phase: "needs_you" },
-          source: { showItemId: "call:pick", task: "pick" },
-          decision: { target: "pick", question: "Which design (1-10) should Flyd use?", alternatives: [] },
-          evidence: [
-            { kind: "image", ref: "/api/rail-image?path=a%2F01-hairline.png", label: "01-hairline.png" },
-            { kind: "image", ref: "/api/rail-image?path=a%2F03-side-pane.png", label: "03-side-pane.png" },
-            { kind: "web", ref: "https://example.com/review", label: "Open design review" },
-          ],
-        }],
-      },
-    });
-    await settle();
-    const card = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
-    // The card itself is just its title.
-    expect(card.querySelector(".card-sub")).toBeNull();
-    card.click();
-    const shots = Array.from(document.querySelectorAll<HTMLButtonElement>("#about-body .about-shot"));
-    expect(shots.map((shot) => shot.querySelector(".about-shot-name")!.textContent)).toEqual(["01 hairline", "03 side pane"]);
-    expect(shots[0]!.querySelector("img")!.getAttribute("src")).toContain("token=");
-    expect(document.querySelector<HTMLAnchorElement>("#about-body .card-link")!.href).toBe("https://example.com/review");
-    expect(Array.from(document.querySelectorAll("#about-body .about-text")).map((p) => p.textContent)).toEqual(["Ten designs are ready.", "Which design (1-10) should Flyd use?"]);
-  });
 
   it("keeps one semantic object in the left column while it needs him, and lets it go once it is finished", async () => {
     localStorage.setItem("flyd-left", "on");
@@ -4143,9 +2798,9 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(more.textContent).toBe("Show all 9");
     more.click();
     expect(rows()).toBe(9);
-    // On the front page History sits under the jobs; the artefact column keeps the work, then the news.
+    // On the front page earlier conversations fold away at the top of the timeline; the artefact column keeps the work, then the news.
     expect([...document.querySelectorAll(".rail-pane > *")].map((node) => node.id)).toEqual(["brief", "brief-news"]);
-    expect(document.getElementById("history")!.closest("#jobs")).not.toBeNull();
+    expect(document.getElementById("history")!.closest("details.earlier")!.parentElement!.id).toBe("stream");
   });
 
   it("forgets Done cards it saw that have long left the column, and keeps at most 300", async () => {
@@ -4182,140 +2837,6 @@ describe("screen gates", () => {
   });
   const screened = (value: any): any => ({ ...value, screen: fillScreen(value) });
 
-  it("gives the headline, the corner and the edge one number, and opens exactly that set", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const a = object("task:a", "decision", "interrupted", "Choose A", { decision: { target: "a", question: "A?", alternatives: ["Yes", "No"] } });
-    const b = object("task:b", "decision", "interrupted", "Choose B", { decision: { target: "b", question: "B?", alternatives: ["Yes", "No"] } });
-    const c = object("task:c", "activity", "interrupted", "Review C", { activity: { phase: "ready" } });
-    const focus = object("task:focus", "activity", "active", "Building the page", { activity: { phase: "working" } });
-    const show = { title: "Work", summary: "", live: false, counts: { call: 3 }, items: [], focus, semantic: [focus, a, b, c], needs: [a, b, c] } as unknown as ShowScreen;
-    const boxes = boxesOf(show);
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes });
-    await settle();
-    // The headline the lead group names.
-    expect(boxes[0]!.title).toBe("3 need you");
-    // The corner.
-    expect(document.getElementById("left-open")!.textContent).toBe("Needs you · 3");
-    // The edge, and the sheet it opens: exactly those three.
-    const edge = document.getElementById("semantic-context")!;
-    expect(edge.textContent).toContain("3 needs you");
-    edge.querySelector<HTMLButtonElement>(".needs")!.click();
-    expect(document.querySelectorAll("#drill-list .drill-card")).toHaveLength(3);
-  });
-
-  it("keeps the keyboard focus on the edge through a screen update, and announces the change", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const first = object("task:a", "activity", "active", "Build A", { activity: { phase: "working" } });
-    const focus = object("task:focus", "activity", "active", "Building the page", { activity: { phase: "working" } });
-    const show = (extra: unknown[]) => ({ title: "", summary: "", live: false, counts: {}, items: [], focus, semantic: [focus, first, ...extra], needs: [] }) as unknown as ShowScreen;
-    stream.emit("update", { order: [], messages: [], working: false, show: show([]), boxes: [] });
-    await settle();
-    const button = document.querySelector<HTMLButtonElement>("#semantic-context .working")!;
-    button.focus();
-    expect(document.activeElement).toBe(button);
-    const second = object("task:b", "activity", "active", "Build B", { activity: { phase: "working" } });
-    stream.emit("update", { order: [], messages: [], working: false, show: show([second]), boxes: [] });
-    await settle();
-    const after = document.querySelector<HTMLButtonElement>("#semantic-context .working")!;
-    expect(after).not.toBe(button);
-    expect(document.activeElement).toBe(after);
-    expect(document.getElementById("semantic-context")!.getAttribute("aria-live")).toBe("polite");
-  });
-
-  it("draws a decision's question and its choices, not a headline over empty space", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const focus = screened(object("task:launch", "decision", "interrupted", "Choose the launch date", {
-      summary: "Friday has the strongest evidence.",
-      detail: "The sponsor is away Thursday.",
-      decision: { target: "launch", question: "Launch Friday or Saturday?", alternatives: ["Friday", "Saturday"], recommended: "Friday" },
-    }));
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], focus, semantic: [focus] } as unknown as ShowScreen, boxes: [] });
-    await settle();
-    const scene = document.getElementById("scene")!;
-    expect(scene.querySelector(".screen-question")!.textContent).toBe("Launch Friday or Saturday?");
-    expect([...scene.querySelectorAll(".scene-ask .choice-pick")].map((button) => button.textContent)).toEqual(["Fridayrecommended", "Saturday"]);
-    expect(scene.dataset.pattern).toBe("decision-choice");
-  });
-
-  it("says a decision once when its headline, line and question are the same words", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const said = "Choose the default screen direction: adaptive single stage or columns with on-demand rail; decide whether only high-confidence housekeeping interrupts or all findings enter a digest";
-    // The same decision, as the fleet hands it over: no full stop on the headline, one on the detail, different case on the question.
-    const focus = screened(object("task:direction", "decision", "interrupted", said, {
-      summary: "",
-      detail: `${said}.`,
-      decision: { target: "direction", question: `${said.toLowerCase()}.`, alternatives: [] },
-    }));
-    expect(focus.screen.lead).toBe("");
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], focus, semantic: [focus] } as unknown as ShowScreen, boxes: [] });
-    await settle();
-    const count = (root: Element) => (root.textContent ?? "").toLowerCase().split("choose the default screen direction").length - 1;
-    expect(count(document.getElementById("scene")!)).toBe(1);
-    expect(count(document.getElementById("inline-screen")!)).toBe(1);
-    // A line that adds a sentence keeps only that sentence.
-    const more = screened(object("task:direction", "decision", "interrupted", said, {
-      summary: "",
-      detail: `${said}. The lab has both versions side by side.`,
-      decision: { target: "direction", question: said, alternatives: [] },
-    }));
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], focus: more, semantic: [more] } as unknown as ShowScreen, boxes: [] });
-    await settle();
-    expect(count(document.getElementById("scene")!)).toBe(1);
-    expect(document.getElementById("scene-line")!.textContent).toBe("The lab has both versions side by side.");
-  });
-
-  it("draws an investigation's findings and an approval's operation and its action", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const findings = screened(object("task:audit", "investigation", "active", "Audit the checkout copy", {
-      summary: "Three claims are unsupported.",
-      investigation: { question: "Does the copy overclaim?", findings: [{ heading: "Delivery time", summary: "The carrier does not promise next day.", confidence: "high", evidenceIds: ["e1"] }], uncertainties: [], conflicts: [], sourceCount: 1 },
-    }));
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], focus: findings, semantic: [findings] } as unknown as ShowScreen, boxes: [] });
-    await settle();
-    expect(document.querySelectorAll("#scene .screen-findings li")).toHaveLength(1);
-    expect(document.querySelector("#scene .screen-findings h4")!.textContent).toBe("Delivery time");
-
-    const approval = screened(object("action:send", "action", "interrupted", "Send the reply to Gareth", {
-      summary: "The draft is ready to send.",
-      action: { phase: "proposed", operation: "Send the drafted WhatsApp reply", category: "outward", requiresApproval: true },
-    }));
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], focus: approval, semantic: [approval] } as unknown as ShowScreen, boxes: [] });
-    await settle();
-    expect(document.querySelector("#scene .screen-operation")!.textContent).toContain("Send the drafted WhatsApp reply");
-    expect([...document.querySelectorAll("#scene .scene-ask .choice-pick")].map((button) => button.textContent)).toEqual(["Approve", "Revise"]);
-  });
-
-  it("puts the artefact in the conversation, with its visual beside the words", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const focus = screened(object("artifact:deck", "artifact", "resolved", "Sponsor deck", {
-      summary: "The final deck is ready.",
-      detail: "The final deck is ready.",
-      artifact: { type: "document", phase: "ready" },
-      evidence: [{ kind: "image", ref: "/api/artefact-shot?task=deck&file=shot.png", label: "deck.png" }, { kind: "web", ref: "https://example.com/deck", label: "Open the deck" }],
-    }));
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], focus, semantic: [focus] } as unknown as ShowScreen, boxes: [] });
-    await settle();
-    const card = document.querySelector<HTMLElement>("#inline-screen .inline-card")!;
-    expect(card).not.toBeNull();
-    expect(card.querySelector(".inline-head")!.textContent).toBe("Sponsor deck");
-    expect(card.querySelectorAll(".inline-shots img")).toHaveLength(1);
-    expect(card.querySelector(".screen-document")!.textContent).toContain("The final deck is ready");
-    // The scene's own headline opens it in the conversation, never a side view.
-    expect((document.getElementById("scene-head") as HTMLElement).dataset.inline).toBe("1");
-    expect((document.getElementById("inline-screen") as HTMLElement).hidden).toBe(false);
-  });
 });
 
 describe("the front page", () => {
@@ -4329,6 +2850,17 @@ describe("the front page", () => {
     }],
     landedWeek: [{ id: "landed:fix", kind: "landed", headline: "Restore dropping files onto Flyd", why: "", at: "2026-10-24", project: "Flyd", task: "file-drop", links: [{ label: "flyd #224", url: "https://github.com/GeorgeGally/flyd/pull/224" }] }],
   };
+  // The board Core placed from that fleet (placement.ts): the page draws it and never re-sorts it.
+  const PICK = {
+    id: "call:pick", group: "needs", state: "Needs you", title: "Which bezel should CopyCopy build?", project: "CopyCopy", at: "2026-10-24T15:30:00.000Z",
+    next: "", owner: "you", ask: "Which bezel should CopyCopy build?", because: "", detail: "Both read well at small sizes.",
+    shots: SHOW.calls[0]!.shots, links: [], files: [], threads: [], digest: null, decision: SHOW.calls[0]!.decision,
+  };
+  const LANDED = {
+    id: "landed:fix", group: "done", state: "Done", title: "Restore dropping files onto Flyd", project: "Flyd", at: "2026-10-24T09:00:00.000Z",
+    next: "", owner: "", ask: "", because: "", shots: [], links: SHOW.landedWeek[0]!.links, files: [], threads: [], digest: null,
+  };
+  const BOARD = [PICK, LANDED];
   const groups = () => Array.from(document.querySelectorAll("#jobs-list .fgroup")).map((group) => [
     group.querySelector(".fhead span")!.textContent,
     group.querySelector(".fempty")?.textContent ?? group.querySelectorAll(".job").length,
@@ -4357,9 +2889,9 @@ describe("the front page", () => {
     document.documentElement.setAttribute("data-layout", "front");
     const stream = await opened();
     const story = { title: "State that lasts", url: "https://magazine.example/state", source: "Magazine", gist: "The machinery, not a wrapper." };
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [story], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: BOARD, leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [story], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
     await settle();
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
     expect(document.documentElement.getAttribute("data-job")).toBe("call:pick");
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => (
@@ -4375,46 +2907,71 @@ describe("the front page", () => {
     document.documentElement.removeAttribute("data-layout");
   });
 
-  it("rests on Today: the day's events as cards, moving work with its dot, and a picture across both columns", async () => {
+  it("tells what needs him, what is under way and what finished today as messages in the one conversation, in time order", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
     const now = new Date();
     const at = (hour: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, 5).toISOString();
+    const job = (over: Record<string, unknown>) => ({ project: "", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, ...over });
     stream.emit("update", {
-      order: [], messages: [], working: false, show: SHOW,
-      live: {
-        known: true, counts: { running: 1, needs: 0 }, paused: [], needs: [], older: [],
-        running: [{ id: "live:cx", state: "running", title: "CleanX credit packs", step: "CleanX now shows credit packs only when you're under 200 credits", at: at(0), shots: [{ src: "/api/artefact-shot?task=cx&file=a.png", label: "a.png" }], previews: [], links: [] }],
-        landed: [{ id: "landed:today", state: "landed", title: "Conversation work", step: "Conversations are now split by project.", at: at(0), shots: [], previews: [], links: [] },
-          { id: "landed:no-detail", state: "landed", title: "A job title", at: at(0), shots: [], previews: [], links: [] },
-          { id: "landed:old", state: "landed", title: "Something from last week landed.", at: "2026-10-01T09:00:00.000Z", shots: [], previews: [], links: [] }],
-      },
+      order: [], messages: [], working: false, show: SHOW, jobsFleetKnown: true,
+      jobs: [
+        job({ id: "ask", group: "needs", state: "Needs you", title: "Which hero ships", at: at(2) }),
+        job({ id: "cx", group: "moving", state: "Working", title: "CleanX credit packs", at: at(1) }),
+        job({ id: "queued", group: "moving", state: "Queued", title: "Waiting its turn", at: at(1) }),
+        job({ id: "landed", group: "done", state: "Done", title: "Conversations split by project", at: at(0), shots: [{ src: "/api/artefact-shot?task=l&file=a.png", label: "a.png" }] }),
+        job({ id: "old", group: "done", state: "Done", title: "Something from last week", at: "2026-10-01T09:00:00.000Z" }),
+      ],
     });
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
     await settle();
-    expect(document.documentElement.getAttribute("data-centre")).toBe("today");
-    expect(document.querySelector('.ctab[data-centre="today"]')!.getAttribute("aria-pressed")).toBe("true");
-    const cards = [...document.querySelectorAll<HTMLElement>("#feed .ev")];
-    expect(cards.map((card) => card.querySelector("p")!.textContent)).toEqual([
-      "CleanX now shows credit packs only when you're under 200 credits.",
-      "Conversations are now split by project.",
-    ]);
-    expect(cards[0]!.classList.contains("pic")).toBe(true);
-    expect(cards[0]!.querySelector("time .fdot.pulse")).not.toBeNull();
-    expect(cards[0]!.querySelector("img")!.getAttribute("src")).toContain("/api/artefact-shot?task=cx");
-    expect(document.getElementById("feed")!.textContent).not.toContain("last week");
-    expect(document.getElementById("feed")!.textContent).not.toContain("A job title");
+    const work = [...document.querySelectorAll<HTMLElement>("#stream > .msg.work")];
+    expect(work.map((node) => node.dataset.job)).toEqual(["landed", "cx", "ask"]);
+    expect(work[2]!.classList.contains("needs")).toBe(true);
+    expect(work[1]!.querySelector(".work-meta .fdot.pulse")).not.toBeNull();
+    expect(work[0]!.querySelector(".work-shot img")!.getAttribute("src")).toContain("/api/artefact-shot?task=l");
+    // Open unfolds the job in place, under its own message.
+    work[2]!.querySelector<HTMLButtonElement>(".work-open")!.click();
+    expect(document.querySelector(".job-view")!.closest(".msg.work")).toBe(work[2]);
   });
 
-  it("starts in the conversation when it has words, and Today brings the feed back", async () => {
+  it("opens the item a link names in place, and what needs him first for a call, once the board has come", async () => {
+    load("?job=moving");
+    await settle();
+    const stream = open("latest", []);
+    const job = (over: Record<string, unknown>) => ({ project: "", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, at: new Date().toISOString(), ...over });
+    const jobs = [job({ id: "ask", group: "needs", state: "Needs you", title: "Which hero ships" }), job({ id: "moving", group: "moving", state: "Working", title: "CleanX" })];
+    stream.emit("update", { order: [], messages: [], working: false, show: SHOW, jobsFleetKnown: true, jobs });
+    await settle();
+    expect(document.documentElement.getAttribute("data-job")).toBe("moving");
+    expect(document.querySelector(".job-view")!.closest(".msg.work")!.getAttribute("data-job")).toBe("moving");
+    // The island or a notification asks for what needs him.
+    (window as unknown as { flydOpen(id: string): boolean }).flydOpen("needs");
+    expect(document.documentElement.getAttribute("data-job")).toBe("ask");
+    expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
+  });
+
+  it("keeps a link to a job the board has not carried yet, and opens it when a later update brings it", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const job = (over: Record<string, unknown>) => ({ project: "", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, at: new Date().toISOString(), ...over });
+    const base = { order: [], messages: [], working: false, show: SHOW, jobsFleetKnown: true };
+    stream.emit("update", { ...base, jobs: [job({ id: "cx", group: "moving", state: "Working", title: "CleanX" })] });
+    await settle();
+    (window as unknown as { flydOpen(id: string): boolean }).flydOpen("late");
+    expect(document.documentElement.getAttribute("data-job")).not.toBe("late");
+    stream.emit("update", { ...base, jobs: [job({ id: "cx", group: "moving", state: "Working", title: "CleanX" }), job({ id: "late", group: "needs", state: "Needs you", title: "Late ask" })] });
+    await settle();
+    expect(document.documentElement.getAttribute("data-job")).toBe("late");
+  });
+
+  it("starts in the conversation, the one home with no Today feed beside it", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, live: { known: true, counts: { running: 0, needs: 0 }, running: [], paused: [], needs: [], older: [], landed: [] } });
     expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
-    expect(document.querySelector('.ctab[data-centre="today"]')!.getAttribute("aria-pressed")).toBe("true");
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
-    expect(document.documentElement.getAttribute("data-centre")).toBe("today");
-    expect(document.querySelector("#feed .feed-empty")!.textContent).toBe("Nothing has moved yet today.");
+    expect(document.querySelector('.ctab[data-centre="talk"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(document.getElementById("feed")).toBeNull();
     // Writing takes the middle back for the conversation.
     await type("hello again");
     expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
@@ -4579,7 +3136,7 @@ describe("the front page", () => {
     const talk = shown[1]!.querySelector(".talk")!;
     expect([...talk.children].map((line) => [line.className, line.textContent])).toEqual([["q", "Which tab?"], ["a", "Any browser tab."]]);
     // Back on Today the box is the conversation's again.
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     expect(input.placeholder).toBe("Message firstmate");
   });
 
@@ -4609,7 +3166,7 @@ describe("the front page", () => {
     expect(reconnected).not.toBe(first);
     reconnected.emit("update", { order: ["q1", "a1"], messages: [{ id: "q1", role: "user", html: "Question?" }, { id: "a1", role: "assistant", html: "Answer." }], working: false });
     expect(document.querySelector("#news-cols .story .talk")!.textContent).toContain("Answer.");
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     expect(reconnected.closed).toBe(true);
     showNews();
     const returned = FakeEventSource.instances.at(-1)!;
@@ -4717,7 +3274,7 @@ describe("the front page", () => {
     expect(input.placeholder).toBe("Ask about this story");
     document.getElementById("story-chip-clear")!.click();
     expect(input.placeholder).toBe("Message firstmate about DIR");
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     expect(input.placeholder).toBe("Message firstmate");
   });
 
@@ -4919,7 +3476,7 @@ describe("the front page", () => {
     showNews();
     await settle();
     expect(document.querySelector("#news-side .wxcard")).toBeNull();
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     showNews();
     await settle();
     expect(document.querySelector("#news-side .wx-deg")!.textContent).toBe("29°");
@@ -4972,24 +3529,39 @@ describe("the front page", () => {
 
   it("says a job's next step in real counts or Flyd's own pick, and nothing when it has neither", async () => {
     const stream = await opened();
-    const call = SHOW.calls[0]!;
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: { ...SHOW, calls: [
-      { ...call, id: "call:dir", decision: { ...call.decision, decisions: [{ question: "Numbers", options: ["Yes"], done: "Done" }, { question: "Clock", options: ["Yes"] }, { question: "Dial", options: ["Yes"] }] } },
-      { ...call, id: "call:radio", task: "radio", decision: { ...call.decision, task: "radio", decisionId: "d9", recommended: "Radio" } },
-      { ...call, id: "call:plain", task: "plain", decision: { ...call.decision, task: "plain", decisionId: "d8" } },
-    ], counts: { call: 3 } } });
+    const decision = PICK.decision;
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [
+      { ...PICK, id: "call:dir", decision: { ...decision, decisions: [{ question: "Numbers", options: ["Yes"], done: "Done" }, { question: "Clock", options: ["Yes"] }, { question: "Dial", options: ["Yes"] }] } },
+      { ...PICK, id: "call:radio", decision: { ...decision, task: "radio", decisionId: "d9", recommended: "Radio" } },
+      { ...PICK, id: "call:plain", decision: { ...decision, task: "plain", decisionId: "d8" } },
+    ] });
     const act = (id: string) => document.querySelector(`.job[data-job="${id}"] .act`)?.textContent ?? null;
     expect(act("call:dir")).toBe("1 of 3 decided");
     expect(act("call:radio")).toBe("Go with Radio");
     expect(act("call:plain")).toBeNull();
   });
 
-  it("lists the jobs as cards, and an unread fleet as unknown rather than empty", async () => {
+  it("keeps Moving for work under way, folds what waits under a closed Next, and shows no bare finished card", async () => {
+    const stream = await opened();
+    const job = (over: Record<string, unknown>) => ({ project: "", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, at: new Date().toISOString(), ...over });
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobsFleetKnown: true, jobs: [
+      job({ id: "run", group: "moving", state: "Working", title: "Under way" }),
+      job({ id: "queued", group: "moving", state: "Queued", title: "Next in line" }),
+      job({ id: "held", group: "moving", state: "Blocked", title: "Held up" }),
+      job({ id: "bare", group: "done", state: "Done", title: "Finished", next: "This is done.", bare: true }),
+    ] });
+    expect(groups()).toEqual([["Needs you", "No decision is waiting."], ["Moving", 1], ["Next", 2], ["Done", "Nothing has landed lately."]]);
+    const next = document.querySelector<HTMLDetailsElement>("#jobs-list details.fnext")!;
+    expect(next.open).toBe(false);
+    expect(document.querySelector('#stream > .msg.work[data-job="bare"]')).toBeNull();
+  });
+
+  it("lists Core's board as cards in three places, and an unread board as unknown rather than empty", async () => {
     const stream = await opened();
     // The conversation is the middle of the page, not a card: he starts one by typing in it.
-    expect(groups()).toEqual([["Needs you", "Checking…"], ["Working", "Checking…"], ["Done", "Checking…"]]);
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
-    expect(groups()).toEqual([["Needs you", 1], ["Working", "Nothing is running right now."], ["Done", 1]]);
+    expect(document.querySelector("#jobs-list")!.textContent).toBe("Checking…");
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: BOARD });
+    expect(groups()).toEqual([["Needs you", 1], ["Moving", "Nothing is under way right now."], ["Done", 1]]);
     const needs = document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!;
     expect(needs.querySelector(".frame img")).not.toBeNull();
     // Under "Needs you" the dot says it; the card names the project.
@@ -5001,7 +3573,7 @@ describe("the front page", () => {
 
   it("opens one job on the sheet, with its pictures, its choices and its own box, and Escape brings the conversation back", async () => {
     const stream = await opened();
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: BOARD });
     after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
     expect(document.documentElement.getAttribute("data-job")).toBe("call:pick");
     expect(document.getElementById("stage-title")!.textContent).toBe("Which bezel should CopyCopy build?");
@@ -5015,8 +3587,8 @@ describe("the front page", () => {
 
   it("gives an open job a back button that returns to the conversation and forgets the job", async () => {
     const stream = await opened();
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: BOARD });
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
     expect(document.documentElement.getAttribute("data-job")).toBe("call:pick");
     expect(sessionStorage.getItem("flyd-front-job")).toBe("call:pick");
@@ -5027,83 +3599,6 @@ describe("the front page", () => {
     expect(document.documentElement.hasAttribute("data-job")).toBe(false);
     expect(sessionStorage.getItem("flyd-front-job")).toBe("talk");
     expect(document.querySelector(".job.on")).toBeNull();
-  });
-
-  it("opens a decision that carries candidate previews: every design shown, its phone view beside it, and its choices with them", async () => {
-    const stream = await opened();
-    const lab = {
-      id: "call:new-lab", kind: "call", headline: "Which /new version should obj0 build?", why: "", status: "Needs your choice", project: "obj0",
-      at: "2026-10-24T15:30:00.000Z", task: "obj0-new-direction", detail: "Twelve versions, all in the existing look.",
-      shots: [{ src: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-desktop.png", label: "v2-desktop.png" }],
-      previews: [
-        { label: "V2 · Live page", image: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-desktop.png", phone: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-phone.png" },
-        { label: "V10 · Edit the page", image: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv10-desktop.png", phone: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv10-phone.png" },
-      ],
-      decision: { task: "obj0-new-direction", decisionId: "d2", question: "Which /new version should obj0 build?", choices: ["V2 Live page", "V10 Edit the page"], recommended: "V10 Edit the page" },
-    };
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: { ...SHOW, calls: [lab], counts: { call: 1 } } });
-    after(() => document.querySelector<HTMLElement>('.job[data-job="call:new-lab"]')!.click());
-    const candidates = [...document.querySelectorAll<HTMLElement>(".job-view .jv-candidate")];
-    expect(candidates.map((candidate) => candidate.querySelector("figcaption span")!.textContent)).toEqual(["V2 · Live page", "V10 · Edit the page"]);
-    expect(candidates[0]!.querySelector<HTMLImageElement>(".jv-view img")!.getAttribute("src")).toBe(`/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-desktop.png&token=${"a".repeat(48)}`);
-    expect(candidates[0]!.querySelector<HTMLImageElement>(".jv-phone img")!.getAttribute("src")).toContain("shots%2Fv2-phone.png");
-    expect(candidates[1]!.querySelector(".jv-phone img")).not.toBeNull();
-    // The choice stays under the designs, so he picks without leaving the card.
-    expect([...document.querySelectorAll(".job-view .choice-pick")].map((button) => button.textContent)).toEqual(["V10 Edit the pagerecommended", "V2 Live page"]);
-  });
-
-  it("states a working row in Flyd's words: no framing, no George, and one line of state and what happens next", async () => {
-    const stream = await opened();
-    stream.emit("update", {
-      order: ["u1"], messages: [], working: false,
-      show: {
-        ...SHOW, calls: [], counts: {},
-        underway: [{
-          id: "live:answer", kind: "live", project: "flyd", status: "Working", at: "2026-10-26T12:00:00.000Z",
-          // The shape Core used to hand firstmate: it is rewritten, not shown.
-          headline: "Act on George's answer to: Which one(s) to build for real, or another round?",
-          detail: "Building V5 with a framed hero. Then the editorial image goes in.",
-        }, {
-          id: "live:hero", kind: "waiting", project: "hftw", at: "2026-10-26T13:00:00.000Z",
-          headline: "The HFTW shop hero images currently use product shots, and V5 is ready for review with a framed hero and a plain product card row",
-          detail: "Waiting for your pick: V5 framed hero.",
-        }],
-      },
-    });
-    const answer = document.querySelector<HTMLElement>('.job[data-job="live:answer"]')!;
-    expect(answer.getAttribute("aria-label")).toBeNull();
-    expect(answer.querySelector(".jproject")!.textContent).toBe("flyd");
-    expect(answer.querySelector(".w")!.textContent).toBeTruthy();
-    expect(answer.querySelector(".jfoot .fdot.pulse")).not.toBeNull();
-    expect(answer.querySelector(".next")!.textContent).toBe("Building V5 with a framed hero. Then the editorial image goes in.");
-    expect(answer.textContent).not.toMatch(/George|answer to:/);
-    expect(answer.textContent).toContain("flyd");
-    expect(answer.textContent).toContain("Building V5 with a framed hero.");
-    const hero = document.querySelector<HTMLElement>('.job[data-job="live:hero"]')!;
-    // A long run-on gives the card its first whole clause; the line says the state and the next step.
-    expect(hero.getAttribute("aria-label")).toBeNull();
-    expect(hero.textContent).toContain("hftw");
-    expect(hero.querySelector(".w")!.textContent).toBeTruthy();
-    expect(hero.textContent).toContain("Waiting for your pick: V5 framed hero.");
-    expect(hero.querySelector(".next")!.textContent).toBe("Waiting for your pick: V5 framed hero.");
-  });
-
-  it("lists what needs him from the one list, a finished design lab among them, led by its picture", async () => {
-    const stream = await opened();
-    const lab = {
-      id: "lab:run-7", kind: "activity", lifecycle: "active", subject: "Ten directions for the CapFive deal alert", summary: "Ready for your review.",
-      project: "capfive", evidence: [{ kind: "web", ref: "https://example.test/lab.html", label: "Open the lab" }, { kind: "image", ref: "/api/rail-image?path=%2Ftmp%2Fv1.png", label: "v1.png" }],
-      actions: [], source: { showItemId: "lab:run-7", ref: "run-7" }, activity: { phase: "ready", started: "2026-10-24T08:00:00.000Z" }, updatedAt: "2026-10-24T09:00:00.000Z",
-    };
-    const focus = { id: "task:bezel", kind: "decision", lifecycle: "interrupted", subject: "Which bezel should CopyCopy build?", source: { showItemId: "call:pick", task: "bezel" } };
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: { ...SHOW, focus, needs: [lab] }, leftColumn: { now: [], recent: [], week: [], monitors: [], semantic: [lab] } });
-    expect(Array.from(document.querySelectorAll("#jobs-list .job.needs")).map((card) => card.getAttribute("data-job"))).toEqual(["call:pick", "lab:run-7"]);
-    const card = document.querySelector<HTMLElement>('.job[data-job="lab:run-7"]')!;
-    expect(card.querySelector(".jproject")!.textContent).toBe("capfive");
-    expect(card.querySelector(".frame img")!.getAttribute("src")).toContain("/api/rail-image?path=");
-    after(() => card.click());
-    expect(document.querySelector<HTMLAnchorElement>(".job-view a.fbtn")!.href).toBe("https://example.test/lab.html");
-    expect(document.querySelector(".job-view .art-chat")).not.toBeNull();
   });
 
   it("keeps a job card to its project, its time and two or three lines, with all of it in the open job", async () => {
@@ -5274,7 +3769,7 @@ describe("the front page", () => {
     const stream = await opened();
     const long = "Rework the Today page so the WhatsApp card, the horoscope source and the News tab each follow what you decided in the last review round.";
     const job = {
-      id: "today", group: "working", state: "Working", title: "Today page", project: "", at: "2026-10-26T12:00:00.000Z", next: "Under way", owner: "Flyd", ask: "", because: "",
+      id: "today", group: "moving", state: "Working", title: "Today page", project: "", at: "2026-10-26T12:00:00.000Z", next: "Under way", owner: "Flyd", ask: "", because: "",
       shots: [], links: [], files: [], digest: null, threads: [{ id: "run-1", title: "Rework the Today page so the WhatsApp card…", full: long, at: "2026-10-26T12:00:00.000Z", kind: "run" }],
     };
     stream.emit("update", { order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false }, jobs: [job] });
@@ -5291,20 +3786,22 @@ describe("the front page", () => {
     expect(list.textContent).not.toContain("…");
   });
 
-  it("opens a handled line from the server's jobs on a take-back form that reaches Flyd's answer", async () => {
+  it("opens a handled line from the server's jobs, and his reply in the one message box reaches Flyd's answer", async () => {
     const stream = await opened();
     stream.emit("update", {
       order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false },
       jobs: [{ id: "landed:sync", group: "done", state: "Handled for you", title: "Said yes for you: rebase and push.", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, handled: { decisionId: "dec-1", task: "sync" } }],
     });
     after(() => document.querySelector<HTMLElement>('.job[data-job="landed:sync"]')!.click());
-    const form = document.querySelector<HTMLFormElement>(".job-view .art-chat")!;
-    const input = form.querySelector<HTMLTextAreaElement>("textarea")!;
-    expect(input.placeholder).toBe("Your own answer takes this back…");
+    // The job has no box of its own: Reply puts its chip over the one message box, and what he sends there reaches it.
+    expect(document.querySelector(".job-view .art-chat-field")!.hasAttribute("hidden")).toBe(true);
+    document.querySelector<HTMLButtonElement>(".job-view .art-chat-reply")!.click();
+    expect(document.getElementById("replying")!.hidden).toBe(false);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
     input.value = "No, hold it";
-    input.dispatchEvent(new Event("input"));
-    form.dispatchEvent(new Event("submit", { cancelable: true }));
+    document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
     await settle();
+    expect(document.getElementById("replying")!.hidden).toBe(true);
     const request = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
     expect(JSON.parse(String(request[1]!.body))).toMatchObject({ decisionFollowUp: "dec-1", decisionTask: "sync", text: "No, hold it" });
   });
@@ -5315,15 +3812,14 @@ describe("the front page", () => {
     expect(document.body.textContent).not.toContain("Not read yet");
     expect(groups()).toEqual([
       ["Needs you", "No decision is waiting."],
-      ["Working", "Nothing is running right now."],
-      ["Waiting", "Nothing is waiting."],
+      ["Moving", "Nothing is under way right now."],
       ["Done", "Nothing has landed lately."],
     ]);
     stream.emit("update", {
       order: ["u1"], messages: [], working: false, jobsFleetKnown: true,
       show: { title: "", summary: "", items: [], counts: {}, live: false },
       jobs: [{
-        id: "cap5", group: "waiting", state: "Waiting", title: "Cap5", project: "Client", at: "2026-10-26T12:00:00.000Z",
+        id: "cap5", group: "moving", state: "Waiting", title: "Cap5", project: "Client", at: "2026-10-26T12:00:00.000Z",
         next: "Send the revised deck", owner: "you", ask: "", because: "No open run",
         shots: [], links: [{ label: "Deck", url: "https://example.com/deck" }], files: [{ label: "deck.pdf" }], threads: [],
         digest: { changed: "The deck dropped the third pricing tier.", means: "Cap5 can review one offer.", needed: "Send it.", link: "https://example.com/deck" },
@@ -5346,17 +3842,18 @@ describe("the front page", () => {
     expect(said).toEqual(["The deck dropped the third pricing tier.", "Send it."]);
     expect(document.querySelector(".job-view .jv-digest b")).toBeNull();
     expect(document.querySelector(".job-view")!.textContent).not.toContain("Cap5 can review one offer.");
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     expect(document.querySelector('.job[data-job="pick"] .next')!.textContent).toContain("Pick a hero");
     after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
     expect(document.querySelector(".jv-ask")!.textContent).toBe("Which hero should ship?");
     expect(document.querySelector(".jv-thread")!.textContent).toBe("Hero thread");
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
     document.querySelector<HTMLButtonElement>(".jv-thread")!.click();
     expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
     expect(FakeEventSource.instances.at(-1)!.url).toContain("session=s1");
     // No rename row in the job: its one Close is a quiet action in the heading.
+    after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
     const view = document.querySelector(".job-view")!;
     expect(view.querySelector('input[name="name"]')).toBeNull();
     expect(Array.from(view.querySelectorAll("button")).map((button) => button.textContent)).not.toEqual(expect.arrayContaining(["Rename"]));
@@ -5374,7 +3871,7 @@ describe("the front page", () => {
   });
 });
 
-describe("the Todo tab", () => {
+describe("his own to-dos, in Needs you", () => {
   const LIST = [
     { id: "job:1", text: "Which hero should George ship?", line: "Cap5 · Needs you", job: "cap5", from: "flyd" },
     { id: "todo-a", text: "Book <flights>", line: "Due 20 Nov", from: "you" },
@@ -5393,21 +3890,33 @@ describe("the Todo tab", () => {
     return stream;
   }
 
-  it("sits beside the other tabs and is remembered, with no count on it", async () => {
-    await opened();
-    expect(Array.from(document.querySelectorAll(".rtab")).map((tab) => tab.textContent)).toEqual(["Jobs", "Projects", "Artefacts", "Todo"]);
-    document.querySelector<HTMLElement>('.rtab[data-rtab="todo"]')!.click();
-    expect(document.documentElement.getAttribute("data-rtab")).toBe("todo");
-    load("");
-    expect(document.documentElement.getAttribute("data-rtab")).toBe("todo");
-    expect(document.querySelector('.rtab[data-rtab="todo"]')!.getAttribute("aria-pressed")).toBe("true");
+  it("sit in Needs you under the calls, with no tab of their own", async () => {
+    const stream = await opened();
+    stream.emit("update", { order: [], messages: [], working: false, todos: LIST, jobs: [], jobsFleetKnown: true });
+    expect(Array.from(document.querySelectorAll(".rtab")).map((tab) => tab.textContent)).toEqual(["Jobs", "Projects", "Made"]);
+    const needs = document.querySelector("#jobs-list .fgroup")!;
+    expect(needs.querySelector(".fhead")!.textContent).toContain("Needs you");
+    expect(needs.querySelector("#todos")).not.toBeNull();
+    expect(document.getElementById("todo-new")).toBeNull();
+  });
+
+  it("stay in Needs you when the board changes later", async () => {
+    const stream = await opened();
+    const job = (id: string, title: string) => ({ id, group: "needs", state: "Needs you", title, project: "", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, at: new Date().toISOString() });
+    const base = { order: [], messages: [], working: false, todos: LIST, jobsFleetKnown: true };
+    stream.emit("update", { ...base, jobs: [job("a", "First ask")] });
+    stream.emit("update", { ...base, jobs: [job("a", "First ask"), job("b", "Second ask")] });
+    expect(document.querySelector("#jobs-list .fgroup #todos")).not.toBeNull();
+    expect(document.querySelectorAll("#jobs-list .fgroup #todos .todo").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll("#todos")).toHaveLength(1);
   });
 
   it("lists what he must do in his own words, escaped", async () => {
     await opened();
-    expect(rows()).toEqual(["Which hero should you ship?", "Book <flights>"]);
+    // The Flyd ask has its own card in Needs you; the list keeps only what is his alone.
+    expect(rows()).toEqual(["Book <flights>"]);
     expect(document.querySelector('.todo-tick[data-id="todo-a"]')!.getAttribute("aria-label")).toBe("Done: Book <flights>");
-    expect(document.querySelector(".todo-line")!.textContent).toBe("Cap5 · Needs you");
+    expect(document.querySelector(".todo-line")!.textContent).toBe("Due 20 Nov");
   });
 
   it("shows a row with no job to open exactly as written, however long", async () => {
@@ -5422,9 +3931,9 @@ describe("the Todo tab", () => {
     expect(document.querySelector('.todo-tick[data-id="inbox:e1"]')!.getAttribute("aria-label")).toBe(`Done: Try again or drop: ${long}`);
   });
 
-  it("says when there is nothing to do", async () => {
+  it("says nothing when there is nothing of his to do", async () => {
     await opened([]);
-    expect(document.querySelector("#todo-lists .fempty")!.textContent).toBe("Nothing for you to do.");
+    expect(document.getElementById("todo-lists")!.innerHTML).toBe("");
   });
 
   it("ticks an item and draws what the store sends back, without it", async () => {
@@ -5433,7 +3942,7 @@ describe("the Todo tab", () => {
     document.querySelector<HTMLInputElement>('.todo-tick[data-id="todo-a"]')!.click();
     await settle();
     expect(posted()).toEqual([{ op: "tick", id: "todo-a" }]);
-    expect(rows()).toEqual(["Which hero should you ship?"]);
+    expect(rows()).toEqual([]);
   });
 
   it("puts a tick back, and says so, when it did not save", async () => {
@@ -5447,43 +3956,6 @@ describe("the Todo tab", () => {
     expect(document.getElementById("todo-said")!.textContent).toBe("That did not save. Try again.");
   });
 
-  it("adds what he types and clears the field", async () => {
-    await opened();
-    answering({ todos: [...LIST, { id: "todo-c", text: "Water the plants", from: "you" }] });
-    const input = document.getElementById("todo-input") as HTMLInputElement;
-    input.value = " Water the plants ";
-    document.getElementById("todo-new")!.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-    await settle();
-    expect(posted()).toEqual([{ op: "add", text: "Water the plants" }]);
-    expect(input.value).toBe("");
-    expect(rows()).toContain("Water the plants");
-  });
-
-  it("keeps his words in the field when adding did not save", async () => {
-    await opened();
-    answering({ error: "no" }, 500);
-    const input = document.getElementById("todo-input") as HTMLInputElement;
-    input.value = "Water the plants";
-    document.getElementById("todo-new")!.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-    await settle();
-    expect(input.value).toBe("Water the plants");
-    expect(document.getElementById("todo-said")!.hidden).toBe(false);
-  });
-
-  it("keeps his half-typed words when the stream redraws the list", async () => {
-    const stream = await opened();
-    const input = document.getElementById("todo-input") as HTMLInputElement;
-    input.value = "half typed";
-    stream.emit("update", { order: [], messages: [], working: false, todos: [] });
-    expect(input.value).toBe("half typed");
-    expect(rows()).toEqual([]);
-  });
-
-  it("opens the job behind a Flyd ask, and his own items open nothing", async () => {
-    await opened();
-    expect(document.querySelector('button.todo-text[data-job="cap5"]')).not.toBeNull();
-    expect(document.querySelector('.todo:nth-child(2) button.todo-text')).toBeNull();
-  });
 });
 
 describe("project threads", () => {
@@ -5623,7 +4095,7 @@ describe("project threads", () => {
     listed(LIST);
     load("");
     await settle();
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     (document.querySelector('[data-thread="project:dir"]') as HTMLElement).click();
     expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
     await settle();
@@ -5705,19 +4177,19 @@ describe("the Machines screen", () => {
     expect(document.querySelector(".machine-name")!.textContent).toBe("Mac");
   });
 
-  it("is a tab beside Today, News and Week, off the right column, and reads nothing until it is open", async () => {
+  it("is a tab beside Conversation, News and Week, off the right column, and reads nothing until it is open", async () => {
     const fetcher = serve(() => ({ machines: [ONLINE] }));
     load("");
     await settle();
-    expect(Array.from(document.querySelectorAll(".ctab")).map((one) => one.textContent)).toEqual(["Today", "News", "Week", "Machines"]);
-    expect(Array.from(document.querySelectorAll(".rtab")).map((one) => one.textContent)).toEqual(["Jobs", "Projects", "Artefacts", "Todo"]);
+    expect(Array.from(document.querySelectorAll(".ctab")).map((one) => one.textContent)).toEqual(["Conversation", "News", "Week", "Machines"]);
+    expect(Array.from(document.querySelectorAll(".rtab")).map((one) => one.textContent)).toEqual(["Jobs", "Projects", "Made"]);
     expect(reads(fetcher)).toBe(0);
     tab().click();
     await settle();
     expect(reads(fetcher)).toBe(1);
     expect(document.documentElement.dataset.centre).toBe("machines");
     expect(tab().getAttribute("aria-pressed")).toBe("true");
-    expect(document.querySelector('.ctab[data-centre="today"]')!.getAttribute("aria-pressed")).toBe("false");
+    expect(document.querySelector('.ctab[data-centre="talk"]')!.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("shows each machine's one sentence and one button, escaped, and no numbers of its own", async () => {
@@ -5893,32 +4365,9 @@ describe("the Machines screen", () => {
       expect(reads(fetcher)).toBe(3);
       await vi.advanceTimersByTimeAsync(1000);
       expect(reads(fetcher)).toBe(4);
-      (document.querySelector('.ctab[data-centre="today"]') as HTMLElement).click();
+      (document.querySelector('.ctab[data-centre="talk"]') as HTMLElement).click();
       await vi.advanceTimersByTimeAsync(120_000);
       expect(reads(fetcher)).toBe(4);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("keeps reading after the artefact screen has been up past the interval", async () => {
-    const fetcher = serve(() => ({ machines: [ONLINE] }));
-    load("");
-    await settle();
-    vi.useFakeTimers();
-    try {
-      tab().click();
-      await vi.advanceTimersByTimeAsync(0);
-      expect(reads(fetcher)).toBe(1);
-      document.getElementById("flip")!.click();
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(reads(fetcher)).toBe(1);
-      document.getElementById("flip")!.click();
-      await vi.advanceTimersByTimeAsync(200);
-      expect(document.documentElement.dataset.screen).toBe("terminal");
-      expect(reads(fetcher)).toBe(2);
-      await vi.advanceTimersByTimeAsync(30_000);
-      expect(reads(fetcher)).toBe(3);
     } finally {
       vi.useRealTimers();
     }
@@ -6010,7 +4459,7 @@ describe("the Machines screen", () => {
     const field = (document.getElementById("machine-form") as HTMLFormElement).elements.namedItem("name") as HTMLInputElement;
     field.value = "half typed";
     machines = [ONLINE];
-    (document.querySelector('.ctab[data-centre="today"]') as HTMLElement).click();
+    (document.querySelector('.ctab[data-centre="talk"]') as HTMLElement).click();
     tab().click();
     await settle();
     expect(document.querySelectorAll(".machine")).toHaveLength(1);

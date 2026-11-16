@@ -77,7 +77,10 @@ describe("E1: the design-team call re-filed 15 times in new words", () => {
   it("rings once for its hold's lifecycle, in whatever words, and again only when the hold is raised again", () => {
     let clock = NOW;
     const rung = new IslandRung(null, 500, () => clock);
-    const ring = (identity: string, question: string) => rung.once(islandStatusOf({ working: false }, emptyFleet({ calls: [{ label: question, question, task: "flyd-design-team-call", holdIdentity: identity }] }))).reply;
+    const ring = (identity: string, question: string) => {
+      const fleet = emptyFleet({ calls: [{ label: question, question, task: "flyd-design-team-call", holdIdentity: identity }] });
+      return rung.once(islandStatusOf({ working: false }, fleet, boardOf(fleet, clock))).reply;
+    };
     expect(ring("2026-11-11T04:37:00Z#0", "Cut or keep the design team?")).toBeDefined();
     // Half an hour later the executive re-files it in new words: the same question, no ring.
     clock += 30 * 60_000;
@@ -138,12 +141,12 @@ describe("E3 and E6: Flyd's own runs frozen at needs_decision", () => {
     expect(settleClosedRuns(row("x"), { dir }).map((item) => item.status)).toEqual(["cancelled"]);
   });
 
-  it("a run nothing in the record names stops asking him after three days", () => {
+  it("a run nothing in the record names still asks him after three days: an unanswered ask is never parked", () => {
     const stuck = jobRunFromDomain(run("flyd-project-threads-1794406370827", { updatedAt: new Date(NOW - 4 * DAY).toISOString() }));
     const fresh = jobRunFromDomain(run("domain-fresh-question", { updatedAt: new Date(NOW - DAY).toISOString() }));
     const groups = jobsFrom({ now: NOW, runs: [stuck, fresh] }).jobs.map((job) => [job.because, job.group]);
     expect(groups).toContainEqual(["Run domain-fresh-question is waiting on a decision", "needs"]);
-    expect(groups.find(([because]) => String(because).includes("flyd-project-threads"))?.[1]).toBe("waiting");
+    expect(groups.find(([because]) => String(because).includes("flyd-project-threads"))?.[1]).toBe("needs");
   });
 });
 
@@ -252,9 +255,9 @@ describe("an old call firstmate still confirms open", () => {
     const fleet = feed.current().fleet!;
     expect(fleet.calls.map((row) => [row.task, row.quiet === true])).toEqual([["dir-controls-lab-choice", true]]);
     expect(decided.map((change) => [change.taskId, change.quiet])).toEqual([["dir-controls-lab-choice", true]]);
-    expect(islandStatusOf({ working: false }, fleet).reply).toBeUndefined();
-    // Needs you holds only fresh calls: an old one waits.
-    expect(boardOf(fleet, Date.now()).map((job) => job.group)).toEqual(["waiting"]);
+    expect(islandStatusOf({ working: false }, fleet, boardOf(fleet, Date.now())).reply).toBeUndefined();
+    // It never rings again, but an unanswered ask stays on Needs you where he can still answer it.
+    expect(boardOf(fleet, Date.now()).map((job) => job.group)).toEqual(["needs"]);
   });
 
   it("asks him as usual while it is still fresh", async () => {
@@ -266,7 +269,7 @@ describe("an old call firstmate still confirms open", () => {
     await feed.refresh();
     const fleet = feed.current().fleet!;
     expect(fleet.calls.map((row) => [row.task, row.quiet === true])).toEqual([["dir-controls-lab-choice", false]]);
-    expect(islandStatusOf({ working: false }, fleet).reply).toMatchObject({ asks: true, lifecycle: true });
+    expect(islandStatusOf({ working: false }, fleet, boardOf(fleet, Date.now())).reply).toMatchObject({ asks: true, lifecycle: true });
     expect(boardOf(fleet, Date.now()).map((job) => job.group)).toEqual(["needs"]);
   });
 });
