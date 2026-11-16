@@ -575,6 +575,26 @@ describe("FirstMate domain transport", () => {
     expect(inTime!.status).toBe("failed");
   });
 
+  it("settles a held report-less run as the terminal report failure once its re-request goes unanswered past the wait", async () => {
+    const askedAt = "2026-10-09T01:00:00.000Z";
+    saveDomainRun({
+      ...queuedRun(), status: "working", updatedAt: askedAt, result: parseDomainResult("Done and merged.").result,
+      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1", replyCursor: "000000000001" },
+      handoffRetry: { askedAt, cursor: "000000000001", missing: ["brief", "report", "evidence"] },
+    });
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true }] }), stderr: "" });
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+
+    expect(await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T12:00:00.000Z") })).toEqual([]);
+    expect(listDomainRuns()[0]!.status).toBe("working");
+
+    const [failed] = await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-11T01:00:00.000Z") });
+    expect(failed!.status).toBe("failed");
+    expect(failed!.failure).toContain("report (no prose account of what was done)");
+    expect(failed!.report).toBeDefined();
+    expect(await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-12T01:00:00.000Z") })).toEqual([]);
+  });
+
   it("accepts a FirstMate return that meets the contract after light normalisation, without a re-request", async () => {
     saveDomainRun({ ...queuedRun(), status: "accepted" });
     // The whole reply one fence around an outer object, keys in other casings, evidence as one string.

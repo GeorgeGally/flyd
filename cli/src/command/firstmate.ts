@@ -781,6 +781,21 @@ async function askForAStructuredHandoff(run: DomainRun, missing: HandoffLayer[],
   return commitDomainRun(sent.run, { ...sent.run, handoffRetry: { askedAt: now.toISOString(), ...(cursor ? { cursor } : {}), missing } });
 }
 
+/** A report-less first reply is held as "working" (nothing announced) until its one re-request is answered. */
+function withheldForReRequest(run: DomainRun): DomainRun {
+  const { report: _report, notified: _notified, ...rest } = run;
+  return { ...rest, status: "working" };
+}
+
+/** The terminal report-layer failure for a held run whose one re-request went unanswered past the wait, else undefined. */
+function unansweredReportFailure(run: DomainRun, now: Date): DomainRun | undefined {
+  const retry = run.handoffRetry;
+  if (run.status !== "working" || !retry || retry.answeredAt || !retry.missing.includes("report")) return undefined;
+  if (now.getTime() - Date.parse(retry.askedAt) <= HANDOFF_RETRY_WAIT_MS) return undefined;
+  const reason = handoffFailureReason(retry.missing);
+  return { ...run, status: "failed", failure: reason, incompleteReason: reason, handoffRetry: { ...retry, answeredAt: now.toISOString() }, report: dueReport("failed", now.toISOString()), updatedAt: now.toISOString() };
+}
+
 export async function syncFirstmateDomainRuns(options: {
   transport?: FirstmateDomainTransport;
   now?: () => Date;
@@ -855,6 +870,13 @@ export async function syncFirstmateDomainRuns(options: {
   const notes = [...(receipts.pending ?? []), ...(receipts.handled ?? [])];
   const changed: DomainRun[] = [];
   for (const run of runs) {
+    const lapsed = unansweredReportFailure(run, new Date(nowMs));
+    if (lapsed) {
+      const settled = commitDomainRun(run, lapsed);
+      changed.push(settled);
+      await options.onChanged?.(settled);
+      continue;
+    }
     // fm-inbox.sh takes one reply per note, so FirstMate answers each of
     // George's later decisions or corrections on that message's own note.
     const noteIds = new Set([run.transport.externalId, ...(run.messages ?? []).map((message) => message.externalId)].filter(Boolean));
@@ -974,6 +996,9 @@ export async function syncFirstmateDomainRuns(options: {
         };
       }
     }
+    const held = reRequest?.missing.includes("report") ? withheldForReRequest(next) : undefined;
+    const settledNext = next;
+    if (held) next = held;
     if (JSON.stringify(next) === JSON.stringify(run)) continue;
     // Only what this sync changed is applied, so a message `flyd view` sent meanwhile survives.
     next = commitDomainRun(run, next);
@@ -981,10 +1006,7 @@ export async function syncFirstmateDomainRuns(options: {
     if (statusUnclear && !next.statusAskedAt && next.request.source !== "flyd") next = await askForAClearStatus(next, unclearFrom, transport, (options.now ?? (() => new Date()))());
     if (reRequest) {
       next = await askForAStructuredHandoff(next, reRequest.missing, reRequest.cursor, transport, (options.now ?? (() => new Date()))());
-      if (next.handoffRetry && reRequest.missing.includes("report")) {
-        const { report: _report, notified: _notified, ...pending } = next;
-        next = commitDomainRun(next, { ...pending, status: "working" });
-      }
+      if (held && !next.handoffRetry) next = commitDomainRun(next, { ...settledNext, transport: next.transport, messages: next.messages });
     }
     changed.push(next);
     await options.onChanged?.(next);
