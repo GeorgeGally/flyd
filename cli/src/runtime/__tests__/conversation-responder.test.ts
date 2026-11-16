@@ -701,7 +701,7 @@ describe("buildConversationPrompt", () => {
     }
   });
 
-  it("delivers a long enumeration as an artefact and emits only its summary and reference", async () => {
+  it("answers a long enumeration whole in the chat and keeps a copy in Artefacts", async () => {
     const streamed: string[] = [];
     const kept: string[] = [];
     const items = Array.from({ length: 10 }, (_, index) => `${index + 1}. Part ${index + 1} is moving.`).join("\n");
@@ -718,13 +718,13 @@ describe("buildConversationPrompt", () => {
     });
     expect(kept).toHaveLength(1);
     expect(kept[0]).toContain("10. Part 10 is moving.");
-    expect(answer).toBe("» Here is where the ten parts stand.\n\nThe full breakdown is in Artefacts.");
+    expect(answer).toBe(`Here is where the ten parts stand.\n\n${items}`);
     const chat = streamed.join("");
-    expect(chat).not.toMatch(/Part \d+ is moving/);
-    expect(chat).toContain("Artefacts");
+    expect(chat).toContain("10. Part 10 is moving.");
+    expect(chat).not.toContain("Artefacts");
   });
 
-  it("keeps the model's own summary when it moves a long list to an artefact", async () => {
+  it("keeps the model's own summary and the whole list when it also keeps the list in Artefacts", async () => {
     const kept: string[] = [];
     const items = Array.from({ length: 8 }, (_, index) => `- Part ${index + 1}`).join("\n");
     const answer = await respondToConversation({
@@ -738,8 +738,10 @@ describe("buildConversationPrompt", () => {
       runAgentLoop: async () => `<final>» Eight parts, two blocked on review.\n\nHere's the breakdown:\n${items}\n\nWhich first?</final>`,
       persistReceipt: async (input) => input as never,
     });
-    expect(answer).toBe("» Eight parts, two blocked on review.\n\nThe full breakdown is in Artefacts.");
+    expect(answer.startsWith(`» Eight parts, two blocked on review.\n\nHere's the breakdown:\n${items}\n\nWhich first?`)).toBe(true);
+    expect(answer).not.toContain("Artefacts");
     expect(kept[0]).toContain("- Part 8");
+    expect(kept[0]).not.toContain("»");
   });
 
   it("cuts a ruled-out phrase the rewrite fails to remove", async () => {

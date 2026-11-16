@@ -258,6 +258,23 @@ function ownAnswer(text: string): Pick<RenderedMessage, "summary" | "expanded"> 
   return lead === null ? { body: text } : { body: text, summary: { html: renderMarkdown(lead), source: "flyd" }, ...(isActionable(text) ? { expanded: true } : {}) };
 }
 
+/** What an older answer said in place of its list, before the chat carried the answer whole. */
+const ARTEFACT_POINTER = /\n*The full breakdown is in Artefacts\.\s*$/;
+
+/**
+ * An answer as he reads it whole: Flyd's own lead line opens it as plain
+ * prose, and an older answer that only pointed at Artefacts reads with the
+ * list it kept there. Pure.
+ */
+function wholeAnswer(message: Pick<ConversationMessage, "text" | "artefact">): string {
+  const kept = ARTEFACT_POINTER.test(message.text) ? message.artefact?.trim() : undefined;
+  const lead = message.text.replace(ARTEFACT_POINTER, "").trim();
+  // The list it kept often opens with the very line the pointer led with: that line is said once.
+  const text = !kept ? message.text : kept.startsWith((authorSummary(lead)?.summary ?? lead).trim()) ? kept : `${lead}\n\n${kept}`;
+  const authored = authorSummary(text);
+  return authored ? [authored.summary, authored.rest].filter(Boolean).join("\n\n") : text;
+}
+
 /** With no model reading coming, the reply itself, held to a glance; without its question when a card asks it. */
 function briefOf(text: string, keepAsk = true): NonNullable<RenderedMessage["summary"]> {
   return glance(text, "brief", false, keepAsk);
@@ -584,7 +601,9 @@ export class SnapshotDiffer {
       if (!toHim && relay && relay.kind !== "absorbed" && relay.kind !== "decision" && this.heldRelay(relay.line, asked)) continue;
       // An answer to his own question is never muted as routine: firstmate's is told by Flyd, Flyd's own
       // shows whole when it fits a glance and else leads with its first few lines.
-      const parts: (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null = message.form ? { body: message.text } : message.role !== "assistant" ? { body: plainNote(message.text).thread ? plainNote(message.text).words : message.text }
+      // A long answer to his own question reads whole in the chat, even when Artefacts keeps a copy.
+      const parts: (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string; whole?: true }) | null = message.form ? { body: message.text } : message.role !== "assistant" ? { body: plainNote(message.text).thread ? plainNote(message.text).words : message.text }
+        : (artifact || message.artefact) && !message.aside && (toHim || message.answers?.startsWith("ask:")) ? { body: wholeAnswer(message), whole: true }
         : artifact ? { body: authorSummary(message.text)?.rest ?? message.text, summary: { html: renderMarkdown(`**${artifact.title}**: ${artifact.steps.length} ${artifact.options ? "options" : "steps"}, kept in Artefacts.`), source: "flyd" } }
           : relay && relay.kind !== "absorbed" ? { body: message.text, summary: { html: renderMarkdown(georgeMarkdown(relay)), source: "flyd" } }
             : !message.answers ? (message.aside ? this.relaySummary(message, fresh, toHim, asked) : this.summarize(message, fresh))
@@ -606,7 +625,7 @@ export class SnapshotDiffer {
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
       const card: RenderedMessage["card"] = relay && relay.kind !== "absorbed"
         ? { kind: relay.kind, line: inFlydsVoice(relay.line).replace(/[:;,]$/, ""), ...(relay.kind === "landed" && relay.url ? { url: relay.url } : {}) }
-        : message.role === "assistant" && !message.form && !routine && !message.answers?.startsWith("ask:") && (message.aside || message.answers) ? this.answerCard(message, asked) : undefined;
+        : message.role === "assistant" && !message.form && !routine && !parts.whole && !message.answers?.startsWith("ask:") && (message.aside || message.answers) ? this.answerCard(message, asked) : undefined;
       // The card is his glance: the reply as written waits behind it, never shown twice.
       const staffWords = message.aside === true || message.answers?.startsWith("note:") === true;
       if (card && !parts.summary) parts.summary = briefOf(staffWords ? plainSaid(message.text) : message.text);
@@ -614,7 +633,7 @@ export class SnapshotDiffer {
       // The staff's own words are never opened by default: Flyd's line leads, the original one tap away.
       const expanded = !staffWords && (parts.expanded === true || (card !== undefined && !artifact && isActionable(message.text)));
       // Several pieces of work read as a card each, not as paragraphs; Flyd's own answers stay as written.
-      const outcomes = message.role === "assistant" && !message.form && !routine && !message.answers?.startsWith("ask:") ? outcomesOf(message.text, handled) ?? undefined : undefined;
+      const outcomes = message.role === "assistant" && !message.form && !routine && !parts.whole && !message.answers?.startsWith("ask:") ? outcomesOf(message.text, handled) ?? undefined : undefined;
       const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, artifact, routine, expanded, card, outcomes, message.waiting, message.waitingFailed, message.settled, message.doing, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, message.form, undone.has(message.id)]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
@@ -622,7 +641,7 @@ export class SnapshotDiffer {
         id: message.id,
         role: message.role,
         // His first read is Flyd's briefing; firstmate's own words, links and all, wait behind "more".
-        html: message.form ? answerHtml(message.form) : message.role === "user" ? renderCaptainMarkdown(parts.body) : parts.summary ? renderMarkdown(parts.body) : renderBriefing(parts.body, {}, handled),
+        html: message.form ? answerHtml(message.form) : message.role === "user" ? renderCaptainMarkdown(parts.body) : parts.summary || parts.whole ? renderMarkdown(parts.body) : renderBriefing(parts.body, {}, handled),
         ...(message.images?.length ? { images: message.images } : {}),
         ...(message.files?.length ? { files: message.files } : {}),
         ...(shots.length ? { shots } : {}),

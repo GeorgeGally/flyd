@@ -21,7 +21,7 @@ import { presenceBrief, presenceEnabled, presenceInstructions, understandTurn, t
 import { decisionPolicyBlock, decisionPolicyVersion } from "../lib/decision-policy.js";
 import { roomBrief, type RoomInput } from "./read-the-room.js";
 import type { RoutingTrace } from "./routing-learning.js";
-import { authorSummary, clip as clipProse, sentences } from "../conversation-view/summaries.js";
+import { authorSummary } from "../conversation-view/summaries.js";
 import { artefactRequiredViolation, honestyRewritePrompt, retiredPhraseProblems, retiredPhrasesIn, styleProblems, unsupportedClaims } from "./honesty-check.js";
 import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool, type PersonalToolDependencies } from "./personal-tools.js";
 import { ASSISTANT_TOOL_NAMES, assistantTools, runAssistantTool, type AssistantToolContext } from "./assistant-tools.js";
@@ -95,7 +95,7 @@ interface ConversationInput {
   onCodingHandoff?: (outcome: string) => void;
   /** Local descriptive metadata, never action authority. */
   onUnderstanding?: (turn: TurnUnderstanding) => void;
-  /** The surface's artefact path: a long list or table goes here whole, and chat carries only its summary. */
+  /** The surface's artefact path: a long list or table is also kept here whole; the chat answer still carries all of it. */
   onArtefact?: (body: string) => void;
   /** A shape this surface's answers may take, said to the model for this turn only. */
   formPrompt?: string;
@@ -1472,14 +1472,9 @@ export async function respondToConversation(
     if (containsProviderToolProtocol(final)) {
       throw new Error("Flyd's configured model returned tool protocol markup instead of a user-facing answer");
     }
-    if (input.onArtefact && artefactRequiredViolation(final)) {
-      const authored = authorSummary(final);
-      const body = (authored?.rest ?? final).trim();
-      const intro = authored?.summary ?? body.split("\n").find((line) => line.trim() && !/^\s*(?:[-*+]|\d+[.)]|\||#|```)/.test(line))?.trim();
-      const summary = clipProse(sentences(intro ?? "").slice(0, 2).join(" "), 280) || "Here is the full breakdown.";
-      input.onArtefact(body);
-      final = `» ${summary}\n\nThe full breakdown is in Artefacts.`;
-    }
+    // A long list or table is also kept in Artefacts, but the chat always
+    // carries the answer itself: never a pointer in its place.
+    if (input.onArtefact && artefactRequiredViolation(final)) input.onArtefact((authorSummary(final)?.rest ?? final).trim());
     emit(final);
     await record(connection, toolCalls, final, "succeeded");
 

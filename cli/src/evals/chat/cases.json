@@ -455,7 +455,7 @@
     "category": "conversation",
     "ask": "Give me a ten-item multi-part status update, with each item covering a distinct part of the current Flyd work.",
     "expect": {
-      "judge": "The full ten-item answer is delivered as a Flyd artefact, while the chat shows only a concise summary of at most two sentences plus a reference to the artefact. The ten-item list must not appear as a wall of chat text.",
+      "judge": "The full ten-item answer appears in the chat reply itself, readable and complete. The reply must not replace the list with a pointer to Artefacts or anywhere else.",
       "maxSeconds": 90
     }
   },

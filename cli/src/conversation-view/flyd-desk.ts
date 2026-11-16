@@ -439,7 +439,7 @@ export class FlydDesk {
     const history = earlierAnswered
       .flatMap((earlier) => [
         { role: "user" as const, content: asAsked(earlier, HISTORY_READ_CHARS) },
-        { role: "assistant" as const, content: earlier.artefact ? `${earlier.answer!}\n\n${earlier.artefact}` : earlier.answer! },
+        { role: "assistant" as const, content: earlier.artefact && !earlier.answer!.includes(earlier.artefact) ? `${earlier.answer!}\n\n${earlier.artefact}` : earlier.answer! },
       ]);
     this.write(record);
     this.inFlight.add(record.id);
