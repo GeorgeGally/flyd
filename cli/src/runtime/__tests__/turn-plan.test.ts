@@ -94,6 +94,23 @@ describe("turn plan", () => {
     } finally {
       if (previous === undefined) delete process.env.FLYD_ROUTING_LEARNING; else process.env.FLYD_ROUTING_LEARNING = previous;
     }
+    const fastClarify = { decided: true as const, route: "clarify" as const, confidence: 0.9 } as unknown as Parameters<typeof readRoomStage>[0]["fast"];
+    const fastStage = (gap: string | null) => readRoomStage({
+      message, unattended: false, sessionId: "gnm", fast: fastClarify,
+      roomInput: { message, history: [], now: new Date("2026-11-16T09:00:00Z"), core: "", knowledge: [], notes: [] },
+      readRoom: async (input) => parseRoom(gap ? reading(gap) : reading("x"), input),
+    });
+    process.env.FLYD_ROUTING_LEARNING = "0";
+    try {
+      const fact = await fastStage("fact");
+      expect(fact.reading?.route).toBe("delegate");
+      const pref = await fastStage("preference");
+      expect(pref.reading?.route).toBe("clarify");
+      expect(pref.room).toBeNull();
+      expect((await fastStage(null)).reading?.route).toBe("clarify");
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_ROUTING_LEARNING; else process.env.FLYD_ROUTING_LEARNING = previous;
+    }
     expect(settleClarify("clarify", "fact", "ask")).toBe("answer");
     expect(settleClarify("clarify", null, "do")).toBe("clarify");
     expect(settleClarify("act", "fact", "do")).toBe("act");

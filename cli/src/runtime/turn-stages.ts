@@ -97,7 +97,9 @@ export async function readRoomStage(input: RoomStageInput): Promise<RoomStage> {
   // A sure Jev clarify still gets the room reading: only it tags whether the missing piece is a fact or his preference.
   const readsRoom = !(unattended || (fast?.decided && fast.route !== "clarify") || roomOff || skipped);
   if (readsRoom) input.onReading?.();
-  const room = readsRoom ? await (input.readRoom ?? defaultReadRoom)(roomInput).catch(() => null) : null;
+  const read = readsRoom ? await (input.readRoom ?? defaultReadRoom)(roomInput).catch(() => null) : null;
+  // Jev's sure clarify stands unless the room tags the gap a fact; only then does the room's route replace it.
+  const room = fast?.decided && fast.route === "clarify" && read?.gap !== "fact" ? null : read;
   // An uncertain Jev prediction does not gain authority when the fallback
   // fails, but Flyd can still answer: read-only, never a forced question.
   const reading: TurnReading | null = room ? { route: settleClarify(room.route, room.gap, room.need), source: "llm" as const }
