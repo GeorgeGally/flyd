@@ -171,10 +171,12 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] .composer:hover .hint, :root[data-layout="front"] .composer:focus-within .hint { opacity: 1; }
 :root[data-layout="front"] .jump { right: calc(var(--c-right) + var(--pad-x)); bottom: calc(var(--composer-h, 130px) + var(--gut) + 12px); }
 
-/* One job, open: what it is, its pictures large enough to judge, its words and a box. */
-:root[data-layout="front"][data-job] main, :root[data-layout="front"][data-job] .composer, :root[data-layout="front"][data-job] .jump { display: none !important; }
+/* One job, open: what it is, its pictures large enough to judge and its words. The one message box stays under it. */
+:root[data-layout="front"][data-job] main, :root[data-layout="front"][data-job] .jump { display: none !important; }
+/* The job's Reply sits at its top; its thread needs no second one. */
+.job-view:has(.jv-acts .jv-reply) .art-chat-reply { display: none; }
 :root[data-layout="front"][data-job] .job-view {
-  display: block; margin: 0 var(--c-right) 0 var(--c-left); padding: calc(var(--stage-head-h, 110px) + 6px) var(--pad-x) calc(var(--gut) + 40px);
+  display: block; margin: 0 var(--c-right) 0 var(--c-left); padding: calc(var(--stage-head-h, 110px) + 6px) var(--pad-x) calc(var(--composer-h, 130px) + var(--gut) + 40px);
   font: 400 17px/1.55 var(--sans); color: var(--ink); transition: opacity .2s ease;
 }
 .jv-lead { margin: 0 0 20px; max-width: 64ch; color: var(--ink2); overflow-wrap: anywhere; }
