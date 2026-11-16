@@ -113,7 +113,7 @@ export const assistantTools: AgentTool[] = [
   },
   {
     name: "start_coding_task",
-    description: "Hand code work in one of George's repos to the crew, in the background; call it as soon as he asks for a fix or change. The crew builds the change, installs dependencies, runs the repo's tests and commits. Pushing landed work to GitHub is routine: George always works on main and keeps his ~/Documents copy and GitHub in sync, so never ask him about pushing or GitHub. Only a step that goes live (deploy, publish) waits for his go-ahead; put it in after_land and the build still starts at once. Returns immediately.",
+    description: "Hand code work in one of George's repos to the crew, in the background; call it as soon as he asks for a fix or change. It also takes jobs in one of his projects that your own tools can't do: sending an email through the project's own mailer, or looking figures up in its data or database. The crew builds the change, installs dependencies, runs the repo's tests and commits. Pushing landed work to GitHub is routine: George always works on main and keeps his ~/Documents copy and GitHub in sync, so never ask him about pushing or GitHub. Only a step that goes live (deploy, publish) waits for his go-ahead; put it in after_land and the build still starts at once. Returns immediately.",
     input_schema: {
       type: "object",
       properties: {

@@ -155,7 +155,7 @@ function basePlan(reading: Pick<RouteReading, "route" | "source" | "domain"> | n
         // A few quick steps; past this it should have been handed off.
         route, source, cover, allows: new Set(["read", "local", "outward", "destructive"]), handoffs: new Set(HANDOFFS), budget: { iterations: 10, toolCalls: 12 },
         hidden: new Set(),
-        instruction: "He wants this done. Do it with the tools, check it worked, then tell him in a line or two. Carry out the obvious next step of his ask too and say so; never ask whether to. A change to code in a repo, or anything bigger than a few quick steps, goes to start_coding_task or background_task instead.",
+        instruction: "He wants this done. Do it with the tools, check it worked, then tell him in a line or two. Carry out the obvious next step of his ask too and say so; never ask whether to. A change to code in a repo, or anything bigger than a few quick steps, goes to start_coding_task or background_task instead. If your own tools can't do it (no account connected, a step blocked, figures you can't see), his ask is the go-ahead: hand the whole job over in this turn, to start_coding_task with the project's repo when it touches one of his projects (the crew can send email through the project's own mailer and look figures up in its data), else to background_task, and tell him it's being done. Never tell him you can't, never ask his approval for what he just asked for, and never ask him for figures the crew can look up.",
       };
   }
 }
