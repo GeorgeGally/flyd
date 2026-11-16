@@ -59,6 +59,18 @@ describe("turn plan", () => {
     expect(offRoute(planTurn(jev("act")), "start_design_task", { outcome: "a lab" })).toBeNull();
   });
 
+  it("hands a job its own tools can't do to the crew instead of claiming it can't (GNM email)", () => {
+    // "ok send checks to hello@goodneighboursmarket.com for the uninvoiced power etc" was read as act;
+    // with no email account connected Flyd said it couldn't, then asked George for approval and the totals.
+    const plan = planTurn(jev("act"));
+    expect(names(plan)).toContain("start_coding_task");
+    expect(offRoute(plan, "start_coding_task", { outcome: "Email hello@goodneighboursmarket.com the uninvoiced power totals via the GNM mailer", done_when: ["sent"] })).toBeNull();
+    const brief = planBrief(plan!);
+    expect(brief).toMatch(/If your own tools can't do it \(no account connected/);
+    expect(brief).toMatch(/send email through the project's own mailer and look figures up in its data/);
+    expect(brief).toMatch(/Never tell him you can't, never ask his approval for what he just asked for, and never ask him for figures the crew can look up/);
+  });
+
   it("asks back on an unclear request, without researching first", () => {
     const plan = planTurn(jev("clarify"));
     expect(plan!.instruction).toContain("Ask one short question");
