@@ -390,17 +390,6 @@ export function activityFromJob(job: JobFile, now: number): { item: ActivityItem
   return { live: false, item: { id: `job:${id}`, kind, title, ...(line ? { line } : {}), ...(detail ? { detail } : {}), at: updated } };
 }
 
-/** The council's thoughts about his projects, kept as one calm card without saying who had them. */
-export function activityFromAdvice(entry: { id?: unknown; text?: unknown; at?: unknown; createdAt?: unknown }): ActivityItem | null {
-  const id = text(entry.id);
-  const at = stamp(entry.at) ?? stamp(entry.createdAt);
-  const line = plainLine(text(entry.text));
-  if (!id || !at || !line) return null;
-  const detail = detailBehind(text(entry.text), line);
-  return { id: `thought:${id}`, kind: "noted", title: "Noticed something about your projects", line, ...(detail ? { detail } : {}), at };
-}
-
-
 /** Keyed watching records become durable semantic Monitors instead of expiring Activities. */
 export function monitorsFromActivityRecords(records: unknown[]): SemanticObject[] {
   const sources: Array<{ id: string; title: string; condition?: string; detail?: string; at: string; state?: "quiet" | "changed" | "needs_you" | "failed" | "resolved" }> = [];
@@ -498,7 +487,6 @@ export function labReviews(runs: readonly DomainRun[], now: number, imageRoots: 
 export interface ActivityInputs {
   log: string[];
   jobs: JobFile[];
-  advice: Array<{ id?: unknown; text?: unknown; at?: unknown; createdAt?: unknown }>;
   records: unknown[];
   /** The stories behind today's news cards: the day's edition, and the watch's must-knows. */
   news?: NewsStories;
@@ -610,10 +598,6 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
     const made = activityFromJob(job, now);
     if (made) (made.live ? live : done).push(made.item);
   }
-  for (const entry of inputs.advice.slice(-2)) {
-    const made = activityFromAdvice(entry);
-    if (made) done.push(made);
-  }
   live.push(...written.now);
   done.push(...written.done);
   const monitors = monitorsFromActivityRecords(inputs.records);
@@ -715,7 +699,6 @@ export class ActivityReader {
     const inputs: ActivityInputs = {
       log: lines(join(this.dir, "logs", "agenda.log"), 600),
       jobs: this.jobs(),
-      advice: jsonLines(join(this.dir, "council", "advisories.jsonl"), 4) as ActivityInputs["advice"],
       // Re-evaluate consent on every refresh, so disabled/revoked private
       // preparation disappears without requiring a restart. Do not register
       // or implicitly enable a source just to read its visibility state.

@@ -134,7 +134,6 @@ describe("composeActivity", () => {
         "2026-10-17T04:02:33.232Z self-improve: awaiting_george",
       ],
       jobs: [{ id: "a1", status: "running", startedAt: minutesAgo(3), updatedAt: minutesAgo(1), contract: { task: "Tidy the notes." } }],
-      advice: [],
       records: [{ kind: "decided", title: "Answered your staff's question", at: "2026-10-17T11:00:00.000Z" }],
       upkeep: true,
     }, NOW);
@@ -149,14 +148,14 @@ describe("composeActivity", () => {
       "2026-10-17T04:00:00.000Z council: 3 turns, 1 captures, 0 advisories",
       "2026-10-17T04:02:32.232Z scout: watch: 0 must-know",
     ];
-    const panel = composeActivity({ log, jobs: [], advice: [], records: [] }, NOW);
+    const panel = composeActivity({ log, jobs: [], records: [] }, NOW);
     expect(panel.recent.map((item) => item.title)).toEqual(["Watched the news for you"]);
   });
 
   it("lets a news record supersede the log line that repeats it, keeping its story links", () => {
     const stories = [{ title: "A new ordinal technique", url: "https://x.test/a", gist: "precedent for you", source: "r/ordinals" }];
     const records = [{ key: "scout-edition", kind: "news", title: "Put together today's news", line: "12 stories from your sources.", stories, state: "done", at: minutesAgo(2) }];
-    const panel = composeActivity({ log: ["2026-10-17T11:58:00.000Z scout: edition: 12 items"], jobs: [], advice: [], records }, NOW);
+    const panel = composeActivity({ log: ["2026-10-17T11:58:00.000Z scout: edition: 12 items"], jobs: [], records }, NOW);
     expect(panel.recent.filter((item) => item.title === "Put together today's news")).toHaveLength(1);
     expect(panel.recent[0]!.stories).toEqual(stories);
     expect(panel.recent[0]!.detail).toBeUndefined();
@@ -165,22 +164,21 @@ describe("composeActivity", () => {
   it("drops what is older than a week and caps the list", () => {
     const records = Array.from({ length: 30 }, (_, index) => ({ kind: "noted", title: `Note ${index}`, at: minutesAgo(index + 1) }));
     const old = { kind: "noted", title: "Ancient", at: minutesAgo(60 * 24 * 8) };
-    const panel = composeActivity({ log: [], jobs: [], advice: [], records: [...records, old] }, NOW);
+    const panel = composeActivity({ log: [], jobs: [], records: [...records, old] }, NOW);
     expect(panel.recent).toHaveLength(14);
     expect(panel.recent[0]!.title).toBe("Note 0");
     expect(panel.recent.some((item) => item.title === "Ancient")).toBe(false);
   });
 
-  it("turns the council's advice into a calm card that does not say who had it", () => {
-    const panel = composeActivity({ log: [], jobs: [], advice: [{ id: "9a8c7377", at: minutesAgo(30), text: "GNM's Christmas site kept absorbing days. Smallest step: name a sponsor." }], records: [] }, NOW);
-    expect(panel.recent).toEqual([{ id: "thought:9a8c7377", kind: "noted", title: "Noticed something about your projects", line: "GNM's Christmas site kept absorbing days.", detail: "GNM's Christmas site kept absorbing days. Smallest step: name a sponsor.", at: minutesAgo(30) }]);
+  it("never shows the council's advice: it is written to the staff, not in Flyd's voice", () => {
+    const panel = composeActivity({ log: [], jobs: [], records: [] }, NOW);
+    expect(panel.recent.some((item) => item.id.startsWith("thought:"))).toBe(false);
   });
 
   it("counts a bar a day for the week, oldest first, today last", () => {
     const panel = composeActivity({
       log: [],
       jobs: [],
-      advice: [],
       records: [
         { kind: "noted", title: "Today", at: minutesAgo(5) },
         { kind: "noted", title: "Also today", at: minutesAgo(90) },
@@ -197,7 +195,7 @@ describe("composeActivity", () => {
       ...Array.from({ length: 20 }, (_, index) => ({ kind: "noted", title: `Today ${index}`, at: minutesAgo(index + 1) })),
       ...Array.from({ length: 5 }, (_, index) => ({ kind: "noted", title: `Yesterday ${index}`, at: minutesAgo(24 * 60 + index) })),
     ];
-    const panel = composeActivity({ log: [], jobs: [], advice: [], records }, NOW);
+    const panel = composeActivity({ log: [], jobs: [], records }, NOW);
     expect(panel.recent).toHaveLength(MAX_RECENT);
     expect(panel.week.slice(-2).map((day) => day.count)).toEqual([5, 20]);
   });
@@ -236,9 +234,9 @@ describe("the stories behind a news card", () => {
 
   it("opens a news card onto its own day's stories, and leaves another day's out", () => {
     const log = ["2026-10-17T11:00:00.000Z scout: edition: 1 items"];
-    const today = composeActivity({ log, jobs: [], advice: [], records: [], news: { edition: { day: "2026-10-17", stories: [story] } } }, NOW);
+    const today = composeActivity({ log, jobs: [], records: [], news: { edition: { day: "2026-10-17", stories: [story] } } }, NOW);
     expect(today.recent[0]).toMatchObject({ title: "Put together today's news", stories: [story] });
-    const other = composeActivity({ log, jobs: [], advice: [], records: [], news: { edition: { day: "2026-10-16", stories: [story] } } }, NOW);
+    const other = composeActivity({ log, jobs: [], records: [], news: { edition: { day: "2026-10-16", stories: [story] } } }, NOW);
     expect(other.recent[0]!.stories).toBeUndefined();
   });
 
@@ -261,7 +259,7 @@ describe("the stories behind a news card", () => {
     const log = ["2026-10-17T11:00:00.000Z scout: edition: 1 items"];
     const stale = { key: "scout-edition", kind: "news", title: "Put together today's news", line: "14 stories from your sources.", stories: [{ title: "Old story", url: "https://x.test/old" }], state: "done", at: minutesAgo(60 * 24) };
     expect(activityFromRecords([stale], NOW).done).toEqual([]);
-    const panel = composeActivity({ log, jobs: [], advice: [], records: [stale], news: { edition: { day: "2026-10-17", stories: [story] } } }, NOW);
+    const panel = composeActivity({ log, jobs: [], records: [stale], news: { edition: { day: "2026-10-17", stories: [story] } } }, NOW);
     const news = panel.recent.filter((item) => item.title === "Put together today's news");
     expect(news).toHaveLength(1);
     expect(news[0]!.stories).toEqual([story]);
@@ -271,7 +269,7 @@ describe("the stories behind a news card", () => {
     const log = ["2026-10-17T11:00:00.000Z scout: edition: 1 items"];
     const stale = { key: "scout-edition", kind: "news", title: "Put together today's news", line: "14 stories from your sources.", stories: [{ title: "Fixture story", url: "https://example.com/a" }], state: "done", at: minutesAgo(60 * 24) };
     expect(activityFromRecords([stale], NOW).done).toEqual([]);
-    const panel = composeActivity({ log, jobs: [], advice: [], records: [stale], news: { edition: { day: "2026-10-17", stories: [story] } } }, NOW);
+    const panel = composeActivity({ log, jobs: [], records: [stale], news: { edition: { day: "2026-10-17", stories: [story] } } }, NOW);
     const news = panel.recent.filter((item) => item.title === "Put together today's news");
     expect(news).toHaveLength(1);
     expect(news[0]!.stories).toEqual([story]);
@@ -301,7 +299,7 @@ describe("the record file and reader", () => {
     expect(activityRecordPath(dir)).toBe(join(dir, "activity", "records.jsonl"));
   });
 
-  it("reads the agenda log, jobs and advice already on disk", () => {
+  it("reads the agenda log and jobs already on disk", () => {
     mkdirSync(join(dir, "logs"), { recursive: true });
     mkdirSync(join(dir, "jobs"), { recursive: true });
     mkdirSync(join(dir, "council"), { recursive: true });
@@ -414,7 +412,7 @@ describe("design labs waiting for his review", () => {
       saveDomainRun(lab("domain-lab"), join(dir, "command"));
       const panel = new ActivityReader({ dir, now: () => NOW }).current();
       expect(panel.reviews?.map((object) => object.id)).toEqual(["lab:domain-lab"]);
-      expect(composeActivity({ log: [], jobs: [], advice: [], records: [] }, NOW).reviews).toBeUndefined();
+      expect(composeActivity({ log: [], jobs: [], records: [] }, NOW).reviews).toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

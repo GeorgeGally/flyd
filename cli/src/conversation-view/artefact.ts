@@ -14,7 +14,6 @@ import { reachesGeorge, type GeorgeKind } from "../lib/reaches-george.js";
 import { namesBackstage } from "../runtime/honesty-check.js";
 import { plainSaid } from "../lib/backstage.js";
 import { recordKept } from "../council/reply-review.js";
-import { adviceHeadline } from "../council/advisors.js";
 import type { ArtefactVoice, Said, VoiceItem } from "./artefact-voice.js";
 import type { ExecutiveDecisionRecord } from "../intelligence/executive/decision-step.js";
 import type { FirstmateChange } from "../intelligence/executive/firstmate-decision.js";
@@ -155,8 +154,6 @@ export interface ArtefactInputs {
   taste: string[];
   /** Plans he made, newest first. */
   plans?: PlanArtefact[];
-  /** Open advice from Flyd's background read of his life and work, most pressing first. */
-  advice?: ArtefactAdvice[];
   /** Work landed on each of the last seven days, oldest first. */
   landedByDay?: DayCount[];
   /** Every piece of work that landed in that same week, newest first. */
@@ -167,30 +164,6 @@ export interface DayCount {
   /** YYYY-MM-DD. */
   day: string;
   count: number;
-}
-
-export interface ArtefactAdvice {
-  id: string;
-  /** One sentence, at most 30 words: what the card says. */
-  headline: string;
-  text: string;
-  whyNow?: string;
-  urgency?: string;
-  at?: string;
-}
-
-/** How many pieces of advice the column carries at once: a short list he reads, not a backlog. */
-export const ADVICE_LIMIT = 3;
-
-/** Open advice, most pressing first, then newest; expired or settled advice never shows. Pure. */
-export function adviceHighlights(rows: Array<Record<string, unknown>>, today: string): ArtefactAdvice[] {
-  const rank = (urgency: string) => (urgency === "high" ? 0 : urgency === "normal" ? 1 : 2);
-  return rows
-    // Advice he heard once in a greeting still stands until it expires; dismissed or used advice goes.
-    .filter((row) => ["open", "shown"].includes(str(row.status)) && str(row.text) && (!str(row.expires) || str(row.expires) >= today))
-    .map((row) => ({ id: str(row.id), headline: adviceHeadline(str(row.headline), str(row.text)), text: str(row.text), whyNow: str(row.whyNow) || undefined, urgency: str(row.urgency) || undefined, at: str(row.createdAt) || undefined }))
-    .sort((a, b) => rank(a.urgency ?? "") - rank(b.urgency ?? "") || (b.at ?? "").localeCompare(a.at ?? ""))
-    .slice(0, ADVICE_LIMIT);
 }
 
 export const EMPTY_ARTEFACT: ArtefactInputs = { memories: [], news: [], taste: [] };
@@ -1637,14 +1610,6 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
 
   const fleet = inputs.fleet;
   rowsOf("call", fleet?.calls);
-  // Advice is Flyd's own read of his week, next after what waits on his answer: it shows as
-  // advice, in Flyd's voice, never as work, and never falls behind the screen's item budget.
-  (inputs.advice ?? []).forEach((advice) => add("news", `advice-${advice.id}`, advice.headline || advice.text, "my advice", {
-    status: "advice",
-    // The card says the one sentence; the reasoning travels with it, read when he moves it to the middle.
-    detail: [advice.headline && advice.headline !== advice.text ? advice.text : "", advice.whyNow ?? ""].filter(Boolean).join("\n\n") || undefined,
-    ...(advice.at ? { at: advice.at } : {}),
-  }));
   rowsOf("live", fleet?.live);
   rowsOf("ready", fleet?.ready);
   rowsOf("landed", fleet?.landed);
@@ -2024,8 +1989,6 @@ export class ArtefactFeed {
       home?: string;
       memoryFile?: string;
       newsFile?: string;
-      /** The council's advice store (advisories.jsonl). */
-      adviceFile?: string;
       tasteFile?: string;
       /** The plans folder; under vitest the real one is never read unless a test passes this. */
       plansDir?: string;
@@ -2162,7 +2125,6 @@ export class ArtefactFeed {
       memory: this.options.memoryFile ?? join(FLYD_DIR, "MEMORY.md"),
       news: this.options.newsFile ?? join(FLYD_DIR, "scout", "edition-latest.json"),
       taste: this.options.tasteFile ?? join(FLYD_DIR, "TASTE.md"),
-      advice: this.options.adviceFile ?? (process.env.VITEST ? join(home, "no-advice") : join(FLYD_DIR, "council", "advisories.jsonl")),
       plans: this.options.plansDir ?? (process.env.VITEST ? join(home, "no-plans") : PLANS_DIR),
     };
   }
@@ -2435,15 +2397,14 @@ export class ArtefactFeed {
     this.again = false;
     this.lastRefresh = Date.now();
     try {
-      const { backlog, archive, memory, news, taste, plans: plansDir, advice } = this.paths();
-      const [{ fleet: bearings, failed: fleetReadFailed }, backlogText, archiveText, memoryText, newsText, tasteText, adviceText] = await Promise.all([
+      const { backlog, archive, memory, news, taste, plans: plansDir } = this.paths();
+      const [{ fleet: bearings, failed: fleetReadFailed }, backlogText, archiveText, memoryText, newsText, tasteText] = await Promise.all([
         this.readFleet(fresh),
         ArtefactFeed.text(backlog),
         ArtefactFeed.text(archive),
         ArtefactFeed.text(memory),
         ArtefactFeed.text(news),
         ArtefactFeed.text(taste),
-        ArtefactFeed.text(advice),
       ]);
       // Flyd's to repair, never his to read: recorded, and read again on the next tick.
       if (bearings.unavailable) recordKept("fleet read", { kind: "fault", handle: "repair" }, bearings.unavailable);
@@ -2511,7 +2472,6 @@ export class ArtefactFeed {
         news: newsHighlights(newsRaw),
         taste: tasteHighlights(tasteText),
         plans: planArtefacts(readPlans(plansDir), Date.now()),
-        advice: adviceHighlights(adviceText.split("\n").flatMap((line) => { try { return [JSON.parse(line) as Record<string, unknown>]; } catch { return []; } }), new Date().toISOString().slice(0, 10)),
       };
       for (const listener of this.listeners) listener();
       if (voice && unsaid.length) void this.say(voice, decided, unsaid, generation);
