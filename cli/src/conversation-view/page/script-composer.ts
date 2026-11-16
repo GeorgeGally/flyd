@@ -693,6 +693,7 @@ export const COMPOSER_SCRIPT = `
     // A reply goes where the thing he is replying to always sent it: its run, its decision or its answer.
     if (replying) {
       if (spoken) endVoiceWait();
+      if (!text) { noteRefusal("Say something with it to reply; your attachments are still in the box"); return; }
       var to = replying;
       replyTo(null);
       input.value = "";
@@ -703,7 +704,14 @@ export const COMPOSER_SCRIPT = `
         noteRefusal("This reply goes as words only; your attachments are still in the box");
       }
       saveDraftNow();
-      to.send(text, to.takes ? sending.filter(function (a) { return !a.name; }) : [], to.takes ? sending : []);
+      var went = to.send(text, to.takes ? sending.filter(function (a) { return !a.name; }) : [], to.takes ? sending : []);
+      if (went === false) {
+        replyTo(to.title, to.send, undefined, to.takes);
+        input.value = text;
+        attachments = sending;
+        renderAttachments();
+        noteRefusal("Still sending the last reply; try again in a moment");
+      }
       return;
     }
     if (!current) { if (spoken) endVoiceWait(); return; }

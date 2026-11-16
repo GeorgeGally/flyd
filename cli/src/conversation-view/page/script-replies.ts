@@ -179,7 +179,7 @@ export const REPLIES_SCRIPT = `
       say("");
       carried = [];
       var said = (box.parentElement && box.parentElement.textContent || "").replace(/\s+/g, " ").trim();
-      replyTo(said.length > 60 ? said.slice(0, 59) + "…" : said || "this answer", function (text, pictures, kept) { input.value = text; carried = kept || []; form.requestSubmit(); }, undefined, true);
+      replyTo(said.length > 60 ? said.slice(0, 59) + "…" : said || "this answer", function (text, pictures, kept) { if (state.sending) return false; input.value = text; carried = kept || []; form.requestSubmit(); }, undefined, true);
     });
     close.addEventListener("click", function () { say(""); carried = []; show(false); });
     input.addEventListener("input", function () { state.draft = input.value; });
