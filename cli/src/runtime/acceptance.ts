@@ -264,6 +264,13 @@ export function handoffFailureReason(missing: HandoffLayer[]): string {
   return `handoff contract unmet after one structured re-request: missing ${missing.map((layer) => LAYER_GAPS[layer]).join("; ")}`;
 }
 
+/** A missing report after the single re-request is terminal; the run must not be sent back again. */
+export function terminalHandoffFailure(run: DomainRun): boolean {
+  return run.status === "failed" && Boolean(run.handoffRetry?.answeredAt)
+    && Boolean(run.incompleteReason?.startsWith("handoff contract unmet after one structured re-request: missing "))
+    && /(?:missing |; )report \(no prose account of what was done\)/.test(run.incompleteReason ?? "");
+}
+
 /** How long the one re-request may go unanswered before the run counts as a contract failure. */
 export const HANDOFF_RETRY_WAIT_MS = 24 * 60 * 60_000;
 

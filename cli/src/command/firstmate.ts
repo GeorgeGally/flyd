@@ -893,7 +893,7 @@ export async function syncFirstmateDomainRuns(options: {
       // never a fresh decision for George.
       const predates = Boolean(reply.at) && Date.parse(reply.at!) < Date.parse(run.createdAt);
       const status: DomainRunStatus = outcome === "unclear" ? "working" : predates && outcome === "needs_decision" ? "cancelled" : outcome;
-      if (isSettled(run.status) && !cameBack(status)) {
+      if ((isSettled(run.status) || (run.handoffRetry && !run.handoffRetry.answeredAt)) && !cameBack(status)) {
         // A settled run read only for its re-request's answer takes nothing short of an outcome: it stays as it was.
         next = { ...next, transport: { ...next.transport, replyCursor: reply.cursor } };
       } else {
@@ -907,6 +907,8 @@ export async function syncFirstmateDomainRuns(options: {
           reRequest = { missing: contract.missing, ...(reply.cursor ? { cursor: reply.cursor } : {}) };
         }
         const stillShort = answering && !contract.ok ? handoffFailureReason(contract.missing) : undefined;
+        const terminalReportFailure = Boolean(stillShort && !contract.ok && contract.missing.includes("report"));
+        const recordedStatus: DomainRunStatus = terminalReportFailure ? "failed" : status;
         const { notified, failure, incompleteReason: _previous, launchRetry: _retry, statusAskedAt, ...rest } = next;
         // The answer to the re-request restating the same outcome is the same news, never told twice.
         const restated = answering && status === run.status;
@@ -914,7 +916,7 @@ export async function syncFirstmateDomainRuns(options: {
         const settledAt = reply.at ?? (options.now ?? (() => new Date()))().toISOString();
         next = {
           ...rest,
-          status,
+          status: recordedStatus,
           result: parsed.result,
           updatedAt: reply.at ?? (options.now ?? (() => new Date()))().toISOString(),
           transport: { ...next.transport, replyCursor: reply.cursor },
@@ -923,12 +925,13 @@ export async function syncFirstmateDomainRuns(options: {
           // The outcome's report, in the same commit as the outcome: a restart can never lose it (command/report.ts).
           // A reply after work was sent back to its boss is reviewed afresh even when it says the same (as is one on a run
           // recorded before the report record that was never announced).
-          ...(cameBack(status) && (predates || news || (run.report ? run.report.sentBack : !notified))
-            ? { report: predates ? quietReport(status, settledAt) : dueReport(status, settledAt) } : {}),
+          ...(cameBack(recordedStatus) && (predates || news || terminalReportFailure || (run.report ? run.report.sentBack : !notified))
+            ? { report: predates ? quietReport(recordedStatus, settledAt) : dueReport(recordedStatus, settledAt) } : {}),
           ...(status === "failed" ? { failure: parsed.result.brief } : failure !== undefined && !news ? { failure } : {}),
           ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
           ...(stillShort ? { incompleteReason: stillShort } : {}),
-          ...(strict.fragment ? { incompleteReason: strict.reason, failure: strict.reason } : {}),
+          ...(strict.fragment && !stillShort ? { incompleteReason: strict.reason, failure: strict.reason } : {}),
+          ...(terminalReportFailure ? { failure: stillShort, incompleteReason: stillShort } : {}),
           ...(statusAskedAt && outcome === "unclear" ? { statusAskedAt } : {}),
           ...(answering ? { handoffRetry: { ...run.handoffRetry!, answeredAt: settledAt } } : {}),
         };
@@ -951,7 +954,7 @@ export async function syncFirstmateDomainRuns(options: {
         ...(cameBack(status) ? { report: stale && status === "completed" ? quietReport(status, settledAt) : dueReport(status, settledAt) } : {}),
       };
       statusUnclear = outcome === "unclear";
-    } else if (run.status === "working" && run.result?.format === "raw") {
+    } else if (run.status === "working" && !run.handoffRetry && run.result?.format === "raw") {
       // A reply taken before its "status: …" lines could be read: read it again.
       const parsed = parseDomainResult(run.result.raw.at(-1) ?? run.result.detailedReport);
       if (parsed.status && parsed.status !== "working") {
@@ -976,7 +979,13 @@ export async function syncFirstmateDomainRuns(options: {
     next = commitDomainRun(run, next);
     // Flyd's own notes (check-ins, closes) settle from their reply, but are never chased for a clearer one.
     if (statusUnclear && !next.statusAskedAt && next.request.source !== "flyd") next = await askForAClearStatus(next, unclearFrom, transport, (options.now ?? (() => new Date()))());
-    if (reRequest) next = await askForAStructuredHandoff(next, reRequest.missing, reRequest.cursor, transport, (options.now ?? (() => new Date()))());
+    if (reRequest) {
+      next = await askForAStructuredHandoff(next, reRequest.missing, reRequest.cursor, transport, (options.now ?? (() => new Date()))());
+      if (next.handoffRetry && reRequest.missing.includes("report")) {
+        const { report: _report, notified: _notified, ...pending } = next;
+        next = commitDomainRun(next, { ...pending, status: "working" });
+      }
+    }
     changed.push(next);
     await options.onChanged?.(next);
   }
