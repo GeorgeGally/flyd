@@ -611,7 +611,9 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
       ...plainReport(objective, "done", `${workOf(objective)} is finished, but I couldn't double-check it against what you asked for, so give it a look.`, ""), id: reportId,
       detail: finals.map((run) => resultText(run.ref!, jobs, crew)).filter(Boolean).join("\n\n"), evidenceRefs: finals.map((run) => linkOf(run.ref!)),
     };
-    await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "done");
+    const seen = finals.length === 1 && finals[0]!.ref && !finals[0]!.ref.includes(":") ? readDomainRun(finals[0]!.ref) : null;
+    const told = (seen && shownLine(seen)) || finals.every((run) => run.ref?.startsWith("crew:"));
+    await report(objective, made, deps, store, async () => told ? undefined : (deps.say ?? defaultSay)(made), "done");
     return;
   }
   if (!verdict.met) {
