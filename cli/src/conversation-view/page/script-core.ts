@@ -1,5 +1,5 @@
 /** The page script's opening: shared state, preferences, theme and scroll keeping.
- * It opens the one IIFE the later parts run inside; script-show.ts closes it. */
+ * It opens the one IIFE the later parts run inside; script-boot.ts closes it. */
 // Core runs under tsx/esbuild with keepNames, so a function inlined with
 // toString() can carry __name(...) calls; without this shim they throw and
 // take the whole page script down.
