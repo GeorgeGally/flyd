@@ -137,6 +137,11 @@ describe("acceptance", () => {
     expect(handoffFailureReason(["report", "evidence"])).toBe("handoff contract unmet after one structured re-request: missing report (no prose account of what was done); evidence (no link, commit, file, id or command output to check it against)");
   });
 
+  it("classifies a structured handoff with brief and evidence but no report", () => {
+    const result = parseDomainResult(JSON.stringify({ status: "completed", brief: "Fixed the call site.", evidence: ["src/call.ts"] })).result;
+    expect(validateFirstmateReturn(result)).toEqual({ ok: false, missing: ["report"] });
+  });
+
   it("normalises casing, wrapping and a single evidence string before judging the contract", () => {
     const wrapped = "```json\n" + JSON.stringify({ handoff: { BRIEF: "Fixed the call site.", "detailed-report": "Routed the caller through the abstraction and ran the suite.", Evidence: "src/runtime/store.ts" } }) + "\n```";
     expect(validateFirstmateReturn(parseDomainResult(wrapped).result)).toEqual({ ok: true, missing: [] });

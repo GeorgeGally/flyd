@@ -195,7 +195,7 @@ printf '{"id":"%s","saved":true,"acknowledged":false,"outcome":"queued"}\\n' "$3
       const judge = async () => "completed" as const;
       expect(await syncFirstmateDomainRuns({ transport, judge })).toEqual([]);
 
-      reply = { id: noteId, body: "Done: the footer link opens the partners page, verified on the live site.", cursor: "000001", at: new Date().toISOString() };
+      reply = { id: noteId, body: JSON.stringify({ status: "completed", brief: "Done: the footer link opens the partners page.", detailed_report: "Pointed the footer link at the partners page.", evidence: ["verified on the live site"] }), cursor: "000001", at: new Date().toISOString() };
       markWindowOpen("stream-1", "session-footer", presence);
       const notify = async () => { throw new Error("the window shows his reply; no notice"); };
       const changed = await syncFirstmateDomainRuns({ transport, judge, onChanged: (run) => notifyRun(run, notify) });

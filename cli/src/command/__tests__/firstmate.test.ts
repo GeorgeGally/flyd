@@ -434,7 +434,7 @@ describe("FirstMate domain transport", () => {
 
     reply = { body: JSON.stringify({ status: "completed", brief: "Merged; the footer link works." }), cursor: "5" };
     await sync();
-    expect(status()).toBe("completed");
+    expect(status()).toBe("working");
     // The outcome is taken; its missing report and evidence are asked for once, in the contract's shape.
     expect(notes).toHaveLength(3);
     expect(notes[2]).toContain("misses the report and evidence layers");
@@ -458,13 +458,13 @@ describe("FirstMate domain transport", () => {
 
     const [first] = await sync();
     // The outcome is recorded and told once; the missing layers are asked for once, in the contract's shape.
-    expect(first!.status).toBe("completed");
+    expect(first!.status).toBe("working");
     expect(notes).toHaveLength(1);
     expect(notes[0]).toContain("misses the brief, report and evidence layers of the handoff contract");
     expect(notes[0]).toContain('"detailed_report"');
     expect(first!.handoffRetry).toMatchObject({ cursor: "000000000001", missing: ["brief", "report", "evidence"] });
     expect(first!.handoffRetry?.answeredAt).toBeUndefined();
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(0);
 
     // FirstMate answers the re-request with a brief and report but still no evidence.
     const reRequest = listDomainRuns().find((run) => run.id === "domain-test-1")!.messages!.find((message) => message.from === "flyd")!;
@@ -480,6 +480,35 @@ describe("FirstMate domain transport", () => {
     // Read again later: nothing new, nothing sent.
     expect(await sync()).toEqual([]);
     expect(notes).toHaveLength(1);
+  });
+
+  it("fails a report-less handoff after one re-request and notifies once", async () => {
+    saveDomainRun({ ...queuedRun(), status: "accepted" });
+    const body = JSON.stringify({ status: "completed", brief: "Fixed the call site.", evidence: ["src/call.ts"] });
+    const notes: string[] = [];
+    const handled: Array<Record<string, unknown>> = [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { body, cursor: "1" } }];
+    const exec: FirstmateExec = async (_script, args, options) => {
+      if (args[0] === "note") { notes.push(String(options.input)); return { stdout: JSON.stringify({ id: "note-2", saved: true }), stderr: "" }; }
+      return { stdout: JSON.stringify({ pending: [], handled }), stderr: "" };
+    };
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+    const sent: string[] = [];
+    const sync = () => syncFirstmateDomainRuns({ transport, onChanged: (run) => notifyWithTestDecision(run, async (_title, message) => { sent.push(message); }) });
+    const [first] = await sync();
+    expect(first!.status).toBe("working");
+    expect(notes).toHaveLength(1);
+    expect(sent).toHaveLength(0);
+    const message = listDomainRuns()[0]!.messages!.find((item) => item.from === "flyd")!;
+    handled.push({ id: "note-2", request_id: message.id, acknowledged: true, reply: { body, cursor: "2" } });
+    const [failed] = await sync();
+    expect(failed!.status).toBe("failed");
+    expect(failed!.failure).toContain("report (no prose account of what was done)");
+    expect(failed!.incompleteReason).toBe(failed!.failure);
+    expect(notes).toHaveLength(1);
+    expect(sent).toHaveLength(1);
+    await sync();
+    expect(notes).toHaveLength(1);
+    expect(sent).toHaveLength(1);
   });
 
   it("leaves a settled run as it was when the answer to its re-request is not an outcome", async () => {
@@ -499,21 +528,21 @@ describe("FirstMate domain transport", () => {
     });
 
     const [first] = await sync();
-    expect(first!.status).toBe("completed");
+    expect(first!.status).toBe("working");
     expect(notes).toHaveLength(1);
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(0);
 
     // The run as stored once George was told: what every later read must leave as it was.
     const settled = listDomainRuns().find((run) => run.id === "domain-test-1")!;
-    expect(settled.notified).toBe(true);
+    expect(settled.notified).toBeUndefined();
     const reRequest = settled.messages!.find((message) => message.from === "flyd")!;
     for (const [cursor, answer, judged] of [["000000000002", "Still working on it.", "working"], ["000000000003", "Hmm, let me look.", "unclear"]] as const) {
       verdict = judged;
       handled.push({ id: `note-${cursor}`, request_id: reRequest.id, acknowledged: true, reply: { id: `note-${cursor}`, at: "2026-10-09T02:00:00.000Z", body: answer, cursor } });
       await sync();
       const run = listDomainRuns().find((item) => item.id === "domain-test-1")!;
-      expect(run.status).toBe("completed");
-      expect(run.notified).toBe(true);
+      expect(run.status).toBe("working");
+      expect(run.notified).toBeUndefined();
       expect(run.report).toEqual(settled.report);
       expect(run.result).toEqual(settled.result);
       expect(run.statusAskedAt).toBeUndefined();
@@ -522,7 +551,7 @@ describe("FirstMate domain transport", () => {
     }
     // No clear-status ask and no second re-request, and nothing told to George again.
     expect(notes).toHaveLength(1);
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(0);
   });
 
   it("stops reading a settled run once its re-request has gone unanswered past the wait", async () => {
@@ -544,6 +573,26 @@ describe("FirstMate domain transport", () => {
     expect(listDomainRuns().find((run) => run.id === "domain-test-1")).toMatchObject({ status: "completed", transport: { replyCursor: "000000000001" } });
     const [inTime] = await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T12:00:00.000Z") });
     expect(inTime!.status).toBe("failed");
+  });
+
+  it("settles a held report-less run as the terminal report failure once its re-request goes unanswered past the wait", async () => {
+    const askedAt = "2026-10-09T01:00:00.000Z";
+    saveDomainRun({
+      ...queuedRun(), status: "working", updatedAt: askedAt, result: parseDomainResult("Done and merged.").result,
+      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1", replyCursor: "000000000001" },
+      handoffRetry: { askedAt, cursor: "000000000001", missing: ["brief", "report", "evidence"] },
+    });
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true }] }), stderr: "" });
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+
+    expect(await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T12:00:00.000Z") })).toEqual([]);
+    expect(listDomainRuns()[0]!.status).toBe("working");
+
+    const [failed] = await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-11T01:00:00.000Z") });
+    expect(failed!.status).toBe("failed");
+    expect(failed!.failure).toContain("report (no prose account of what was done)");
+    expect(failed!.report).toBeDefined();
+    expect(await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-12T01:00:00.000Z") })).toEqual([]);
   });
 
   it("accepts a FirstMate return that meets the contract after light normalisation, without a re-request", async () => {

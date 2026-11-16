@@ -1,3 +1,4 @@
+import { terminalHandoffFailure } from "../runtime/acceptance.js";
 import { gateOutgoing, outgoingShortfalls, recordHeld, relayMayShow, screenOutgoing } from "../council/reply-review.js";
 import type { Said } from "../council/standard.js";
 import { plainSaid } from "../lib/backstage.js";
@@ -105,7 +106,7 @@ export function captainNotice(run: DomainRun): string | null {
   // the re-request are Flyd's own process (runtime/acceptance.ts): he hears
   // that nothing counts as done, never the code or a process call, and the
   // line it would have been is recorded.
-  if (run.incompleteReason?.startsWith("handoff:missing")) {
+  if (run.incompleteReason?.startsWith("handoff:missing") || terminalHandoffFailure(run)) {
     const raw = `${run.incompleteReason} - nothing was reported as done. Rerun it with a brief, a report and evidence.`;
     return gateOutgoing(outgoing(run, raw), `${namedWork(run).replace(/[.!?]+$/, "") || "Some of your work"} came back without a clear report, so nothing counts as done yet.`);
   }
