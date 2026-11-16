@@ -21,7 +21,7 @@ import { readTheRoom, roomPrompt, ROOM_RUBRIC_VERSION, type RoomInput, type Room
 import { buildRoomContext, privateNotes } from "./room-context.js";
 import { safeRoutingValue, type RoutingTrace } from "./routing-learning.js";
 import { loadSkills, seedSkills, skillPromptBlock, type Skill } from "./skills.js";
-import { planBrief, planTurn, routeWithJev, type RouteReading, type TurnPlan } from "./turn-plan.js";
+import { planBrief, planTurn, routeWithJev, settleClarify, type RouteReading, type TurnPlan } from "./turn-plan.js";
 import { checkGrounding, retiredPhrasesIn, stripInternalNarration, stripRetiredPhrases } from "./honesty-check.js";
 import type { MemoryEvidence } from "./types.js";
 
@@ -94,12 +94,15 @@ export async function readRoomStage(input: RoomStageInput): Promise<RoomStage> {
   // unsure turn runs unplanned as it did before routing.
   const roomOff = !input.readRoom && process.env.FLYD_ROOM === "0";
   const skipped = input.allowRoomRead === false;
-  const readsRoom = !(unattended || fast?.decided || roomOff || skipped);
+  // A sure Jev clarify still gets the room reading: only it tags whether the missing piece is a fact or his preference.
+  const readsRoom = !(unattended || (fast?.decided && fast.route !== "clarify") || roomOff || skipped);
   if (readsRoom) input.onReading?.();
-  const room = readsRoom ? await (input.readRoom ?? defaultReadRoom)(roomInput).catch(() => null) : null;
+  const read = readsRoom ? await (input.readRoom ?? defaultReadRoom)(roomInput).catch(() => null) : null;
+  // Jev's sure clarify stands unless the room tags the gap a fact; only then does the room's route replace it.
+  const room = fast?.decided && fast.route === "clarify" && read?.gap !== "fact" ? null : read;
   // An uncertain Jev prediction does not gain authority when the fallback
   // fails, but Flyd can still answer: read-only, never a forced question.
-  const reading: TurnReading | null = room ? { route: room.route, source: "llm" as const }
+  const reading: TurnReading | null = room ? { route: settleClarify(room.route, room.gap, room.need), source: "llm" as const }
     : fast?.decided ? fast : unattended || roomOff ? null : { route: "answer" as const, source: "llm" as const };
   let routingTrace: RoutingTrace | undefined;
   if (reading && !unattended && process.env.FLYD_ROUTING_LEARNING !== "0") {

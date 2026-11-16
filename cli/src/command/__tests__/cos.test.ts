@@ -73,7 +73,7 @@ describe("Chief of Staff tick", () => {
     };
     const deps = {
       store, dispatch,
-      complete: async (prompt: string) => { asked.push(prompt); return BRIEF; },
+      complete: async (prompt: string) => { if (prompt.includes('check the finished result')) return JSON.stringify({ met: true, missing: '' }); asked.push(prompt); return BRIEF; },
       decide: async () => decision(),
       tell: async (_run: DomainRun, _decision: ExecutiveDecisionRecord, key: string) => { told.push(key); },
       say: async (report: CosReport) => { said.push(report); },

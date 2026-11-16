@@ -289,6 +289,36 @@ describe("adapting before escalating", () => {
     h.store.close();
   });
 
+  it("asks an unreadable acceptance check once more, and a second readable answer counts", async () => {
+    const h = harness(JSON.stringify({ team: "knowledge", outcome: "Compare Stripe and Paddle", done_when: ["both fee tables are sourced"] }), {
+      acceptance: ["not json", JSON.stringify({ met: true })],
+    });
+    const { id } = openObjective({ words: "stripe or paddle?", flydNotes: "", origin: { surface: "chat" } });
+    await cosTick(h.deps);
+    h.finishRun(`${id}-r1`);
+    await cosTick(h.deps);
+    expect([h.asked.filter((prompt) => prompt.includes("check the finished result")).length, h.told.length, h.said, readObjective(id)?.status]).toEqual([2, 1, [], "done"]);
+    h.store.close();
+  });
+
+  it("never counts a check that can't be read as a pass: George hears it is finished but not double-checked", async () => {
+    const h = harness(JSON.stringify({ team: "knowledge", outcome: "Compare Stripe and Paddle", done_when: ["both fee tables are sourced"] }), {
+      acceptance: ["not json", JSON.stringify({ verdict: "looks fine" })],
+    });
+    const { id } = openObjective({ words: "stripe or paddle?", flydNotes: "", origin: { surface: "chat" } });
+    await cosTick(h.deps);
+    h.finishRun(`${id}-r1`, "completed", "Stripe 2.9%, Paddle 5%.");
+    await cosTick(h.deps);
+    await cosTick(h.deps);
+    expect(h.asked.filter((prompt) => prompt.includes("check the finished result"))).toHaveLength(2);
+    expect(h.told).toEqual([]);
+    expect(h.said).toHaveLength(1);
+    expect(h.said[0]).toMatchObject({ kind: "done", detail: "Stripe 2.9%, Paddle 5%." });
+    expect(h.said[0]!.outcome).toContain("is finished, but I couldn't double-check it");
+    expect(readObjective(id)?.status).toBe("done");
+    h.store.close();
+  });
+
   it("keeps acceptance failures backstage, recovers within budget, then parks a genuine shortfall", async () => {
     const short = JSON.stringify({ met: false, missing: "Paddle's fee table has no source" });
     const h = harness(JSON.stringify({ team: "knowledge", outcome: "Compare Stripe and Paddle", done_when: ["both fee tables are sourced"] }), { acceptance: [short, short, short] });

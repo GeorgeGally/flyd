@@ -203,6 +203,8 @@ The chat harness decides turn shape first:
 answer | clarify | act | delegate
 ```
 
+A clarify reading is tagged with its gap: a fact (a lookup, or something the crew can get) or a preference (only George knows). A fact gap is rerouted in the harness (`settleClarify` in `runtime/turn-plan.ts`) to delegate for a request to do something, otherwise answer; only a preference or untagged gap still asks George.
+
 Jev also returns a domain ownership hint:
 
 ```text
@@ -402,7 +404,7 @@ This is v8 Phase 6 (`docs/plans/2026-11-08-flyd-orchestration-v8.md`). The plan 
   - the target, when under way, gets the correction through `sendRunMessage`;
   - completed runs are re-queued with their result attached as prior work.
   A result that arrives for an older revision is kept as prior work and run again, never delivered.
-- **Delivery and acceptance.** The one `done` report is written only when every run is completed and valid for the current revision. Before that, one query checks the final result against the objective's done-when. A check that can't be read lets the result through, noted in the report's detail; the domain's own review still stands. A single final domain run is told through `tellRun`; anything else is one line.
+- **Delivery and acceptance.** The one `done` report is written only when every run is completed and valid for the current revision. Before that, one query checks the final result against the objective's done-when. A check that can't be read is asked once more; still unreadable, it is not a pass: George hears the work is finished but not double-checked, with the result to look at. A single final domain run is told through `tellRun`; anything else is one line.
 - **Adapting.** A failed run, or a final result that falls short of done-when, is re-briefed to its team once with why. A one-off job may have acted outside, so it is never re-run on its own. A second failure, or a failed job, is one `decision` report; there is no third try, and an unanswered close-but-not-there decision is not re-checked. Each adaptation is recorded with its reason, and `work_status` shows the plan, his corrections and the adaptations.
 
 ### Chief of Staff — waiting work (behind `FLYD_COS=1`)
