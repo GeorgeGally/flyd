@@ -2,7 +2,7 @@
 
 **Date:** 16 November 2026
 **Status:** VALIDATED WITH CORRECTIONS against main at 75558499faa6aca8d71a497557eec5554d31f3d3 on 17 November 2026. Implementation has NOT started.
-**Source audited:** `GeorgeGally/flyd`, `main` at `b5c6844ec4f1e3096f7a58c9e66078255fb72bc4` (includes conversation timeline PR #315 and response PR #314).
+**Source audited:** initial plan used `main` at `b5c6844`; revalidated the current implementation at `75558499faa6aca8d71a497557eec5554d31f3d3` (November 17, through PR #324). The documentation-only validation commit is newer; its CI is a separate run.
 **Research:** Bruce Liu, *Beyond Taking Turns in Human-AI Interaction*, UCLA PhD dissertation (2026), especially Visual Captions, Inner Thoughts, Doki.
 **Product authority:** `docs/product/flyd-personal-intelligence-prd.md`; `AGENTS.md` governs repo/workflow. Do not implement against the retired Rails product.
 **Verification boundary:** GitHub source inspection against 75558499 (new PRs #316–#324) and the matching GitHub CI success (run 44003441193, completed 17 November 2026). No local checkout, installed Mac/permissions test, live provider call or runtime configuration inspection was performed. CI success is a source/build/test baseline, not proof of the new participation feature.
