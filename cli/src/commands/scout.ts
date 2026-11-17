@@ -4,6 +4,7 @@ import {
 import { discoveryStatus, refreshDiscovery } from "../council/scout-discovery.js";
 import { last30daysHealth, last30daysPath } from "../council/scout-last30days.js";
 import { scoutMetricsSummary, scoutResearchHealthSummary } from "../council/scout-metrics.js";
+import { editorialEvaluationSummary, editorialShadowBrief, recordEditorialJudgment } from "../council/scout-eval.js";
 
 export async function runScoutCommand(action = "show", args: string[] = []): Promise<void> {
   const complete = async (prompt: string) => {
@@ -47,6 +48,16 @@ export async function runScoutCommand(action = "show", args: string[] = []): Pro
       }
       return;
     }
+    case "compare":
+      process.stdout.write(editorialShadowBrief(scoutDir()));
+      process.stdout.write(editorialEvaluationSummary(scoutDir()) + "\n");
+      return;
+    case "judge": {
+      const verdict = (args[0] || "").trim();
+      if (!["A", "B", "tie"].includes(verdict)) throw new Error("flyd scout judge A | B | tie");
+      process.stdout.write(recordEditorialJudgment(scoutDir(), verdict as "A" | "B" | "tie") + "\n");
+      return;
+    }
     case "status": {
       const health = await last30daysHealth();
       const discovery = discoveryStatus(scoutDir());
@@ -69,6 +80,6 @@ export async function runScoutCommand(action = "show", args: string[] = []): Pro
       process.stdout.write(`${readTaste()}\n`);
       return;
     default:
-      throw new Error(`Unknown scout action: ${action} (show|run|watch|evolve|discover|status|more N|less N|sources|taste)`);
+      throw new Error(`Unknown scout action: ${action} (show|run|watch|evolve|discover|status|compare|judge A|B|tie|more N|less N|sources|taste)`);
   }
 }
