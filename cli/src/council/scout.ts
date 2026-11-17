@@ -728,7 +728,7 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
   const pooled = readPool(dir, now, latestEdition(dir)?.generatedAt);
   const gathered = await gatherCandidates(sources, { fetchFn: deps.fetchFn, fetchTopicFn: deps.fetchTopicFn, includeTopics: true, now, redditLimit: REDDIT_PER_EDITION, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
   const { failed } = gathered;
-  const candidates = [...gathered.candidates, ...pooled, ...discoveryCandidates(dir, now)];
+  const candidates = [...gathered.candidates, ...pooled, ...(editorialMode() === "on" ? discoveryCandidates(dir, now) : [])];
   sources = recordFailures(sources, failed, now);
   const existingEditions = existsSync(join(dir, "editions"))
     ? readdirSync(join(dir, "editions")).filter((file) => file.endsWith(".json")).sort().slice(-30)
