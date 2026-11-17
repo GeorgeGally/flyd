@@ -3,12 +3,12 @@ export { sourceLabel };
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
-import { readUserProfile } from "../lib/user-profile.js";
 import { RssAdapter } from "../evidence/adapters/rss.js";
 import type { ActivityRecord } from "../conversation-view/activity.js";
 import { classifyMedia, mixInspiration, workFocusFromProjects, type InspirationItem, type MediaKind, type WorkFocus } from "./inspiration.js";
 import { gatherInspiration, markShown, readShown } from "./inspiration-sources.js";
-import { localDay, memoryPromptText } from "./memory-store.js";
+import { localDay } from "./memory-store.js";
+import { readNewsInterests } from "./news-interests.js";
 import { liveProjects } from "./projects.js";
 import { providerTrouble, recordScoutRun } from "./scout-run.js";
 import { last30daysPath, researchLast30days } from "./scout-last30days.js";
@@ -404,7 +404,7 @@ export async function gatherCandidates(sources: ScoutSource[], options: FetchOpt
 
 export function rankPrompt(
   candidates: ScoutCandidate[],
-  context: { taste: string; profile: string | null; memory: string | null; feedback: ScoutFeedback[]; fitnessBySource: Record<string, number>; today: string; mode: "edition" | "watch"; policy?: "legacy" | "on" },
+  context: { taste: string; feedback: ScoutFeedback[]; fitnessBySource: Record<string, number>; today: string; mode: "edition" | "watch"; policy?: "legacy" | "on" },
 ): string {
   const list = candidates.map((candidate, index) => {
     const prior = context.fitnessBySource[candidate.sourceId];
@@ -414,7 +414,7 @@ export function rankPrompt(
   const task = context.mode === "watch"
     ? [
       "This is a quiet background watch, not an edition. Almost always the answer is no picks.",
-      "Pick an item ONLY if it verifiably affects a current project, commitment, or decision today and cannot reasonably wait. A viral discussion is not urgent.",
+      "Pick an item ONLY if it is an exceptional urgent development in the interest brief today and cannot reasonably wait. A viral discussion is not urgent.",
       "Mark qualifying items 'must'. At most 2.",
     ]
     : legacy
@@ -441,8 +441,6 @@ export function rankPrompt(
     "Source fit is how much he has liked a source before (0.5 = unknown); use it as a tiebreaker, not a rule.",
     'Reply with JSON only: {"picks": [{"index": 0, "kind": "must|relevant|rabbit_hole", "why": "..."}]} — {"picks": []} if nothing clears the bar.',
     `--- George's taste (he wrote the seed; it evolves with his feedback) ---\n${context.taste}`,
-    `--- Profile ---\n${context.profile ?? "(empty)"}`,
-    `--- Memory (active projects, decisions, commitments) ---\n${context.memory ?? "(empty)"}`,
     `--- His feedback on past picks ---\n${feedbackDigest(context.feedback)}`,
     `--- Candidates ---\n${list}`,
   ].join("\n\n");
@@ -569,9 +567,7 @@ function clearPool(dir: string, upTo: Date): void {
 
 function rankContext(dir: string, now: Date, sources: ScoutSource[], mode: "edition" | "watch") {
   return {
-    taste: readTaste(dir),
-    profile: readUserProfile(),
-    memory: memoryPromptText(),
+    taste: readNewsInterests(readTaste(dir)),
     feedback: readFeedback(dir),
     fitnessBySource: Object.fromEntries(sources.map((source) => [source.id, fitness(source)])),
     today: localDay(now),
@@ -633,7 +629,6 @@ export async function planTopics(
     'Reply with JSON only: {"topics": [{"topic": "...", "why": "<one line>"}]}',
     `--- George's taste ---\n${options.taste ?? SEED_TASTE}`,
     `--- His feedback on past picks ---\n${feedbackDigest(options.feedback ?? [])}`,
-    `--- Profile ---\n${readUserProfile() ?? "(empty)"}`,
   ].join("\n\n");
   try {
     const parsed = JSON.parse((await complete(prompt)).match(/\{[\s\S]*\}/)?.[0] ?? "{}") as { topics?: Array<{ topic?: unknown; why?: unknown }> };
@@ -650,7 +645,7 @@ export async function planTopics(
 }
 
 export async function planInitialTopics(complete: (prompt: string) => Promise<string>, now: Date, dir = scoutDir()): Promise<ScoutSource[]> {
-  return planTopics(complete, now, { taste: readTaste(dir) });
+  return planTopics(complete, now, { taste: readNewsInterests(readTaste(dir)), feedback: readFeedback(dir) });
 }
 
 // ── Edition, watch, feedback ───────────────────────────────────────────────
@@ -896,7 +891,7 @@ export function recordScoutFeedback(target: ScoutFeedbackTarget, verdict: "more"
 
 export interface EvolutionChange { kind: "paused" | "added" | "revived" | "taste" | "topics"; detail: string }
 
-export function evolvePrompt(sources: ScoutSource[], feedback: ScoutFeedback[], taste: string, profile: string | null, memory: string | null, today: string): string {
+export function evolvePrompt(sources: ScoutSource[], feedback: ScoutFeedback[], taste: string, today: string): string {
   const table = sources.filter((source) => source.status !== "reserve").map((source) =>
     `- ${source.id} [${source.status}] fit ${fitness(source).toFixed(2)} (shown ${source.shown}, more ${source.likes}, less ${source.dislikes})`).join("\n");
   return [
@@ -908,8 +903,6 @@ export function evolvePrompt(sources: ScoutSource[], feedback: ScoutFeedback[], 
     `--- Current taste ---\n${taste}`,
     `--- Sources and fitness ---\n${table}`,
     `--- His feedback ---\n${feedbackDigest(feedback)}`,
-    `--- Profile ---\n${profile ?? "(empty)"}`,
-    `--- Memory ---\n${memory ?? "(empty)"}`,
   ].join("\n\n");
 }
 
@@ -918,7 +911,7 @@ const PRUNE_BELOW = 0.3;
 
 /**
  * Daily mutation: pause sources that keep missing, breed new ones from what
- * worked, try one from the reserve, and revise the taste profile. Every
+ * worked, try one from the reserve and revise the taste profile. Every
  * change is logged and shown to George in the next briefing.
  */
 export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionChange[]> {
@@ -950,7 +943,8 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
     changes.push({ kind: "revived", detail: `trying ${reserve.name}` });
   }
 
-  const taste = readTaste(dir);
+  const tasteFile = readTaste(dir);
+  const taste = readNewsInterests(tasteFile);
   const feedback = readFeedback(dir);
 
   // Replan search topics from his taste: keep the ones he added or liked, replace the rest.
@@ -971,7 +965,7 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
     changes.push({ kind: "topics", detail: `now searching ${planned.map((topic) => topic.target).join(", ")}` });
   }
   try {
-    const reply = await deps.complete(evolvePrompt(sources, feedback, taste, readUserProfile(), memoryPromptText(), localDay(now)));
+    const reply = await deps.complete(evolvePrompt(sources, feedback, tasteFile, localDay(now)));
     const parsed = JSON.parse(reply.match(/\{[\s\S]*\}/)?.[0] ?? "{}") as { add?: Array<Record<string, unknown>>; taste?: string; taste_change?: string };
     for (const raw of (parsed.add ?? []).slice(0, NEW_SOURCES_PER_EVOLUTION)) {
       const kind = String(raw.kind) as SourceKind;
@@ -986,9 +980,9 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
       changes.push({ kind: "added", detail: `${kind === "reddit" ? "r/" : ""}${target}${raw.why ? ` — ${String(raw.why)}` : ""}` });
     }
     const revised = String(parsed.taste ?? "").trim();
-    if (revised && revised !== taste && revised.length >= 80 && revised.length <= 4_000) {
+    if (revised && revised !== tasteFile && revised.length >= 80 && revised.length <= 4_000) {
       atomicWrite(join(dir, "taste.md"), `${revised}\n`);
-      appendJsonl(join(dir, "taste-history.jsonl"), [{ at: now.toISOString(), previous: taste }]);
+      appendJsonl(join(dir, "taste-history.jsonl"), [{ at: now.toISOString(), previous: tasteFile }]);
       changes.push({ kind: "taste", detail: String(parsed.taste_change ?? "taste profile refined from feedback").trim() || "taste profile refined from feedback" });
     }
   } catch {
