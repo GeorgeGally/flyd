@@ -11,7 +11,7 @@ import { readyItems,
   callItems, doneItems, underwayItems, namedShotIn, workerStarted, weekLandedRows, fleetReadTimeout, labPreviews, holdDecisions, decisionProgress, reviewLinks, proseLinks, type FleetArtefact,
 } from "../artefact.js";
 import { firstmateChangesFromFleet, projectFleetDecisions } from "../artefact.js";
-import { parseProjectUrls } from "../project-urls.js";
+import { ProjectUrls } from "../project-urls.js";
 import { BoardShots, LIESEL_TAILNET_ORIGIN, captureArgs, lieselBoardKey, lieselPublicOrigin, publicBoardUrl } from "../board-shots.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
@@ -476,23 +476,34 @@ describe("the backlog", () => {
     expect(rows[0]).toEqual({ label: "Good Neighbours: ticket modal", task: "gnm-tickets", status: "landed", repo: "good_neighbours", url: "https://github.com/GeorgeGally/good-neighbours/pull/14" });
   });
 
-  it("gives finished work with no picture a card that opens its running project or its board", () => {
-    const backlog = parseBacklog([
-      "- [x] logan-hide-layers - Logan: hide layers (repo: logan) (kind: ship) (done 2026-11-17)",
-      "- [x] imogen-sky - Imogen: sky pass (repo: imogen) (done 2026-11-17)",
-      "- [x] quiet-fix - Quiet: a fix (repo: quiet) (done 2026-11-17)",
+  it("gives finished work with no picture a card that opens its running project or its board", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-no-picture-"));
+    for (const dir of ["bin", "state", "data"]) mkdirSync(join(home, dir));
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), "#!/bin/sh\necho '{}'\n", { mode: 0o755 });
+    const today = new Date().toISOString().slice(0, 10);
+    writeFileSync(join(home, "data", "backlog.md"), [
+      `- [x] logan-hide-layers - Logan: hide layers (repo: logan) (kind: ship) (done ${today})`,
+      `- [x] logan-pr - Logan: shipped https://github.com/GeorgeGally/logan/pull/9 (repo: logan) (done ${today})`,
+      `- [x] imogen-sky - Imogen: sky pass (repo: imogen) (done ${today})`,
+      `- [x] quiet-fix - Quiet: a fix (repo: quiet) (done ${today})`,
     ].join("\n"));
-    const recent = recentlyFinished(backlog, Date.parse("2026-11-17T12:00:00Z"));
     const board = "http://127.0.0.1:4747/board/imogen-sky-1";
-    const extras = new Map([["imogen-sky", { report: true, boards: [board] }]]);
-    const urls = parseProjectUrls(JSON.stringify({ Logan: "http://127.0.0.1:3002", bad: "ftp://x" }));
-    const rows = landedRows(recent, extras, (repo) => urls.has(repo ?? ""));
-    // No picture needed: a running project or a report is enough; nothing to see or open is still no card.
-    expect(rows.map((row) => row.task).sort()).toEqual(["imogen-sky", "logan-hide-layers"]);
-    expect([...urls]).toEqual([["logan", "http://127.0.0.1:3002"]]);
-    const fleet = enrichFleet({ ...parseBearings(BEARINGS), landed: rows.map((row) => row.repo === "logan" ? { ...row, url: urls.get("logan") } : row) }, backlog, extras);
-    expect(fleet.landed.find((row) => row.task === "imogen-sky")).toMatchObject({ board: "imogen-sky-1", references: [{ label: "Open board", url: board }] });
-    const items = composeArtefact({ fleet, memories: [], news: [], taste: [] });
+    mkdirSync(join(home, "data", "imogen-sky", "notes"), { recursive: true });
+    writeFileSync(join(home, "data", "imogen-sky", "notes", "log.md"), `Posted to ${board} for review.\n`);
+    mkdirSync(join(home, "data", "quiet-fix"));
+    writeFileSync(join(home, "data", "quiet-fix", "report.md"), "Fixed it. Nothing to open.\n");
+    const urlsFile = join(home, "project-urls.json");
+    writeFileSync(urlsFile, JSON.stringify({ Logan: "http://127.0.0.1:3002", bad: "ftp://x" }));
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none"), projectUrls: new ProjectUrls(urlsFile) });
+    await feed.refresh();
+    const landed = feed.current().fleet!.landed;
+    // A card needs a picture, a link or a board: a report alone is nothing to open.
+    expect(landed.map((row) => row.task).sort()).toEqual(["imogen-sky", "logan-hide-layers", "logan-pr"]);
+    expect(landed.find((row) => row.task === "logan-hide-layers")?.url).toBe("http://127.0.0.1:3002");
+    expect(landed.find((row) => row.task === "logan-pr")?.url).toBe("https://github.com/GeorgeGally/logan/pull/9");
+    expect(landed.find((row) => row.task === "imogen-sky")).toMatchObject({ board: "imogen-sky-1", references: [{ label: "Open board", url: board }] });
+    expect(landed.find((row) => row.task === "imogen-sky")?.url).toBeUndefined();
+    const items = composeArtefact({ fleet: feed.current().fleet!, memories: [], news: [], taste: [] });
     expect(items.find((item) => item.task === "logan-hide-layers")?.links).toEqual([{ label: "Open", url: "http://127.0.0.1:3002" }]);
   });
 

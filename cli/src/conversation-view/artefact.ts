@@ -494,8 +494,6 @@ export interface TaskExtra {
   namedShot?: string;
   /** The Liesel boards its own files link. */
   boards?: string[];
-  /** It wrote a report (`report.md` in its data folder). */
-  report?: boolean;
 }
 
 /** The picture a worker's status line names by its path ("… shot at /…/data/task/after-390.png"), among the task's own files. Pure. */
@@ -1688,7 +1686,7 @@ export function withVoice(
 export const LANDED_PER_REPO = 3;
 
 /**
- * Recently finished work with something to see or open — pictures, a report, its own link, a board
+ * Recently finished work with something to see or open — pictures, its own link, a board
  * or its project's running URL — as landed rows, the most recent first. A picture is never required. Pure.
  */
 export function landedRows(recent: Array<{ task: string; entry: BacklogEntry }>, extras: Map<string, TaskExtra>, runsAt: (repo: string | undefined) => boolean = () => false): ArtefactRow[] {
@@ -1696,7 +1694,7 @@ export function landedRows(recent: Array<{ task: string; entry: BacklogEntry }>,
   const perRepo = new Map<string, number>();
   const shown = ({ task, entry }: { task: string; entry: BacklogEntry }) => {
     const extra = extras.get(task);
-    return Boolean(extra?.shots?.length || extra?.report || extra?.boards?.length || entry.url || runsAt(entry.repo));
+    return Boolean(extra?.shots?.length || extra?.boards?.length || entry.url || runsAt(entry.repo));
   };
   return recent
     .filter(shown)
@@ -2391,10 +2389,12 @@ export class ArtefactFeed {
         // No data directory: no screenshots.
       }
       try {
-        // Its written files say whether it reported and which boards it posted to.
-        const names = (await readdir(dir, { recursive: true })).slice(0, 400)
-          .filter((name) => TEXT_FILE.has(extname(name).toLowerCase()) && name.split(sep).length <= 2).slice(0, 24);
-        if (names.includes("report.md")) extra.report = true;
+        // Its written files say which boards it posted to: the folder and one level of subfolders, never a deep walk.
+        const top = await readdir(dir, { withFileTypes: true });
+        const nested = await Promise.all(top.filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules").slice(0, 8)
+          .map(async (folder) => (await readdir(join(dir, folder.name))).slice(0, 100).map((name) => join(folder.name, name))));
+        const names = [...top.filter((entry) => !entry.isDirectory()).map((entry) => entry.name), ...nested.flat()]
+          .filter((name) => TEXT_FILE.has(extname(name).toLowerCase())).slice(0, 24);
         const boards = new Set<string>();
         for (const name of names) {
           const info = await stat(join(dir, name));
@@ -2403,9 +2403,9 @@ export class ArtefactFeed {
         }
         if (boards.size) extra.boards = [...boards].slice(0, 4);
       } catch {
-        // No data directory: no report or boards.
+        // No data directory: no boards.
       }
-      if (extra.at || extra.shots || extra.started || extra.report || extra.boards) extras.set(task, extra);
+      if (extra.at || extra.shots || extra.started || extra.boards) extras.set(task, extra);
     }));
     return extras;
   }
