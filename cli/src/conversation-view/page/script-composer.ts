@@ -575,18 +575,16 @@ export const COMPOSER_SCRIPT = `
     voiceWaitSaid.textContent = "";
   }
   /**
-   * Each conversation update: the loader mirrors the island's, so it stays while the conversation
-   * is working on his spoken message (the same working flag the island's spinner shows, stale after ten
-   * minutes like the island's) and goes when that work ends. A reply with no work reported ends it too.
+   * Each time the island's working state is refreshed: the loader mirrors the island's, so it stays while the conversation
+   * is working on his spoken message (the island's own working result, including its ten-minute staleness re-check) and goes when that work ends. A reply with no work reported ends it too.
    */
-  function voiceWaitSeen(update) {
+  function voiceWaitSeen() {
     if (!voiceWaitFor || !voiceWaitFor.id) return;
     if (drawnFrom !== voiceWaitFor.session) { endVoiceWait(); return; }
-    var order = update.order || [];
+    var order = shownOrder;
     var at = order.indexOf(voiceWaitFor.id);
     if (at === -1) return;
-    var since = update.lastActivity ? Date.now() - new Date(update.lastActivity).getTime() : 0;
-    var working = !!update.working && since < 10 * 60 * 1000;
+    var working = islandWorking;
     if (working) voiceWaitFor.started = true;
     var replied = order.slice(at + 1).some(function (id) {
       var node = nodes.get(id);
