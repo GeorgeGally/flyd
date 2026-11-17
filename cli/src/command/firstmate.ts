@@ -927,7 +927,7 @@ export async function syncFirstmateDomainRuns(options: {
         // handoff without per-exchange project names or a prose report is bad_output,
         // failed at the boundary with its named layer, never re-requested. FirstMate's
         // own failed or needs_decision outcome stands with its brief. The failure is
-        // Flyd's internal trace, never a card for George.
+        // recorded on the run with its named layer and surfaces as a run failure.
         const attribution = checkProjectAttributionHandoff(run, parsed.result);
         const attributionFailure = status === "completed" && !predates && !attribution.ok ? projectAttributionFailure(run, attribution) : undefined;
         // Only an outcome answers the re-request; "still working" leaves it open.
@@ -955,7 +955,7 @@ export async function syncFirstmateDomainRuns(options: {
           // A reply after work was sent back to its boss is reviewed afresh even when it says the same (as is one on a run
           // recorded before the report record that was never announced).
           ...(cameBack(recordedStatus) && (predates || news || terminalReportFailure || attributionFailure || (run.report ? run.report.sentBack : !notified))
-            ? { report: predates || attributionFailure ? quietReport(recordedStatus, settledAt) : dueReport(recordedStatus, settledAt) } : {}),
+            ? { report: predates ? quietReport(recordedStatus, settledAt) : dueReport(recordedStatus, settledAt) } : {}),
           ...(status === "failed" && !attributionFailure ? { failure: parsed.result.brief } : failure !== undefined && !news && !attributionFailure ? { failure } : {}),
           ...(!handoff.ok && !attributionFailure ? { incompleteReason: handoff.reason } : {}),
           ...(stillShort ? { incompleteReason: stillShort } : {}),
