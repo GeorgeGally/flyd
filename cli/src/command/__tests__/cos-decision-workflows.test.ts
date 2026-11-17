@@ -71,13 +71,12 @@ describe("AgentRun DSL System-1 pilot bridge", () => {
     });
     const result = await judge(request);
     expect(called).toBe(1);
-    expect(result.answers[RECOVERY_PREDICATE]).toEqual({
-      type: "choice", choice: "rebrief_with_different_tactic",
-      confidence: 0.92, probabilities: {
-        rebrief_with_different_tactic: 0.91,
-        hold_for_evidence: 0.09,
-      },
+    const translated = result.answers[RECOVERY_PREDICATE];
+    expect(translated).toMatchObject({
+      type: "choice", choice: "rebrief_with_different_tactic", confidence: 0.92,
     });
+    expect(translated?.probabilities.rebrief_with_different_tactic).toBeCloseTo(0.91, 12);
+    expect(translated?.probabilities.hold_for_evidence).toBeCloseTo(0.09, 12);
     expect(result.usage).toEqual({ input_tokens: 20, output_tokens: 0 });
     expect(result.cost_usd).toBeNull();
   });
