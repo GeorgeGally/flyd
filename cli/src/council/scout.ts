@@ -743,6 +743,7 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
   const maxItems = editorialMode() !== "on" ? LEGACY_BRIEF_MAX : BRIEF_MAX;
   const ranked = fresh.length ? parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "edition"))), fresh, maxItems, EDITION_PER_SOURCE) : [];
   if (editorialMode() === "shadow") {
+    try {
     // Same base observations; include only *cached* discovery nominations in the alternative.
     // Never publish these picks or create duplicate user notifications.
     const shadowCandidates = [...candidates, ...discoveryCandidates(dir, now, true)];
@@ -759,6 +760,9 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
       baseline: ranked.map((item) => ({ title: item.title, url: item.url })),
       candidate: shadowRanked.map((item) => ({ title: item.title, url: item.url, why: item.why })),
     }, null, 2));
+    } catch {
+      // A shadow candidate is observational only. It can never break the real edition.
+    }
   }
   const focus = deps.focus ?? (process.env.VITEST ? [] : workFocusFromProjects(liveProjects()));
   let extras = deps.inspiration ?? [];
