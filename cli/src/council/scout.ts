@@ -431,7 +431,7 @@ export function rankPrompt(
         "The numbers and source count are attention signals, not proof of a claim. A single unverified rumour cannot be reported as fact.",
         "Explain what happened and why George might care, grounded strictly in the candidate evidence. Do not fabricate primary confirmation.",
         "Avoid generic world news, crypto price talk, promotional posts, duplicate releases, and superficial trend chatter.",
-        "Prefer this week; an older find needs an exceptional reason. At most three stories from the same source.",
+        "Prefer this week; an older find needs an exceptional reason. Spread it across sources: at most 3 picks from any one source.",
       ];
   return [
     "You are Flyd's Scout, curating for George. Be opinionated: curate, don't list.",
