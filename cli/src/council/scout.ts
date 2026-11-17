@@ -20,7 +20,7 @@ import { recordScoutMetrics } from "./scout-metrics.js";
 // found, ranked for him, delivered before he asks, and evolving.
 //
 //   Sources are a population: RSS feeds, subreddits, and last30days topics,
-//   each with a fitness (Beta(likes+1, dislikes+1), plus exposure). Weak
+//   each with a preference posterior from explicit more/less feedback. Weak
 //   sources are paused; new ones are bred from what he liked and from an
 //   untried reserve. A living taste profile — seeded from George's own
 //   curator prompt — is revised from his feedback. (Mechanics are scripts;
@@ -65,7 +65,8 @@ export interface EditionItem {
   storyId?: string; evidenceUrls?: string[]; confidence?: "multi-source" | "single-source";
 }
 export interface Edition { date: string; generatedAt: string; topics: string[]; items: EditionItem[] }
-export interface ScoutFeedback { at: string; verdict: "more" | "less"; title: string; topic: string; source: string; sourceId?: string; why: string }
+export type ScoutFeedbackReason = "wrong-topic" | "repeat" | "not-new" | "too-shallow" | "bad-source" | "interesting" | "surprising" | "already-knew";
+export interface ScoutFeedback { at: string; verdict: "more" | "less"; title: string; topic: string; source: string; sourceId?: string; why: string; reason?: ScoutFeedbackReason }
 
 /** How many picks a daily brief aims for; the model curates within this, a quiet day may be lean. */
 export const BRIEF_MIN = 5;
@@ -231,7 +232,7 @@ export function readTopics(dir = scoutDir()): { plannedAt: string | null; topics
 function feedbackDigest(feedback: ScoutFeedback[]): string {
   const recent = feedback.slice(-30);
   if (recent.length === 0) return "(no feedback yet)";
-  return recent.map((item) => `- ${item.verdict === "more" ? "MORE like" : "LESS like"}: ${item.title} [${item.topic}, ${item.source}]`).join("\n");
+  return recent.map((item) => `- ${item.verdict === "more" ? "MORE like" : "LESS like"}: ${item.title} [${item.topic}, ${item.source}]${item.reason ? " (" + item.reason + ")" : ""}`).join("\n");
 }
 
 // ── Fetching ───────────────────────────────────────────────────────────────
@@ -673,7 +674,7 @@ export interface ScoutRunResult {
 }
 
 /** Seats beside the stories for a stat, a GIF, a video, an image, a quote and a thread. */
-export const INSPIRATION_SEATS = 6;
+export const INSPIRATION_SEATS = 2;
 /** One find after every few stories keeps the deck mixed without crowding the news. */
 const STORIES_PER_FIND = 3;
 
@@ -844,7 +845,7 @@ function ratedItem(target: ScoutFeedbackTarget, dir: string, now: Date): Edition
  * button. Shapes source fitness, ranking, the taste profile and the next
  * evolution. Returns what was rated, or null when nothing matched.
  */
-export function recordScoutFeedback(target: ScoutFeedbackTarget, verdict: "more" | "less", dir = scoutDir(), now = new Date()): RatedScoutItem | null {
+export function recordScoutFeedback(target: ScoutFeedbackTarget, verdict: "more" | "less", dir = scoutDir(), now = new Date(), reason?: ScoutFeedbackReason): RatedScoutItem | null {
   const item = ratedItem(target, dir, now);
   const wantedSource = item?.sourceId
     ?? (item ? undefined : typeof target === "object" ? target.sourceId : typeof target === "string" ? target.trim() : undefined);
@@ -853,7 +854,7 @@ export function recordScoutFeedback(target: ScoutFeedbackTarget, verdict: "more"
   const rated: RatedScoutItem | null = item
     ?? (source ? { title: source.name, source: source.name, topic: source.category ?? source.name, why: "", sourceId: source.id } : null);
   if (!rated) return null;
-  appendJsonl(join(dir, "feedback.jsonl"), [{ at: now.toISOString(), verdict, title: rated.title, topic: rated.topic, source: rated.source, ...(rated.sourceId ? { sourceId: rated.sourceId } : {}), why: rated.why }]);
+  appendJsonl(join(dir, "feedback.jsonl"), [{ at: now.toISOString(), verdict, title: rated.title, topic: rated.topic, source: rated.source, ...(rated.sourceId ? { sourceId: rated.sourceId } : {}), why: rated.why, ...(reason ? { reason } : {}) }]);
   if (source) {
     writeSources(sources.map((entry) => entry.id !== source.id ? entry : {
       ...entry,
