@@ -3,7 +3,7 @@ import {
 } from "../council/scout.js";
 import { discoveryStatus, refreshDiscovery } from "../council/scout-discovery.js";
 import { last30daysHealth, last30daysPath } from "../council/scout-last30days.js";
-import { scoutMetricsSummary } from "../council/scout-metrics.js";
+import { scoutMetricsSummary, scoutResearchHealthSummary } from "../council/scout-metrics.js";
 
 export async function runScoutCommand(action = "show", args: string[] = []): Promise<void> {
   const complete = async (prompt: string) => {
@@ -52,6 +52,7 @@ export async function runScoutCommand(action = "show", args: string[] = []): Pro
       const discovery = discoveryStatus(scoutDir());
       process.stdout.write([
         scoutMetricsSummary(scoutDir()),
+        scoutResearchHealthSummary(scoutDir()),
         "Last30days engine: " + last30daysPath(),
         "Python: " + health.interpreter + " (" + health.detail + ")",
         "Discovery: " + discovery.mode + " (" + discovery.cached + " cached nominations)",
