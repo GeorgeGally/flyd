@@ -78,7 +78,8 @@ describe("scout sources", () => {
   it("scores fitness as a posterior that fades with unrewarded exposure", () => {
     expect(fitness({ likes: 0, dislikes: 0, shown: 0 })).toBe(0.5);
     expect(fitness({ likes: 3, dislikes: 0, shown: 3 })).toBeGreaterThan(0.75);
-    expect(fitness({ likes: 0, dislikes: 0, shown: 12 })).toBeLessThan(0.3);
+    // Unrated exposure is not an explicit dislike.
+    expect(fitness({ likes: 0, dislikes: 0, shown: 12 })).toBe(0.5);
   });
 
   it("normalises last30days output", () => {
