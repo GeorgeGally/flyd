@@ -404,13 +404,13 @@ export async function gatherCandidates(sources: ScoutSource[], options: FetchOpt
 
 export function rankPrompt(
   candidates: ScoutCandidate[],
-  context: { taste: string; profile: string | null; memory: string | null; feedback: ScoutFeedback[]; fitnessBySource: Record<string, number>; today: string; mode: "edition" | "watch" },
+  context: { taste: string; profile: string | null; memory: string | null; feedback: ScoutFeedback[]; fitnessBySource: Record<string, number>; today: string; mode: "edition" | "watch"; policy?: "legacy" | "on" },
 ): string {
   const list = candidates.map((candidate, index) => {
     const prior = context.fitnessBySource[candidate.sourceId];
     return `[${index}] (${candidate.source}${prior !== undefined ? ` · source fit ${prior.toFixed(2)}` : ""}${candidate.published ? ` · ${candidate.published}` : ""}${candidate.engagement ? ` · ${candidate.engagement}` : ""}) ${candidate.title}${candidate.summary && candidate.summary !== candidate.title ? ` — ${candidate.summary}` : ""}`;
   }).join("\n");
-  const legacy = editorialMode() === "legacy";
+  const legacy = (context.policy ?? editorialMode()) !== "on";
   const task = context.mode === "watch"
     ? [
       "This is a quiet background watch, not an edition. Almost always the answer is no picks.",
@@ -735,13 +735,31 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
         .flatMap((file) => readJson<Edition | null>(join(dir, "editions", file), null)?.items ?? [])
     : [];
   // First group across outlets, then suppress the underlying event already shown in prior editions.
-  const grouped = editorialMode() === "legacy"
+  const grouped = editorialMode() !== "on"
     ? interleaveBySource(unseenCandidates(candidates, dir))
     : groupScoutStories(interleaveBySource(unseenCandidates(candidates, dir)))
         .filter((item) => !previouslyCovered(item, existingEditions));
   const fresh = grouped.slice(0, EDITION_CANDIDATES);
-  const maxItems = editorialMode() === "legacy" ? LEGACY_BRIEF_MAX : BRIEF_MAX;
+  const maxItems = editorialMode() !== "on" ? LEGACY_BRIEF_MAX : BRIEF_MAX;
   const ranked = fresh.length ? parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "edition"))), fresh, maxItems, EDITION_PER_SOURCE) : [];
+  if (editorialMode() === "shadow") {
+    // Same base observations; include only *cached* discovery nominations in the alternative.
+    // Never publish these picks or create duplicate user notifications.
+    const shadowCandidates = [...candidates, ...discoveryCandidates(dir, now, true)];
+    const shadowFresh = groupScoutStories(interleaveBySource(unseenCandidates(shadowCandidates, dir)))
+      .filter((item) => !previouslyCovered(item, existingEditions))
+      .slice(0, EDITION_CANDIDATES);
+    const shadowRanked = shadowFresh.length
+      ? parsePicks(await deps.complete(rankPrompt(shadowFresh, {
+          ...rankContext(dir, now, sources, "edition"), policy: "on",
+        })), shadowFresh, BRIEF_MAX, EDITION_PER_SOURCE)
+      : [];
+    atomicWrite(join(dir, "editorial-shadow.json"), JSON.stringify({
+      date: today, generatedAt: now.toISOString(),
+      baseline: ranked.map((item) => ({ title: item.title, url: item.url })),
+      candidate: shadowRanked.map((item) => ({ title: item.title, url: item.url, why: item.why })),
+    }, null, 2));
+  }
   const focus = deps.focus ?? (process.env.VITEST ? [] : workFocusFromProjects(liveProjects()));
   let extras = deps.inspiration ?? [];
   if (!deps.inspiration && !process.env.VITEST) {
