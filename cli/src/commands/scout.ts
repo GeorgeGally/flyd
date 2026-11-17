@@ -1,6 +1,9 @@
 import {
-  evolveScout, fitness, formatEdition, latestEdition, readSources, readTaste, recordScoutFeedback, runScoutLocked, watchScout,
+  evolveScout, fitness, formatEdition, latestEdition, readSources, readTaste, recordScoutFeedback, runScoutLocked, scoutDir, watchScout,
 } from "../council/scout.js";
+import { discoveryStatus, refreshDiscovery } from "../council/scout-discovery.js";
+import { last30daysHealth, last30daysPath } from "../council/scout-last30days.js";
+import { scoutMetricsSummary } from "../council/scout-metrics.js";
 
 export async function runScoutCommand(action = "show", args: string[] = []): Promise<void> {
   const complete = async (prompt: string) => {
@@ -44,10 +47,27 @@ export async function runScoutCommand(action = "show", args: string[] = []): Pro
       }
       return;
     }
+    case "status": {
+      const health = await last30daysHealth();
+      const discovery = discoveryStatus(scoutDir());
+      process.stdout.write([
+        scoutMetricsSummary(scoutDir()),
+        "Last30days engine: " + last30daysPath(),
+        "Python: " + health.interpreter + " (" + health.detail + ")",
+        "Discovery: " + discovery.mode + " (" + discovery.cached + " cached nominations)",
+        ...(discovery.lastRun ? ["Last discovery: " + discovery.lastRun.ranAt + " — " + discovery.lastRun.outcome + " — " + discovery.lastRun.domain] : []),
+      ].join("\n") + "\n");
+      return;
+    }
+    case "discover": {
+      const run = await refreshDiscovery(scoutDir(), new Date());
+      process.stdout.write(run ? run.outcome + ": " + run.domain + " (" + run.nominations.length + " nominations)\n" : "Discovery not due or disabled.\n");
+      return;
+    }
     case "taste":
       process.stdout.write(`${readTaste()}\n`);
       return;
     default:
-      throw new Error(`Unknown scout action: ${action} (show|run|watch|evolve|more N|less N|sources|taste)`);
+      throw new Error(`Unknown scout action: ${action} (show|run|watch|evolve|discover|status|more N|less N|sources|taste)`);
   }
 }
