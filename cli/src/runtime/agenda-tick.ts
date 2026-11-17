@@ -207,6 +207,20 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
         });
       },
     },
+    {
+      // Bounded research discovery happens *after* the morning brief; no cold research delays it.
+      name: "scout-discovery", usesModel: true,
+      run: async () => {
+        const [{ scoutDir }, discovery] = await Promise.all([
+          import("../council/scout.js"), import("../council/scout-discovery.js"),
+        ]);
+        const dir = scoutDir();
+        const now = options.now?.() ?? new Date();
+        if (!discovery.discoveryDue(dir, now)) return;
+        const run = await discovery.refreshDiscovery(dir, now);
+        return run ? `discovery ${run.outcome} on ${run.domain} (${run.nominations.length} nominations)` : undefined;
+      },
+    },
   ];
 }
 

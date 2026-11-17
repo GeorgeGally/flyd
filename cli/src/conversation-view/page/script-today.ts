@@ -96,6 +96,25 @@ export const TODAY_SCRIPT = `
     if (said && said !== frontText(story.title).toLowerCase() && said !== quoted) node.appendChild(el("p", "", story.gist));
     // Where it came from, quietly after the story: never a label over the headline.
     if (story.source) node.appendChild(el("p", "src", story.source));
+    // Preserve independent reading paths without presenting source count as proof.
+    if (Array.isArray(story.evidenceUrls)) {
+      var others = story.evidenceUrls.filter(function (url) {
+        return typeof url === "string" && /^https?:\/\//i.test(url) && url !== story.url;
+      }).slice(0, 2);
+      if (others.length) {
+        var evidence = el("p", "src");
+        evidence.appendChild(document.createTextNode("Also covered: "));
+        others.forEach(function (url, n) {
+          if (n) evidence.appendChild(document.createTextNode(" · "));
+          var a = el("a", "", (function () { try { return new URL(url).hostname.replace(/^www\./, ""); } catch (_) { return "Source"; } })());
+          a.href = url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          evidence.appendChild(a);
+        });
+        node.appendChild(evidence);
+      }
+    }
     // Talking about this story is his choice, made here: the message box then names it.
     var chat = el("button", "story-chat", "Chat about this");
     chat.type = "button";

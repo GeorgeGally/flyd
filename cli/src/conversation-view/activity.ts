@@ -33,6 +33,10 @@ export interface ActivityStory {
   gist?: string;
   url: string;
   source?: string;
+  /** Event identity, corroborating links and epistemic confidence from Scout. */
+  storyId?: string;
+  evidenceUrls?: string[];
+  confidence?: "multi-source" | "single-source";
   /** Its number in the latest edition: only an edition story can be told "more" or "less" like it. */
   n?: number;
   /** Same-origin picture, once the article's og:image has been fetched and kept. Never a remote URL. */

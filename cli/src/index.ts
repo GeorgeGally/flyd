@@ -141,7 +141,7 @@ program
 
 program
   .command("scout")
-  .description("Flyd's Scout — news for you, pre-emptive and evolving: show | run | watch | evolve | more N | less N | sources | taste")
+  .description("Flyd's Scout — curated news: show | run | watch | evolve | discover | status | more N | less N | sources | taste")
   .argument("[action]", "show, run, watch, evolve, more, less, sources, taste")
   .argument("[args...]", "item number for more/less")
   .action(async (action: string | undefined, args: string[] = []) => {

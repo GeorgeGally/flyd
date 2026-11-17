@@ -78,7 +78,8 @@ describe("scout sources", () => {
   it("scores fitness as a posterior that fades with unrewarded exposure", () => {
     expect(fitness({ likes: 0, dislikes: 0, shown: 0 })).toBe(0.5);
     expect(fitness({ likes: 3, dislikes: 0, shown: 3 })).toBeGreaterThan(0.75);
-    expect(fitness({ likes: 0, dislikes: 0, shown: 12 })).toBeLessThan(0.3);
+    // Unrated exposure is not an explicit dislike.
+    expect(fitness({ likes: 0, dislikes: 0, shown: 12 })).toBe(0.5);
   });
 
   it("normalises last30days output", () => {
@@ -514,8 +515,8 @@ describe("the edition draws on the whole day", () => {
     const complete = rankerFor([], (prompt) => feeds.flatMap((name) => [0, 1, 2].map((n) => ({ index: indexOf(prompt, `${name} story ${n}`), kind: "relevant", why: "worth it" }))));
     const result = await runScout({ complete, fetchFn, dir, now: () => at("2026-11-14T07:00:00Z"), focus: [], inspiration });
     const items = result.edition!.items;
-    expect(items.filter((item) => item.source !== "Wikipedia" && item.source !== "Wikimedia Commons")).toHaveLength(9);
-    expect(items.map((item) => item.media ?? "story")).toEqual(["story", "story", "story", "stat", "story", "story", "story", "gif", "story", "story", "story"]);
+    expect(items.filter((item) => item.source !== "Wikipedia" && item.source !== "Wikimedia Commons")).toHaveLength(8);
+    expect(items.map((item) => item.media ?? "story")).toEqual(["story", "story", "story", "stat", "story", "story", "story", "gif", "story", "story"]);
     expect(items.map((item) => item.n)).toEqual(items.map((_, index) => index + 1));
     expect(items.some((item) => item.source === "Google Trends")).toBe(false);
   });

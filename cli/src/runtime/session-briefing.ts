@@ -147,7 +147,7 @@ export async function composeMorning(deps: SessionBriefingDependencies = {}): Pr
       lines.push(heard
         ? `News he already heard at ${clock(toldAt!)} (bring up only if something is new or he asks):`
         : UNTOLD_NEWS);
-      const shown = edition.items.slice(0, heard ? 4 : scout.BRIEF_MAX);
+      const shown = edition.items.slice(0, heard ? 4 : scout.LEGACY_BRIEF_MAX);
       const sections = new Map<string, typeof shown>();
       for (const item of shown) sections.set(item.topic, [...(sections.get(item.topic) ?? []), item]);
       for (const [topic, items] of sections) {
