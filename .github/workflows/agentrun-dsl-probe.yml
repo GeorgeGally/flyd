@@ -35,6 +35,12 @@ jobs:
       - name: Exercise real AgentRun v2 interpreter with scripted decisions
         working-directory: experiments/agentrun-dsl
         run: npm test
+      - name: Install Flyd CLI tools without changing dependency declarations
+        working-directory: cli
+        run: npm ci
+      - name: Exercise actual Flyd System-1 host through installed AgentRun interpreter
+        working-directory: cli
+        run: npx tsx ../experiments/agentrun-dsl/flyd-integration.ts
       - name: Verify test-only dependency never enters Core package graph
         run: |
           if grep -q '"@parcha/agentrun-dsl"' cli/package.json; then
