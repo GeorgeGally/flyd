@@ -8,7 +8,7 @@ import type { ActivityRecord } from "../conversation-view/activity.js";
 import { classifyMedia, mixInspiration, workFocusFromProjects, type InspirationItem, type MediaKind, type WorkFocus } from "./inspiration.js";
 import { gatherInspiration, markShown, readShown } from "./inspiration-sources.js";
 import { localDay } from "./memory-store.js";
-import { readNewsInterests, SEED_NEWS_INTERESTS } from "./news-interests.js";
+import { readNewsInterests } from "./news-interests.js";
 import { liveProjects } from "./projects.js";
 import { providerTrouble, recordScoutRun } from "./scout-run.js";
 import { last30daysPath, researchLast30days } from "./scout-last30days.js";
@@ -567,7 +567,7 @@ function clearPool(dir: string, upTo: Date): void {
 
 function rankContext(dir: string, now: Date, sources: ScoutSource[], mode: "edition" | "watch") {
   return {
-    taste: readNewsInterests(),
+    taste: readNewsInterests(readTaste(dir)),
     feedback: readFeedback(dir),
     fitnessBySource: Object.fromEntries(sources.map((source) => [source.id, fitness(source)])),
     today: localDay(now),
@@ -627,7 +627,7 @@ export async function planTopics(
     "Never use implementation phrases from his own code (e.g. 'hybrid search query rewriting', 'browsing taste signal capture'). Each topic is 2-5 words, specific, the way people talk about it online. Avoid generic topics.",
     ...(options.keep?.length ? [`Already searching (do not repeat): ${options.keep.join(", ")}`] : []),
     'Reply with JSON only: {"topics": [{"topic": "...", "why": "<one line>"}]}',
-    `--- George's taste ---\n${options.taste ?? SEED_NEWS_INTERESTS}`,
+    `--- George's taste ---\n${options.taste ?? SEED_TASTE}`,
     `--- His feedback on past picks ---\n${feedbackDigest(options.feedback ?? [])}`,
   ].join("\n\n");
   try {
@@ -645,7 +645,7 @@ export async function planTopics(
 }
 
 export async function planInitialTopics(complete: (prompt: string) => Promise<string>, now: Date, dir = scoutDir()): Promise<ScoutSource[]> {
-  return planTopics(complete, now, { taste: readNewsInterests(), feedback: readFeedback(dir) });
+  return planTopics(complete, now, { taste: readNewsInterests(readTaste(dir)), feedback: readFeedback(dir) });
 }
 
 // ── Edition, watch, feedback ───────────────────────────────────────────────
@@ -898,7 +898,8 @@ export function evolvePrompt(sources: ScoutSource[], feedback: ScoutFeedback[], 
     "You are evolving Flyd's Scout so George's news gets better every week.",
     `Today is ${today}.`,
     "1. Propose up to 3 NEW sources grown from what he liked and from his taste (the world he follows, never implementation phrases from his own code): subreddits (just the name), RSS/Atom feed URLs you are confident exist, or last30days search topics (2-5 words, specific). Also propose 1 exploratory source outside his current mix that his taste suggests he'd love.",
-    'Reply with JSON only: {"add": [{"kind": "reddit|rss|topic", "name": "...", "target": "...", "category": "...", "why": "..."}]}',
+    "2. Revise his taste profile: keep his voice and structure; sharpen what he favours/avoids using only evidence from his feedback. Small, specific edits. If feedback is thin, return the taste unchanged.",
+    'Reply with JSON only: {"add": [{"kind": "reddit|rss|topic", "name": "...", "target": "...", "category": "...", "why": "..."}], "taste": "<full revised taste profile>", "taste_change": "<one line summarising what changed, or empty>"}',
     `--- Current taste ---\n${taste}`,
     `--- Sources and fitness ---\n${table}`,
     `--- His feedback ---\n${feedbackDigest(feedback)}`,
@@ -910,7 +911,7 @@ const PRUNE_BELOW = 0.3;
 
 /**
  * Daily mutation: pause sources that keep missing, breed new ones from what
- * worked and try one from the reserve. Every
+ * worked, try one from the reserve and revise the taste profile. Every
  * change is logged and shown to George in the next briefing.
  */
 export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionChange[]> {
@@ -942,7 +943,8 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
     changes.push({ kind: "revived", detail: `trying ${reserve.name}` });
   }
 
-  const taste = readNewsInterests();
+  const tasteFile = readTaste(dir);
+  const taste = readNewsInterests(tasteFile);
   const feedback = readFeedback(dir);
 
   // Replan search topics from his taste: keep the ones he added or liked, replace the rest.
@@ -963,7 +965,7 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
     changes.push({ kind: "topics", detail: `now searching ${planned.map((topic) => topic.target).join(", ")}` });
   }
   try {
-    const reply = await deps.complete(evolvePrompt(sources, feedback, taste, localDay(now)));
+    const reply = await deps.complete(evolvePrompt(sources, feedback, tasteFile, localDay(now)));
     const parsed = JSON.parse(reply.match(/\{[\s\S]*\}/)?.[0] ?? "{}") as { add?: Array<Record<string, unknown>>; taste?: string; taste_change?: string };
     for (const raw of (parsed.add ?? []).slice(0, NEW_SOURCES_PER_EVOLUTION)) {
       const kind = String(raw.kind) as SourceKind;
@@ -976,6 +978,12 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
       if (existing) continue;
       sources.push(newSource(kind, kind === "reddit" ? redditName(target) : String(raw.name ?? target), target, String(raw.category ?? "") || undefined, "active", "evolution", now, String(raw.why ?? "")));
       changes.push({ kind: "added", detail: `${kind === "reddit" ? "r/" : ""}${target}${raw.why ? ` — ${String(raw.why)}` : ""}` });
+    }
+    const revised = String(parsed.taste ?? "").trim();
+    if (revised && revised !== tasteFile && revised.length >= 80 && revised.length <= 4_000) {
+      atomicWrite(join(dir, "taste.md"), `${revised}\n`);
+      appendJsonl(join(dir, "taste-history.jsonl"), [{ at: now.toISOString(), previous: tasteFile }]);
+      changes.push({ kind: "taste", detail: String(parsed.taste_change ?? "taste profile refined from feedback").trim() || "taste profile refined from feedback" });
     }
   } catch {
     // Mutation by the model is best-effort; deterministic pruning still stands.
@@ -1083,7 +1091,7 @@ async function scoutTickWork(deps: ScoutDependencies, dir: string, now: Date, lo
     writeSources(revival.sources, dir);
     log.push(`retrying ${revival.revived.map((source) => source.name).join(", ")}`);
   }
-  // Daily, with or without feedback: look for new sources, revive, explore the reserve and replan topics.
+  // Daily, with or without feedback: look for new sources, revive, explore the reserve, replan topics, refine taste.
   if (evolutionDue(now, dir)) {
     const changes = await evolveScout(deps);
     log.push(`evolved: ${changes.map((change) => change.kind).join(", ") || "no changes"}`);

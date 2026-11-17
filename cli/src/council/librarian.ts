@@ -357,7 +357,7 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
   const taste = tasteProfile.rules.length ? tasteRuleLines(tasteProfile) : undefined;
   const reply = await deps.complete(librarianPrompt({
     turns, captures, memory, stale, profile, today: localDay(now), finished, projects, repos, ...(taste ? { taste } : {}),
-    newsInterests: readNewsInterests(newsInterestsPath(paths.memory)), scoutTaste, scoutFeedback,
+    newsInterests: readNewsInterests(scoutTaste, newsInterestsPath(paths.memory)), scoutTaste, scoutFeedback,
   }));
   // An unparseable reply must not consume the slice: keep the cursors and retry next pass.
   if (!/\{[\s\S]*\}/.test(reply)) throw new Error("Librarian returned no JSON proposal; cursors kept for retry");

@@ -263,7 +263,7 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
     // through the existing authorized boss path, even if a model would ask George.
     const newsChoice = `${proposal.questionEvidence} ${proposal.question}`;
     if (grounded && /\b(?:news|scout)\b/i.test(newsChoice)
-      && /\b(?:inputs?|sources?|feeds?|rss|memory|profile|interests?)\b/i.test(newsChoice)) {
+      && /\b(?:memory|profile|interests?)\b/i.test(newsChoice) && /\binputs?\b/i.test(newsChoice)) {
       return toBoss(input, { ...decision, reason: "news input choice belongs to Flyd" }, HANDLE_IT_YOURSELF, "news input choice returned to its boss");
     }
     // What his own recorded words already settle is answered for him, before anyone weighs whether to ask him.
