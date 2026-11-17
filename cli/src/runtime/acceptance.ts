@@ -288,3 +288,66 @@ export function domainHandoffShortfall(run: DomainRun, now: Date = new Date()): 
   if (retry.answeredAt) return `still missed ${gaps}, after one structured re-request`;
   return now.getTime() - Date.parse(retry.askedAt) < HANDOFF_RETRY_WAIT_MS ? undefined : `missed ${gaps}, and the one structured re-request went unanswered`;
 }
+
+const PROJECT_ATTRIBUTION_OUTCOME = /which project each (?:exchange|turn|is about)/i;
+const PROJECT_ATTRIBUTION_DONE_WHEN = /every id listed has a line in the reply/i;
+
+/** The repeated domain task that asks FirstMate to place each exchange in one of George's projects. */
+export function isProjectAttributionRun(run: DomainRun): boolean {
+  const { id, originalMessage, intendedOutcome, doneWhen } = run.request;
+  return id.startsWith("flyd-project-threads-")
+    || PROJECT_ATTRIBUTION_OUTCOME.test(intendedOutcome)
+    || PROJECT_ATTRIBUTION_OUTCOME.test(originalMessage)
+    || (doneWhen ?? []).some((criterion) => PROJECT_ATTRIBUTION_DONE_WHEN.test(criterion));
+}
+
+interface ProjectAttributionContext { ids: string[]; names: Set<string> }
+
+/** The exchange ids and allowed project names from the note Flyd sent (conversation-view/project-asker.ts). */
+function projectAttributionContext(message: string): ProjectAttributionContext {
+  const list = message.match(/using one of:\s*([^\n]+)/i)?.[1] ?? "";
+  const names = new Set(list.split(/\.\s*Write\b/i)[0]!.split(",").map((name) => name.trim().toLowerCase()).filter(Boolean));
+  names.add("other");
+  const ids = [...message.matchAll(/\b([0-9a-f]{8})\b\s*[|:]/g)].map((match) => match[1]!);
+  return { ids, names };
+}
+
+/** One line per exchange id, each naming a project from the list Flyd supplied. */
+function namesEveryExchange(text: string, context: ProjectAttributionContext): boolean {
+  if (!context.ids.length) return false;
+  const said = new Map([...text.matchAll(/\b([0-9a-f]{8})\b\s*[:=|-]+\s*([a-z][\w /-]*)/gi)].map((match) => [match[1]!, match[2]!.trim().toLowerCase()]));
+  return context.ids.every((id) => context.names.has(said.get(id) ?? ""));
+}
+
+export interface ProjectAttributionCheck {
+  ok: boolean;
+  /** Named layers missing from the handoff: "project-attribution", "report". */
+  missing: string[];
+  reason?: string;
+}
+
+const PROJECT_ATTRIBUTION_GAPS: Record<string, string> = {
+  ...LAYER_GAPS,
+  "project-attribution": "project-attribution (no line naming each exchange's project from the supplied list)",
+};
+
+/**
+ * The deterministic check for project-attribution handoffs. FirstMate's answer
+ * must name each exchange's project from the supplied list and write a prose
+ * report. A miss is bad_output, refused at the boundary with its named layer
+ * rather than re-requested or kept as raw text.
+ */
+export function checkProjectAttributionHandoff(run: DomainRun, result: DomainResult): ProjectAttributionCheck {
+  if (!isProjectAttributionRun(run)) return { ok: true, missing: [] };
+  const text = [result.brief, result.detailedReport, ...result.raw].filter(Boolean).join("\n");
+  const missing: string[] = [];
+  if (!namesEveryExchange(text, projectAttributionContext(run.request.originalMessage))) missing.push("project-attribution");
+  if (!readsAsReport(result.detailedReport)) missing.push("report");
+  return missing.length ? { ok: false, missing, reason: `handoff:missing ${missing.join(",")}` } : { ok: true, missing: [] };
+}
+
+/** The run-trace record of a rejected project-attribution handoff, named with its task id. */
+export function projectAttributionFailure(run: DomainRun, check: ProjectAttributionCheck): string {
+  const gaps = check.missing.map((layer) => PROJECT_ATTRIBUTION_GAPS[layer] ?? layer).join("; ");
+  return `bad_output ${run.id}: handoff:missing ${check.missing.join(",")} (${gaps})`;
+}

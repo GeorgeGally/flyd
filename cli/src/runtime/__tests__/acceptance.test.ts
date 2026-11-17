@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  checkDomainHandoff, citesEvidence, handoffFailureReason, validateFirstmateReturn, doneWhenStatus, evaluateDoneWhen, normalizeCriteria, parseVerdicts, shortfall, splitClauses, unresolvedItems,
+  checkDomainHandoff, checkProjectAttributionHandoff, citesEvidence, handoffFailureReason, isProjectAttributionRun, projectAttributionFailure, validateFirstmateReturn, doneWhenStatus, evaluateDoneWhen, normalizeCriteria, parseVerdicts, shortfall, splitClauses, unresolvedItems,
 } from "../acceptance.js";
 import { captainNotice } from "../../command/notice.js";
 import { parseDomainResult } from "../../command/result.js";
@@ -147,5 +147,69 @@ describe("acceptance", () => {
     expect(validateFirstmateReturn(parseDomainResult(wrapped).result)).toEqual({ ok: true, missing: [] });
     const keyLines = "- **Status:** completed\n- **Brief:** Fixed the call site.\n- **Detailed report:** Routed the caller through the abstraction.\n- **Evidence:** https://github.com/george/flyd/pull/12";
     expect(validateFirstmateReturn(parseDomainResult(keyLines).result)).toEqual({ ok: true, missing: [] });
+  });
+
+  const attributionRun = (body: string): DomainRun => {
+    const id = "flyd-project-threads-1794406370827";
+    return {
+      id,
+      request: {
+        id,
+        domain: "coding",
+        originalMessage: [
+          "Flyd's own note, no work asked and nothing for George. From what you know of the fleet and these conversations, say which project each is about.",
+          'Reply with one line per id, "id: Project", using one of: DIR, Flyd, Liesel. Write "id: Other" when it is about none of them or you cannot tell.',
+          "",
+          "abcd1234 | the dashboard is slow",
+          "beef5678 | new email rules",
+        ].join("\n"),
+        intendedOutcome: "Say which project each exchange is about",
+        doneWhen: ["every id listed has a line in the reply"],
+        createdAt: "2026-11-17T00:00:00.000Z",
+      },
+      owner: "FirstMate",
+      status: "completed",
+      createdAt: "2026-11-17T00:00:00.000Z",
+      updatedAt: "2026-11-17T00:01:00.000Z",
+      transport: { kind: "firstmate", requestId: id },
+      result: parseDomainResult(body).result,
+    } as unknown as DomainRun;
+  };
+
+  it("recognises the project-attribution task from its outcome, id and done_when", () => {
+    expect(isProjectAttributionRun(attributionRun("x"))).toBe(true);
+    const other = attributionRun("x");
+    other.request = { ...other.request, id: "run-2", originalMessage: "Fix the pagination in the repo.", intendedOutcome: "Fix the pagination", doneWhen: ["tests pass"] };
+    expect(isProjectAttributionRun(other)).toBe(false);
+  });
+
+  it("rejects an unstructured project-attribution handoff, naming the missing report in the run trace", () => {
+    const run = attributionRun("abcd1234: DIR\nbeef5678: Liesel");
+    const check = checkProjectAttributionHandoff(run, run.result!);
+    expect(check.ok).toBe(false);
+    expect(check.missing).toEqual(["report"]);
+    expect(check.reason).toBe("handoff:missing report");
+    const failure = projectAttributionFailure(run, check);
+    expect(failure).toContain(run.id);
+    expect(failure).toMatch(/bad_output/);
+    expect(failure).toMatch(/report/);
+  });
+
+  it("rejects a project-attribution handoff that names no exchange's project", () => {
+    const run = attributionRun("I matched every exchange to a project and wrote the answer.");
+    const check = checkProjectAttributionHandoff(run, run.result!);
+    expect(check.ok).toBe(false);
+    expect(check.missing).toEqual(["project-attribution"]);
+    expect(projectAttributionFailure(run, check)).toMatch(/project-attribution/);
+  });
+
+  it("accepts a project-attribution handoff with per-exchange projects and a prose report", () => {
+    const run = attributionRun(JSON.stringify({
+      status: "completed",
+      brief: "Placed both exchanges.",
+      detailed_report: "I matched each exchange to a project from the list and wrote the answer. abcd1234: DIR. beef5678: Liesel.",
+      evidence: ["abcd1234 -> DIR", "beef5678 -> Liesel"],
+    }));
+    expect(checkProjectAttributionHandoff(run, run.result!)).toEqual({ ok: true, missing: [] });
   });
 });
