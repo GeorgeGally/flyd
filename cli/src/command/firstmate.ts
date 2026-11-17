@@ -923,11 +923,13 @@ export async function syncFirstmateDomainRuns(options: {
         // misses it, on an outcome Flyd can act on, is recorded and asked once to restate itself in the contract's shape;
         // the answer to that ask is never asked again, and if it still misses, the reason names each missing layer.
         const contract = validateFirstmateReturn(parsed.result);
-        // Project-attribution tasks have their own deterministic check: a handoff
-        // without per-exchange project names or a prose report is bad_output,
-        // failed at the boundary with its named layer, never re-requested.
+        // Project-attribution tasks have their own deterministic check: a finished
+        // handoff without per-exchange project names or a prose report is bad_output,
+        // failed at the boundary with its named layer, never re-requested. FirstMate's
+        // own failed or needs_decision outcome stands with its brief. The failure is
+        // Flyd's internal trace, never a card for George.
         const attribution = checkProjectAttributionHandoff(run, parsed.result);
-        const attributionFailure = cameBack(status) && !predates && !attribution.ok ? projectAttributionFailure(run, attribution) : undefined;
+        const attributionFailure = status === "completed" && !predates && !attribution.ok ? projectAttributionFailure(run, attribution) : undefined;
         // Only an outcome answers the re-request; "still working" leaves it open.
         const answering = Boolean(run.handoffRetry && !run.handoffRetry.answeredAt) && cameBack(status);
         if (!contract.ok && !run.handoffRetry && !predates && cameBack(status) && run.request.source !== "flyd" && !attributionFailure) {
@@ -953,7 +955,7 @@ export async function syncFirstmateDomainRuns(options: {
           // A reply after work was sent back to its boss is reviewed afresh even when it says the same (as is one on a run
           // recorded before the report record that was never announced).
           ...(cameBack(recordedStatus) && (predates || news || terminalReportFailure || attributionFailure || (run.report ? run.report.sentBack : !notified))
-            ? { report: predates ? quietReport(recordedStatus, settledAt) : dueReport(recordedStatus, settledAt) } : {}),
+            ? { report: predates || attributionFailure ? quietReport(recordedStatus, settledAt) : dueReport(recordedStatus, settledAt) } : {}),
           ...(status === "failed" && !attributionFailure ? { failure: parsed.result.brief } : failure !== undefined && !news && !attributionFailure ? { failure } : {}),
           ...(!handoff.ok && !attributionFailure ? { incompleteReason: handoff.reason } : {}),
           ...(stillShort ? { incompleteReason: stillShort } : {}),

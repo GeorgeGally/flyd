@@ -4,6 +4,7 @@ import {
 } from "../acceptance.js";
 import { captainNotice } from "../../command/notice.js";
 import { parseDomainResult } from "../../command/result.js";
+import { ProjectAsker } from "../../conversation-view/project-asker.js";
 import type { DomainRun } from "../../command/types.js";
 
 describe("acceptance", () => {
@@ -211,5 +212,22 @@ describe("acceptance", () => {
       evidence: ["abcd1234 -> DIR", "beef5678 -> Liesel"],
     }));
     expect(checkProjectAttributionHandoff(run, run.result!)).toEqual({ ok: true, missing: [] });
+  });
+
+  it("accepts the plain reply the project-asker note asks for: id lines plus one prose sentence", async () => {
+    const sent: string[] = [];
+    const asker = new ProjectAsker({ names: ["DIR", "Flyd", "Liesel"], send: async (body) => { sent.push(body); return true; }, reply: () => undefined, now: () => Date.UTC(2026, 10, 17) });
+    await asker.ask([{ turn: "the dashboard is slow", line: "the dashboard is slow" }, { turn: "new email rules", line: "new email rules" }]);
+    const note = sent[0]!;
+    expect(note).toMatch(/one short sentence/);
+    const ids = [...note.matchAll(/^([0-9a-f]{8}) \|/gm)].map((match) => match[1]!);
+    expect(ids).toHaveLength(2);
+    const run = attributionRun(`${ids[0]}: DIR\n${ids[1]}: Liesel\nThe slow dashboard is DIR work and the email rules are Liesel's.`);
+    run.request = { ...run.request, originalMessage: note };
+    expect(checkProjectAttributionHandoff(run, run.result!)).toEqual({ ok: true, missing: [] });
+    // The same lines without the sentence still miss the report layer.
+    const bare = attributionRun(`${ids[0]}: DIR\n${ids[1]}: Liesel`);
+    bare.request = { ...bare.request, originalMessage: note };
+    expect(checkProjectAttributionHandoff(bare, bare.result!).missing).toEqual(["report"]);
   });
 });
