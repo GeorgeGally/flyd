@@ -1,10 +1,7 @@
 import { sourceLabel } from "../lib/source-label.js";
 export { sourceLabel };
-import { execFile } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { FLYD_DIR } from "../lib/config.js";
 import { readUserProfile } from "../lib/user-profile.js";
 import { RssAdapter } from "../evidence/adapters/rss.js";
@@ -14,6 +11,10 @@ import { gatherInspiration, markShown, readShown } from "./inspiration-sources.j
 import { localDay, memoryPromptText } from "./memory-store.js";
 import { liveProjects } from "./projects.js";
 import { providerTrouble, recordScoutRun } from "./scout-run.js";
+import { last30daysPath, researchLast30days } from "./scout-last30days.js";
+import { discoveryCandidates } from "./scout-discovery.js";
+import { groupScoutStories, previouslyCovered } from "./scout-stories.js";
+import { recordScoutMetrics } from "./scout-metrics.js";
 
 // The Scout: what's happening in the world that George would want to know —
 // found, ranked for him, delivered before he asks, and evolving.
@@ -29,7 +30,6 @@ import { providerTrouble, recordScoutRun } from "./scout-run.js";
 //   over feeds; a must-know item is pushed to him (capped) and handed to the
 //   Muse. Popularity is only a weak prior.
 
-const execFileAsync = promisify(execFile);
 
 export type SourceKind = "rss" | "reddit" | "topic";
 export type SourceStatus = "active" | "paused" | "reserve";
@@ -54,28 +54,33 @@ export interface ScoutSource {
   note?: string;
 }
 
-export interface ScoutCandidate { id: string; title: string; url: string; source: string; sourceId: string; summary: string; published?: string; engagement?: string; topic: string }
+export interface ScoutCandidate {
+  id: string; title: string; url: string; source: string; sourceId: string; summary: string; published?: string; engagement?: string; topic: string;
+  relevanceScore?: number; evidenceUrls?: string[]; corroborationCount?: number; storyId?: string; independentSources?: number;
+}
 export type ItemKind = "must" | "relevant" | "rabbit_hole";
 export interface EditionItem {
   n: number; title: string; url: string; source: string; sourceId?: string; topic: string; why: string; kind: ItemKind | "wildcard";
   media?: MediaKind; figure?: string; quote?: string; attribution?: string; mediaUrl?: string;
+  storyId?: string; evidenceUrls?: string[]; confidence?: "multi-source" | "single-source";
 }
 export interface Edition { date: string; generatedAt: string; topics: string[]; items: EditionItem[] }
 export interface ScoutFeedback { at: string; verdict: "more" | "less"; title: string; topic: string; source: string; sourceId?: string; why: string }
 
 /** How many picks a daily brief aims for; the model curates within this, a quiet day may be lean. */
-export const BRIEF_MIN = 16;
-export const BRIEF_MAX = 24;
+export const BRIEF_MIN = 5;
+export const BRIEF_MAX = 8;
+export const LEGACY_BRIEF_MAX = 24;
+export function editorialMode(): "legacy" | "shadow" | "on" {
+  const requested = process.env.FLYD_SCOUT_EDITORIAL?.trim().toLowerCase();
+  return requested === "legacy" || requested === "shadow" ? requested : "on";
+}
 
 export function scoutDir(): string {
   return process.env.FLYD_SCOUT_DIR?.trim() || join(FLYD_DIR, "scout");
 }
 
-export function last30daysScript(): string {
-  return process.env.FLYD_LAST30DAYS_SCRIPT?.trim()
-    || process.env.LAST30DAYS_SCRIPT?.trim()
-    || join(homedir(), ".flyd", "vendor", "last30days-skill", "skills", "last30days", "scripts", "last30days.py");
-}
+export function last30daysScript(): string { return last30daysPath(); }
 
 function atomicWrite(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
@@ -203,9 +208,9 @@ export function readTaste(dir = scoutDir()): string {
 
 /** Posterior mean of "George wants this source" — the ranking prior and the pruning signal. */
 export function fitness(source: Pick<ScoutSource, "likes" | "dislikes" | "shown">): number {
-  // Showing an item he neither praised nor rejected is weak negative evidence.
-  const ignored = Math.max(0, source.shown - source.likes - source.dislikes);
-  return (1 + source.likes) / (2 + source.likes + source.dislikes + ignored * 0.25);
+  // Selection into an edition does not prove George saw or disliked the item.
+  // Only explicit reactions can change the preference posterior.
+  return (1 + source.likes) / (2 + source.likes + source.dislikes);
 }
 
 export function readFeedback(dir = scoutDir()): ScoutFeedback[] {
@@ -242,7 +247,7 @@ export const REDDIT_PER_EDITION = 12;
 /** Feeds are read back this far, like last30days; seen links and headlines keep older items from repeating. */
 const FEED_WINDOW_DAYS = 30;
 /** last30days searches one edition runs, and how many at once. */
-export const TOPICS_PER_EDITION = 8;
+export const TOPICS_PER_EDITION = 4;
 const TOPIC_CONCURRENCY = 2;
 /** One patient retry after a 429 before giving up on Reddit for this run. */
 const REDDIT_RETRY_AFTER_MS = 61_000;
@@ -292,11 +297,17 @@ export function parseLast30days(stdout: string, topic: string, sourceIdValue = s
 }
 
 export async function fetchTopic(topic: string, script = last30daysScript()): Promise<ScoutCandidate[]> {
-  if (!existsSync(script)) throw new Error(`last30days engine not found at ${script}`);
-  // A full pass over the past 30 days takes a minute or two. GitHub's hits are pull requests and issues that share a
-  // keyword, and Polymarket's are betting markets: neither is news, so the search keeps to the community sources.
-  const { stdout } = await execFileAsync("python3", [script, "--emit=json", "--days", "30", "--search", "reddit,hackernews,youtube", topic], { timeout: 240_000, maxBuffer: 16 * 1024 * 1024 });
-  return parseLast30days(stdout, topic);
+  const report = await researchLast30days(topic, { script });
+  return report.observations.slice(0, 25).map((item) => ({
+    id: item.candidateId, url: item.url, title: item.title, topic,
+    sourceId: sourceId("topic", topic),
+    source: sourceLabel(item.source, item.url),
+    summary: item.summary.slice(0, 280),
+    ...(item.publishedAt ? { published: item.publishedAt } : {}),
+    ...(Object.keys(item.engagement).length ? { engagement: Object.entries(item.engagement).map(([key, value]) => value + " " + key).join(", ") } : {}),
+    ...(item.relevanceScore !== undefined ? { relevanceScore: item.relevanceScore } : {}),
+    evidenceUrls: [item.url],
+  }));
 }
 
 /**
@@ -393,21 +404,29 @@ export function rankPrompt(
     const prior = context.fitnessBySource[candidate.sourceId];
     return `[${index}] (${candidate.source}${prior !== undefined ? ` · source fit ${prior.toFixed(2)}` : ""}${candidate.published ? ` · ${candidate.published}` : ""}${candidate.engagement ? ` · ${candidate.engagement}` : ""}) ${candidate.title}${candidate.summary && candidate.summary !== candidate.title ? ` — ${candidate.summary}` : ""}`;
   }).join("\n");
+  const legacy = editorialMode() === "legacy";
   const task = context.mode === "watch"
     ? [
       "This is a quiet background watch, not an edition. Almost always the answer is no picks.",
-      "Pick an item ONLY if George would genuinely want to know it today, unprompted: it directly affects one of his active projects, commitments, or decisions (a competitor move, a platform/API change, a deadline-relevant event), or it is an exceptional find squarely in his taste.",
-      "Mark such items kind 'must'. At most 2.",
+      "Pick an item ONLY if it verifiably affects a current project, commitment, or decision today and cannot reasonably wait. A viral discussion is not urgent.",
+      "Mark qualifying items 'must'. At most 2.",
     ]
-    : [
-      `Curate George's full daily briefing — a good curator's dozen or so, not a shortlist of two. Aim for around ${BRIEF_MIN}–${BRIEF_MAX} picks on a day that supports it; a quiet day is honestly fewer, never padded.`,
-      "Sections, in this order: (1) Bitcoin & Crypto Art first — real on-chain art (Ordinals, generative, 1/1s, innovations). (2) Creative Tech / AI Art — what people are actually building: new tools, techniques, creative coding, AI art experiments, projects over news. (3) Everything else worth knowing — the weird, niche and interesting, best first. (4) Exactly one rabbit_hole — the single most interesting deep, weird or inspiring link, not a news article.",
-      "kind: 'must' for genuinely novel or important (Hot), 'relevant' for worth a look, 'rabbit_hole' for the one deep pick (exactly one).",
-      "Be opinionated: curate, don't list, and mark a 'Skip' by omitting it. Write 'why' as one sharp sentence in your own voice on why this is worth his time, grounded in what the item actually says — never a stretch to his projects and never generic filler ('could inspire your work', 'can enhance your process'). Never a sentence that only names the item itself ('The thread itself.', 'Worth a read.'): say a real fact from it, or leave 'why' empty.",
-      "Skip generic world or mainstream tech news, politics, crypto price talk and PFP/NFT market chatter: they do not clear the bar however fresh they are. Every pick must carry a working link.",
-      "Candidates reach back 30 days: favour what is new this week, and take an older one only when it is a real find he has not had yet.",
-      `Spread it across his sources: at most ${EDITION_PER_SOURCE} picks from any one source (the name in brackets), so no single feed dominates.`,
-    ];
+    : legacy
+      ? [
+        "Curate the existing broad daily briefing. Aim for 16–24 only when supported; quiet days may be smaller.",
+        "Be opinionated. One interesting rabbit hole is welcome when genuinely substantive.",
+        "Skip generic world news, hype, politics and BTC price speculation.",
+      ]
+      : [
+        "Curate 5–8 exceptional STORIES, not a feed of 20 links. A quiet day can legitimately have zero.",
+        "Lead with developments genuinely worth attention. Do not force Bitcoin first, project name-dropping, or a fixed topical taxonomy.",
+        "Prioritise novelty, nonobvious creative experiments, concrete consequences, and interesting discoveries outside familiar topics.",
+        "A rabbit hole or serendipity pick is welcome ONLY when it earns its place. No forced quotas.",
+        "The numbers and source count are attention signals, not proof of a claim. A single unverified rumour cannot be reported as fact.",
+        "Explain what happened and why George might care, grounded strictly in the candidate evidence. Do not fabricate primary confirmation.",
+        "Avoid generic world news, crypto price talk, promotional posts, duplicate releases, and superficial trend chatter.",
+        "Prefer this week; an older find needs an exceptional reason. At most three stories from the same source.",
+      ];
   return [
     "You are Flyd's Scout, curating for George. Be opinionated: curate, don't list.",
     `Today is ${context.today}.`,
@@ -436,7 +455,13 @@ export function parsePicks(text: string, candidates: ScoutCandidate[], max = BRI
     if (items.filter((item) => item.sourceId === candidate.sourceId).length >= perSource) continue;
     let kind: ItemKind = pick.kind === "must" ? "must" : pick.kind === "rabbit_hole" || pick.kind === "wildcard" ? "rabbit_hole" : "relevant";
     if (kind === "rabbit_hole" && rabbitHoles++ > 0) kind = "relevant";
-    items.push({ n: items.length + 1, title: candidate.title, url: candidate.url, source: candidate.source, sourceId: candidate.sourceId, topic: candidate.topic, why: String(pick.why ?? "").trim(), kind });
+    items.push({
+      n: items.length + 1, title: candidate.title, url: candidate.url, source: candidate.source,
+      sourceId: candidate.sourceId, topic: candidate.topic, why: String(pick.why ?? "").trim(), kind,
+      ...(candidate.storyId ? { storyId: candidate.storyId } : {}),
+      ...(candidate.evidenceUrls?.length ? { evidenceUrls: candidate.evidenceUrls } : {}),
+      ...(candidate.independentSources ? { confidence: candidate.independentSources > 1 ? "multi-source" : "single-source" } : {}),
+    });
     if (items.length >= max) break;
   }
   return items;
@@ -697,10 +722,20 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
   const pooled = readPool(dir, now, latestEdition(dir)?.generatedAt);
   const gathered = await gatherCandidates(sources, { fetchFn: deps.fetchFn, fetchTopicFn: deps.fetchTopicFn, includeTopics: true, now, redditLimit: REDDIT_PER_EDITION, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
   const { failed } = gathered;
-  const candidates = [...gathered.candidates, ...pooled];
+  const candidates = [...gathered.candidates, ...pooled, ...discoveryCandidates(dir, now)];
   sources = recordFailures(sources, failed, now);
-  const fresh = interleaveBySource(unseenCandidates(candidates, dir)).slice(0, EDITION_CANDIDATES);
-  const ranked = fresh.length ? parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "edition"))), fresh, BRIEF_MAX, EDITION_PER_SOURCE) : [];
+  const existingEditions = existsSync(join(dir, "editions"))
+    ? readdirSync(join(dir, "editions")).filter((file) => file.endsWith(".json")).sort().slice(-30)
+        .flatMap((file) => readJson<Edition | null>(join(dir, "editions", file), null)?.items ?? [])
+    : [];
+  // First group across outlets, then suppress the underlying event already shown in prior editions.
+  const grouped = editorialMode() === "legacy"
+    ? interleaveBySource(unseenCandidates(candidates, dir))
+    : groupScoutStories(interleaveBySource(unseenCandidates(candidates, dir)))
+        .filter((item) => !previouslyCovered(item, existingEditions));
+  const fresh = grouped.slice(0, EDITION_CANDIDATES);
+  const maxItems = editorialMode() === "legacy" ? LEGACY_BRIEF_MAX : BRIEF_MAX;
+  const ranked = fresh.length ? parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "edition"))), fresh, maxItems, EDITION_PER_SOURCE) : [];
   const focus = deps.focus ?? (process.env.VITEST ? [] : workFocusFromProjects(liveProjects()));
   let extras = deps.inspiration ?? [];
   if (!deps.inspiration && !process.env.VITEST) {
@@ -716,7 +751,12 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
   const edition: Edition = { date: today, generatedAt: now.toISOString(), topics: [...new Set(items.map((item) => item.topic))], items };
   atomicWrite(join(dir, "editions", `${today}.json`), `${JSON.stringify(edition, null, 2)}\n`);
   atomicWrite(join(dir, "edition-latest.json"), `${JSON.stringify(edition, null, 2)}\n`);
-  appendJsonl(join(dir, "seen.jsonl"), items.map((item) => ({ url: item.url, title: item.title, date: today })));
+  appendJsonl(join(dir, "seen.jsonl"), items.map((item) => ({ url: item.url, title: item.title, date: today, storyId: item.storyId })));
+  recordScoutMetrics(dir, {
+    at: now.toISOString(), mode: editorialMode(), fetched: candidates.length,
+    grouped: grouped.length, shortlisted: fresh.length, selected: ranked.length,
+    editionItems: items.length, failedSources: failed.length,
+  });
   clearPool(dir, now);
   if (items.length) deps.record?.(edition);
   return { edition, failedTopics: failed };
@@ -729,8 +769,9 @@ export function editionActivityRecord(edition: Edition): ActivityRecord {
     kind: "news",
     title: "Put together today's news",
     line: `${edition.items.length} ${edition.items.length === 1 ? "story" : "stories"} from your sources.`,
-    stories: edition.items.map(({ title, url, why, source, kind, media, figure, quote, attribution }) => ({
+    stories: edition.items.map(({ title, url, why, source, kind, media, figure, quote, attribution, storyId, evidenceUrls, confidence }) => ({
       title, url, kind, ...(why ? { gist: why } : {}), ...(source ? { source } : {}),
+      ...(storyId ? { storyId } : {}), ...(evidenceUrls?.length ? { evidenceUrls } : {}), ...(confidence ? { confidence } : {}),
       ...(media && media !== "article" ? { media } : {}),
       ...(figure ? { figure } : {}),
       ...(quote ? { quote } : {}),
@@ -756,7 +797,7 @@ export async function watchScout(deps: ScoutDependencies): Promise<EditionItem[]
   sources = recordFailures(sources, failed, now);
   writeSources(sources, dir);
   const watched = new Set(readJsonl<{ url: string }>(join(dir, "watched.jsonl")).map((item) => item.url));
-  const fresh = interleaveBySource(unseenCandidates(candidates, dir, watched)).slice(0, 80);
+  const fresh = groupScoutStories(interleaveBySource(unseenCandidates(candidates, dir, watched))).slice(0, 80);
   // Everything examined is remembered so the watch never re-reads the same item.
   appendJsonl(join(dir, "watched.jsonl"), fresh.map((candidate) => ({ url: candidate.url, date: today })));
   // …and kept for the next edition, which ranks from it.
