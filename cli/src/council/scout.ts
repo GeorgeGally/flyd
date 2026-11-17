@@ -14,7 +14,7 @@ import { providerTrouble, recordScoutRun } from "./scout-run.js";
 import { last30daysPath, researchLast30days } from "./scout-last30days.js";
 import { discoveryCandidates } from "./scout-discovery.js";
 import { groupScoutStories, previouslyCovered } from "./scout-stories.js";
-import { recordScoutMetrics } from "./scout-metrics.js";
+import { recordScoutMetrics, recordScoutResearchHealth } from "./scout-metrics.js";
 
 // The Scout: what's happening in the world that George would want to know —
 // found, ranked for him, delivered before he asks, and evolving.
@@ -299,6 +299,11 @@ export function parseLast30days(stdout: string, topic: string, sourceIdValue = s
 
 export async function fetchTopic(topic: string, script = last30daysScript()): Promise<ScoutCandidate[]> {
   const report = await researchLast30days(topic, { script });
+  recordScoutResearchHealth(scoutDir(), {
+    at: new Date().toISOString(), topic, results: report.observations.length,
+    sourceStatus: report.sourceStatus,
+    ...(report.usage ? { tokens: report.usage.totalTokens } : {}),
+  });
   return report.observations.slice(0, 25).map((item) => ({
     id: item.candidateId, url: item.url, title: item.title, topic,
     sourceId: sourceId("topic", topic),
