@@ -1368,7 +1368,10 @@ export async function respondToConversation(
     }
     input.onActivity?.(describeToolActivity(name, toolInput));
     input.onTool?.(name);
-    if (isMutatingToolCall(name, toolInput)) { attemptMutated = true; input.onMutation?.(); }
+    if (isMutatingToolCall(name, toolInput)) {
+      attemptMutated = true;
+      if (name !== "bash" || !isReadOnlyCommand(String(toolInput.command ?? ""))) input.onMutation?.();
+    }
     try {
       const result = await handler(name, toolInput);
       const succeeded = !TOOL_FAILURE.test(result);
