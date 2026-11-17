@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface ScoutMetrics {
@@ -46,4 +46,33 @@ export function scoutMetricsSummary(dir: string): string {
     "Failed sources: " + latest.failedSources,
     "Runs recorded: " + runs.length,
   ].join("\n");
+}
+
+
+export interface ScoutResearchHealth {
+  at: string;
+  topic: string;
+  results: number;
+  sourceStatus: Record<string, string>;
+  tokens?: number;
+}
+
+/** Structured upstream source-health record; no source text, credentials or raw model errors. */
+export function recordScoutResearchHealth(dir: string, record: ScoutResearchHealth): void {
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    appendFileSync(join(dir, "research-health.jsonl"), JSON.stringify(record) + "\n", { mode: 0o600 });
+  } catch { /* Optional diagnostics only. */ }
+}
+
+export function scoutResearchHealthSummary(dir: string): string {
+  try {
+    const lines = readFileSync(join(dir, "research-health.jsonl"), "utf8").trim().split("\n").slice(-6);
+    return lines.flatMap((line) => {
+      let r: ScoutResearchHealth;
+      try { r = JSON.parse(line) as ScoutResearchHealth; } catch { return []; }
+      const sources = Object.entries(r.sourceStatus ?? {}).map(([key, status]) => key + ":" + status).join(", ");
+      return [r.topic + ": " + r.results + " results; " + sources + (r.tokens === undefined ? "" : "; " + r.tokens + " tokens")];
+    }).join("\n");
+  } catch { return "No upstream source-health records yet."; }
 }
