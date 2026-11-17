@@ -394,7 +394,7 @@ describe("FlydDesk", () => {
     const cut = deferred();
     const first = new FlydDesk({ dir, answer: async (_q, _h, _s, turn) => { turn!.onMutation(); return cut.answer(_q, _h, _s, turn); } });
     first.ask("send the draft");
-    await until(() => (first.exchanges().find((e) => e.question === "send the draft") ? true : undefined));
+    await until(() => (first.exchanges().find((e) => e.question.text === "send the draft") ? true : undefined));
     const asked: string[] = [];
     const restarted = new FlydDesk({ dir, answer: async (question) => { asked.push(question); return "ok"; } });
     restarted.resumeInterrupted();
@@ -408,7 +408,7 @@ describe("FlydDesk", () => {
     await until(() => desk.exchanges()[0]?.answer);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(calls).toBe(1);
-    expect(desk.exchanges()[0]!.answer).toBe("Sunny.");
+    expect(desk.exchanges()[0]!.answer?.text).toBe("Sunny.");
   });
 
   it("reads a stored question again only when its file changes", async () => {
