@@ -18,6 +18,7 @@ export const TIMELINE_SCRIPT = `
   }
   // What the timeline carries: every ask, work under way, what finished today, and anything he opened.
   function workInTimeline(job) {
+    if (job.group === "done" && cardGone(job.id)) return false;
     if (workKept[job.id] || job.group === "needs") return true;
     if (job.group === "moving") return job.state === PLACE_STATES.running;
     return job.group === "done" && !job.bare && workToday(job.at);
@@ -35,7 +36,8 @@ export const TIMELINE_SCRIPT = `
     var body = node.firstChild;
     var line = frontLine(job);
     var title = frontTitle(job.title);
-    var open = frontActive === job.id;
+    var finished = job.group === "done";
+    var open = !finished && frontActive === job.id;
     var drawn = JSON.stringify([job.state, title, line, job.project, job.at, job.shots && job.shots[0], job.choices, job.recommended, open, frontPicked(job)]);
     if (body.dataset.drawn === drawn) return node;
     body.dataset.drawn = drawn;
@@ -44,11 +46,11 @@ export const TIMELINE_SCRIPT = `
     body.innerHTML = '<p class="work-meta">' + (job.group === "needs" ? '<i class="fdot" aria-hidden="true"></i>' : job.group === "moving" ? '<i class="fdot pulse" aria-hidden="true"></i>' : "") + frontEsc(meta) + '</p>'
       + '<p class="work-title">' + frontEsc(title) + '</p>'
       + (line && line !== title && !open ? '<p class="work-line">' + frontEsc(line) + '</p>' : "")
-      + (shot ? '<button type="button" class="work-shot" data-open-job="' + frontEsc(job.id) + '"><img src="' + frontEsc(shot.src) + '" alt="" loading="lazy"></button>' : "")
+      + (shot ? (finished ? '<div class="work-shot"><img src="' + frontEsc(shot.src) + '" alt="" loading="lazy"></div>' : '<button type="button" class="work-shot" data-open-job="' + frontEsc(job.id) + '"><img src="' + frontEsc(shot.src) + '" alt="" loading="lazy"></button>') : "")
       + (open ? "" : frontJobPicks(job))
       + '<div class="work-acts">'
-      + (VIEW_TOKEN && !job.handled && !open ? '<button type="button" class="work-reply" data-reply-job="' + frontEsc(job.id) + '">Reply</button>' : "")
-      + '<button type="button" class="work-open" data-open-job="' + frontEsc(job.id) + '" aria-expanded="' + (open ? "true" : "false") + '">' + (open ? "Fold away" : "Open") + '</button>'
+      + (VIEW_TOKEN && (!job.handled || finished) && !open ? '<button type="button" class="work-reply" data-reply-job="' + frontEsc(job.id) + '">Reply</button>' : "")
+      + (finished ? '<button type="button" class="work-ok" data-ok-job="' + frontEsc(job.id) + '">OK</button>' : '<button type="button" class="work-open" data-open-job="' + frontEsc(job.id) + '" aria-expanded="' + (open ? "true" : "false") + '">' + (open ? "Fold away" : "Open") + '</button>')
       + '</div>';
     return node;
   }
@@ -90,6 +92,13 @@ export const TIMELINE_SCRIPT = `
     return workNodes.get(id) || null;
   }
   main.addEventListener("click", function (event) {
+    var ok = event.target.closest(".work-ok");
+    if (ok) {
+      cardDismiss(ok.dataset.okJob);
+      drawTimeline();
+      if (lastBrief) renderBrief(lastBrief);
+      return;
+    }
     var reply = event.target.closest(".work-reply");
     if (reply) {
       var job = frontJobs.get(reply.dataset.replyJob);

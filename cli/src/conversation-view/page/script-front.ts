@@ -517,6 +517,7 @@ export const FRONT_SCRIPT = `
   // waits on it, its fleet decision, or the job itself. One chat per card, so both places share it.
   var frontChats = {};
   function frontAnswerTarget(job) {
+    if (job.handled) return { key: "flyd-handled:" + job.handled.decisionId, target: { decisionFollowUp: job.handled.decisionId, decisionTask: job.handled.task, jobTitle: job.title }, label: "Your own answer takes this back…" };
     if (job.domainRun && !job.handled) return { key: "flyd-domain:" + job.domainRun, target: { domainRun: job.domainRun, jobTitle: job.title, questionText: job.questionIdentity }, label: "Your answer…" };
     if (job.decision) {
       var decision = frontDecision(job);
@@ -569,7 +570,7 @@ export const FRONT_SCRIPT = `
   function frontStage() {
     if (!frontUpdate) return;
     var job = frontActive === "talk" ? null : frontJobs.get(frontActive);
-    if (!job) {
+    if (!job || job.group === "done") {
       frontActive = "talk";
       frontRoot.removeAttribute("data-job");
       frontHead(frontTalk(frontUpdate));
@@ -591,6 +592,13 @@ export const FRONT_SCRIPT = `
   }
   // Another job takes the middle: the old one fades out where it stands, the new one fades in.
   function frontSelect(id) {
+    var selected = frontJobs.get(id);
+    if (selected && selected.group === "done") {
+      if (frontActive !== "talk") frontSelect("talk");
+      var message = workHold(id);
+      if (message) message.scrollIntoView({ block: "start" });
+      return;
+    }
     if (id === frontActive) return;
     frontActive = id;
     try { sessionStorage.setItem("flyd-front-job", id); } catch (_) {}

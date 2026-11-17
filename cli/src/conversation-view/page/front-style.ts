@@ -190,7 +190,8 @@ export const FRONT_STYLE = `
 .work-meta { display: flex; align-items: center; gap: 8px; margin: 0; font: 400 13px/1.4 var(--sans); color: var(--mute); }
 .work-title { margin: 8px 0 0; font: 500 18px/1.35 var(--sans); color: var(--ink); text-wrap: pretty; overflow-wrap: anywhere; }
 .work-line { margin: 8px 0 0; font: 400 16px/1.55 var(--sans); color: var(--ink2); text-wrap: pretty; overflow-wrap: anywhere; }
-.work-shot { display: block; width: 100%; margin: 16px 0 0; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: var(--well); cursor: pointer; }
+.work-shot { display: block; width: 100%; margin: 16px 0 0; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: var(--well); }
+button.work-shot { cursor: pointer; }
 .work-shot img { display: block; width: 100%; max-height: 320px; object-fit: cover; object-position: top; }
 .work .jpicks { margin-top: 16px; }
 .work-acts { display: flex; gap: 8px; margin-top: 20px; }
