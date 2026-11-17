@@ -449,6 +449,9 @@ export const MESSAGES_SCRIPT = `
     var previous = null;
     update.order.forEach(function (id) {
       var el = nodes.get(id);
+      // The timeline's job messages (script-timeline.ts) are placed by their own time: stepping past
+      // them, rather than putting each message before them, leaves both where they already stand.
+      while (cursor && cursor !== el && cursor.classList.contains("work")) cursor = cursor.nextElementSibling;
       if (el !== cursor) main.insertBefore(el, cursor); else cursor = cursor.nextElementSibling;
       el.classList.toggle("aside-first", el.classList.contains("aside") && !(previous && previous.classList.contains("aside")));
       previous = el;
@@ -476,9 +479,6 @@ export const MESSAGES_SCRIPT = `
     lastActivity = update.lastActivity || lastActivity;
     refreshWorking();
     if (lastActivity) whenEl.textContent = dayOf(lastActivity) + "  " + clock(lastActivity);
-    if (!onConversation()) { /* the terminal is hidden; it finds its place when it comes back */ }
-    else if (stick) { toBottom(); jump.hidden = true; } else { restore(at); if (added) jump.hidden = false; }
-    first = false;
     renderSite(update.page);
     notices = (update.rail && update.rail.notices) || [];
     if (update.rail) renderArtefacts(update.rail.artefacts || []);
@@ -487,6 +487,11 @@ export const MESSAGES_SCRIPT = `
     if (update.leftColumn) drawNews(update.leftColumn.recent);
     renderFront(update);
     if (update.todos) drawTodos(update.todos);
+    // His place is put back once the timeline's job messages have been drawn too: measured
+    // any earlier, it would be read off a pane that is still changing under him.
+    if (!onConversation()) { /* the terminal is hidden; it finds its place when it comes back */ }
+    else if (stick) { toBottom(); jump.hidden = true; } else { restore(at); if (added) jump.hidden = false; }
+    first = false;
   }
 
 `;
