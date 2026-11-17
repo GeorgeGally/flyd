@@ -2937,9 +2937,18 @@ describe("the front page", () => {
     expect(work[2]!.classList.contains("needs")).toBe(true);
     expect(work[1]!.querySelector(".work-meta .fdot.pulse")).not.toBeNull();
     expect(work[0]!.querySelector(".work-shot img")!.getAttribute("src")).toContain("/api/artefact-shot?task=l");
+    expect([...work[0]!.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Reply", "OK"]);
+    expect(work[0]!.querySelector(".work-shot")!.tagName).toBe("DIV");
+    work[0]!.querySelector<HTMLButtonElement>(".work-reply")!.click();
+    expect(document.getElementById("replying")!.hidden).toBe(false);
+    work[0]!.querySelector<HTMLButtonElement>(".work-ok")!.click();
+    expect(document.querySelector('[data-job="landed"].work')).toBeNull();
     // Open unfolds the job in place, under its own message.
     work[2]!.querySelector<HTMLButtonElement>(".work-open")!.click();
     expect(document.querySelector(".job-view")!.closest(".msg.work")).toBe(work[2]);
+    stream.emit("update", { order: [], messages: [], working: false, show: SHOW, jobsFleetKnown: true, jobs: [job({ id: "landed", group: "done", state: "Done", title: "Conversations split by project", at: at(0) })] });
+    await settle();
+    expect(document.querySelector('[data-job="landed"].work')).toBeNull();
   });
 
   it("leaves the conversation and its job messages standing across a refresh, and a reader scrolled up where he was", async () => {
@@ -3846,9 +3855,8 @@ describe("the front page", () => {
       jobs: [{ id: "landed:sync", group: "done", state: "Handled for you", title: "Said yes for you: rebase and push.", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, handled: { decisionId: "dec-1", task: "sync" } }],
     });
     after(() => document.querySelector<HTMLElement>('.job[data-job="landed:sync"]')!.click());
-    // The job has no box of its own: Reply puts its chip over the one message box, and what he sends there reaches it.
-    expect(document.querySelector(".job-view .art-chat-field")!.hasAttribute("hidden")).toBe(true);
-    document.querySelector<HTMLButtonElement>(".job-view .art-chat-reply")!.click();
+    // Reply uses the one message box and keeps the handled decision as its destination.
+    document.querySelector<HTMLButtonElement>('.work[data-job="landed:sync"] .work-reply')!.click();
     expect(document.getElementById("replying")!.hidden).toBe(false);
     const input = document.getElementById("input") as HTMLTextAreaElement;
     input.value = "No, hold it";
