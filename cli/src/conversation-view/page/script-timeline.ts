@@ -57,9 +57,11 @@ export const TIMELINE_SCRIPT = `
     var at = Date.parse(node.dataset.ts || "");
     var before = working;
     if (!isNaN(at)) {
+      // Jobs at the same moment keep one order (by id), so each redraw finds them already in place.
       var later = Array.prototype.find.call(main.querySelectorAll(":scope > .msg"), function (msg) {
         var ts = Date.parse(msg.dataset.ts || "");
-        return msg !== node && !isNaN(ts) && ts > at;
+        if (msg === node || isNaN(ts)) return false;
+        return ts > at || (ts === at && !!msg.dataset.job && msg.dataset.job > node.dataset.job);
       });
       if (later) before = later;
     }

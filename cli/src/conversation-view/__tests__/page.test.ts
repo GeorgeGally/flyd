@@ -2935,6 +2935,52 @@ describe("the front page", () => {
     expect(document.querySelector(".job-view")!.closest(".msg.work")).toBe(work[2]);
   });
 
+  it("leaves the conversation and its job messages standing across a refresh, and a reader scrolled up where he was", async () => {
+    // happy-dom lays nothing out: every child of the pane is 100px tall, stacked in DOM order, under a window scrolled to y.
+    let y = 0;
+    const stack = () => [...document.getElementById("stream")!.children];
+    const rect = (top: number) => ({ x: 0, y: top, top, left: 0, right: 600, bottom: top + 100, width: 600, height: 100, toJSON: () => ({}) }) as DOMRect;
+    const box = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const at = stack().indexOf(this);
+      return at === -1 ? rect(0) : rect(at * 100 - y);
+    });
+    Object.defineProperty(window, "scrollY", { configurable: true, get: () => y });
+    Object.defineProperty(document.documentElement, "scrollHeight", { configurable: true, get: () => stack().length * 100 });
+    window.scrollBy = ((_x: number, dy: number) => { y += dy; }) as typeof window.scrollBy;
+    window.scrollTo = ((_x: number, to: number) => { y = to; }) as typeof window.scrollTo;
+    try {
+      load("");
+      await settle();
+      const now = new Date();
+      const at = (hour: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, 5).toISOString();
+      const messages = Array.from({ length: 10 }, (_, i) => ({ id: `m${i}`, role: i % 2 ? "assistant" : "user", html: `<p>line ${i}</p>`, timestamp: at(i * 2) }));
+      const stream = open("latest", messages);
+      const job = (id: string, hour: number) => ({ id, group: "needs", state: "Needs you", title: `Ask ${id}`, at: at(hour), project: "", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null });
+      // Jobs between his words, two of them at the same moment.
+      const refresh = { order: messages.map((m) => m.id), messages: [], working: false, show: SHOW, jobsFleetKnown: true, jobs: [job("b", 3), job("a", 3), job("c", 9), job("d", 15)] };
+      stream.emit("update", refresh);
+      await settle();
+      // He scrolls up to read.
+      y = 300;
+      window.dispatchEvent(new Event("scroll"));
+      const before = stack();
+      const moved: Node[] = [];
+      const watch = new MutationObserver((records) => records.forEach((r) => [...r.addedNodes, ...r.removedNodes].forEach((n) => { if ((n as Element).classList?.contains("msg")) moved.push(n); })));
+      watch.observe(document.getElementById("stream")!, { childList: true });
+      stream.emit("update", refresh);
+      await settle();
+      watch.disconnect();
+      // Nothing in the pane was taken out and put back, and he is still where he was.
+      expect(moved).toHaveLength(0);
+      expect(stack()).toEqual(before);
+      expect(y).toBe(300);
+    } finally {
+      box.mockRestore();
+      delete (window as { scrollY?: number }).scrollY;
+      delete (document.documentElement as { scrollHeight?: number }).scrollHeight;
+    }
+  });
+
   it("opens the item a link names in place, and what needs him first for a call, once the board has come", async () => {
     load("?job=moving");
     await settle();
