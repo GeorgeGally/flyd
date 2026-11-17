@@ -285,6 +285,9 @@ export class FlydDesk {
   private readonly preparations: PreparationStore;
   /** Questions this process is answering right now, each with its current attempt. */
   private readonly inFlight = new Map<string, object>();
+  /** When this process started; only a question asked before it can have been cut off by a restart. */
+  private readonly startedAt = Date.now();
+  private resumed = false;
   /** A remember from an article chat, held until George says yes or the wait runs out. */
   private readonly confirms = new Map<string, { sessionId: string; prompt: string; resolve: (answer: boolean | "always") => void; timer: ReturnType<typeof setTimeout> }>();
   /** What Flyd is doing on each question it is answering, said the moment it changes. */
@@ -453,7 +456,7 @@ export class FlydDesk {
   resumeInterrupted(now = Date.now()): void {
     for (const record of this.records()) {
       if (record.answer || record.error || record.retried || record.acted || this.inFlight.has(record.id)) continue;
-      if (!(now - Date.parse(record.at) <= RESUME_WINDOW_MS)) continue;
+      if (Date.parse(record.at) > this.startedAt || !(now - Date.parse(record.at) <= RESUME_WINDOW_MS)) continue;
       const images = (record.images ?? []).flatMap((imageId) => {
         const image = this.image(imageId);
         return image ? [{ mediaType: image.mediaType, data: image.data.toString("base64") }] : [];
@@ -644,7 +647,10 @@ export class FlydDesk {
   }
 
   exchanges(sessionId?: string): Exchange[] {
-    this.resumeInterrupted();
+    if (!this.resumed) {
+      this.resumed = true;
+      this.resumeInterrupted();
+    }
     return (sessionId === undefined ? this.records() : this.recordsForSession(sessionId)).map((record) => {
       const question: ConversationMessage = { id: `ask:${record.id}`, role: "user", text: record.text, timestamp: record.at, ...(record.images?.length ? { images: record.images } : {}), ...(record.files?.length ? { files: record.files } : {}) };
       if (record.answer) {

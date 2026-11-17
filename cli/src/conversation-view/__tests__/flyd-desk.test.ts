@@ -373,6 +373,17 @@ describe("FlydDesk", () => {
     expect(statusOf({ messages, working: false }).waiting).toEqual({ id: messages[2]!.id, text: "Flyd couldn't answer that", failed: true });
   });
 
+  it("does not re-run a question another running process is still answering", async () => {
+    const asked: string[] = [];
+    const other = new FlydDesk({ dir, answer: async (question) => { asked.push(question); return "Here."; } });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const cut = deferred();
+    new FlydDesk({ dir, answer: cut.answer }).ask("still thinking");
+    other.exchanges();
+    other.exchanges();
+    expect(asked).toEqual([]);
+  });
+
   it("never asks again a turn that already began a change outside the conversation", async () => {
     let calls = 0;
     const desk = new FlydDesk({ dir, answer: async (_q, _h, _s, turn) => { calls += 1; turn!.onMutation(); throw new Error("timed out"); } });
