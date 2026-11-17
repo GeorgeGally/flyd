@@ -1,0 +1,49 @@
+# P0 feasibility only. Does not add AgentRun to Flyd Core's Node 22 production
+# dependency graph. Exact source package version is pinned in the experiment.
+name: AgentRun DSL feasibility
+
+on:
+  pull_request:
+    paths:
+      - "experiments/agentrun-dsl/**"
+      - "cli/src/command/cos/decision-workflows/**"
+      - "cli/src/command/__tests__/cos-decision-workflows.test.ts"
+      - ".github/workflows/agentrun-dsl-probe.yml"
+  push:
+    branches: [main]
+    paths:
+      - "experiments/agentrun-dsl/**"
+      - "cli/src/command/cos/decision-workflows/**"
+      - "cli/src/command/__tests__/cos-decision-workflows.test.ts"
+      - ".github/workflows/agentrun-dsl-probe.yml"
+  workflow_dispatch:
+
+jobs:
+  isolated-agentrun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.3"
+      - name: Confirm exact supported Node and installed AgentRun release
+        working-directory: experiments/agentrun-dsl
+        run: |
+          node -e 'const v=process.versions.node.split(".").map(Number); if(v[0]!==24 || v[1]<22 || v[1]===22&&v[2]<3) process.exit(1)'
+          npm install --package-lock=false --ignore-scripts --no-audit --no-fund
+          npm ls @parcha/agentrun-dsl --depth=0
+      - name: Exercise real AgentRun v2 interpreter with scripted decisions
+        working-directory: experiments/agentrun-dsl
+        run: npm test
+      - name: Install Flyd CLI tools without changing dependency declarations
+        working-directory: cli
+        run: npm ci
+      - name: Exercise actual Flyd System-1 host through installed AgentRun interpreter
+        working-directory: cli
+        run: npx tsx ../experiments/agentrun-dsl/flyd-integration.ts
+      - name: Verify test-only dependency never enters Core package graph
+        run: |
+          if grep -q '"@parcha/agentrun-dsl"' cli/package.json; then
+            echo "AgentRun DSL has entered Flyd Core before P0 approval"
+            exit 1
+          fi
