@@ -115,7 +115,7 @@ function sourceStates(value: unknown): Record<string, Last30daysSourceState> {
   return Object.fromEntries(Object.entries(states).map(([name, state]) => {
     // Upstream reports either state names or per-source objects.
     const raw = typeof state === "string" ? state : string(record(state).status);
-    return [name, allowed.has(raw as Last30daysSourceState) ? raw : "error"];
+    return [name, allowed.has(raw as Last30daysSourceState) ? (raw as Last30daysSourceState) : "error"];
   }));
 }
 
