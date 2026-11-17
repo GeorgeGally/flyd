@@ -281,6 +281,44 @@ describe("before display", () => {
     };
   }
 
+  it("fails an unstructured project-attribution return as a surfaced run failure, with no re-request", async () => {
+    const id = "flyd-project-threads-1794406370827";
+    const originalMessage = [
+      "Flyd's own note, no work asked and nothing for George. Say which project each is about.",
+      'Reply with one line per id, "id: Project", using one of: DIR, Flyd, Liesel.',
+      "",
+      "abcd1234 | the dashboard is slow",
+      "beef5678 | new email rules",
+    ].join("\n");
+    const reply = { id: "note-9", at: "2026-10-14T01:00:00.000Z", body: "abcd1234: DIR\nbeef5678: Liesel", cursor: "000000000001" };
+    const sentNotes: string[] = [];
+    const exec: FirstmateExec = async (_script, args, options) => {
+      if (args[0] === "note") {
+        sentNotes.push(String(options.input));
+        return { stdout: JSON.stringify({ id: "note-10", saved: true }), stderr: "" };
+      }
+      return { stdout: JSON.stringify({ pending: [], handled: [{ id: "note-9", request_id: id, acknowledged: true, reply }] }), stderr: "" };
+    };
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+    saveDomainRun({
+      id, owner: "FirstMate", status: "accepted",
+      request: { id, domain: "coding", originalMessage, intendedOutcome: "Say which project each exchange is about", doneWhen: ["every id listed has a line in the reply"], createdAt: "2026-10-14T00:00:00.000Z" },
+      createdAt: "2026-10-14T00:00:00.000Z", updatedAt: "2026-10-14T00:00:00.000Z",
+      transport: { kind: "firstmate", requestId: id, externalId: "note-9" },
+    });
+
+    await syncFirstmateDomainRuns({ transport, judge: async () => "completed" });
+
+    const run = readDomainRun(id)!;
+    expect(run.status).toBe("failed");
+    expect(run.failure).toContain(id);
+    expect(run.failure).toMatch(/report/);
+    expect(run.incompleteReason).toBe(run.failure);
+    expect(run.report).toMatchObject({ state: "due", status: "failed" });
+    expect(run.handoffRetry).toBeUndefined();
+    expect(sentNotes).toEqual([]);
+  });
+
   it("uses the ExecutiveDecision record, not raw domain status, for an island notice", async () => {
     const shown: string[] = [];
     const decision: ExecutiveDecisionRecord = {

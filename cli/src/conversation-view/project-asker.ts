@@ -75,7 +75,7 @@ export class ProjectAsker {
   private note(items: Array<{ id: string; line: string }>): string {
     return [
       "Flyd's own note, no work asked and nothing for George. Flyd splits his conversations by project and could not place these exchanges. From what you know of the fleet and these conversations, say which project each is about.",
-      `Reply to this note with one line per id, "id: Project", using one of: ${this.options.names.join(", ")}. Write "id: Other" when it is about none of them or you cannot tell. Answer from what you know; spawn nobody.`,
+      `Reply to this note with one line per id, "id: Project", using one of: ${this.options.names.join(", ")}. Write "id: Other" when it is about none of them or you cannot tell. After the lines, add one short sentence saying how you placed them (for example "Both are about Flyd's overlay work."). Answer from what you know; spawn nobody.`,
       "",
       ...items.map((item) => `${item.id} | ${item.line}`),
     ].join("\n");

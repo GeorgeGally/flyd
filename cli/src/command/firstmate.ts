@@ -6,7 +6,7 @@ import { firstmateHome, firstmateInboxScript } from "../lib/firstmate-home.js";
 import { FLYD_DIR } from "../lib/config.js";
 import { createLaunchFailureCache, createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError, type LaunchFailureCache } from "../runtime/repeat-guard.js";
 import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type HandoffLayer, type ProseJudge, type ProseOutcome } from "./result.js";
-import { checkDomainHandoff, HANDOFF_RETRY_WAIT_MS, handoffFailureReason, handoffReRequest, validateFirstmateReturn } from "../runtime/acceptance.js";
+import { checkDomainHandoff, checkProjectAttributionHandoff, HANDOFF_RETRY_WAIT_MS, handoffFailureReason, handoffReRequest, projectAttributionFailure, validateFirstmateReturn } from "../runtime/acceptance.js";
 import { commandDir, commitDomainRun, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
 import { cameBack, isSettled } from "./run-state.js";
 import { dueReport, quietReport } from "./report.js";
@@ -923,14 +923,21 @@ export async function syncFirstmateDomainRuns(options: {
         // misses it, on an outcome Flyd can act on, is recorded and asked once to restate itself in the contract's shape;
         // the answer to that ask is never asked again, and if it still misses, the reason names each missing layer.
         const contract = validateFirstmateReturn(parsed.result);
+        // Project-attribution tasks have their own deterministic check: a finished
+        // handoff without per-exchange project names or a prose report is bad_output,
+        // failed at the boundary with its named layer, never re-requested. FirstMate's
+        // own failed or needs_decision outcome stands with its brief. The failure is
+        // recorded on the run with its named layer and surfaces as a run failure.
+        const attribution = checkProjectAttributionHandoff(run, parsed.result);
+        const attributionFailure = status === "completed" && !predates && !attribution.ok ? projectAttributionFailure(run, attribution) : undefined;
         // Only an outcome answers the re-request; "still working" leaves it open.
         const answering = Boolean(run.handoffRetry && !run.handoffRetry.answeredAt) && cameBack(status);
-        if (!contract.ok && !run.handoffRetry && !predates && cameBack(status) && run.request.source !== "flyd") {
+        if (!contract.ok && !run.handoffRetry && !predates && cameBack(status) && run.request.source !== "flyd" && !attributionFailure) {
           reRequest = { missing: contract.missing, ...(reply.cursor ? { cursor: reply.cursor } : {}) };
         }
         const stillShort = answering && !contract.ok ? handoffFailureReason(contract.missing) : undefined;
         const terminalReportFailure = Boolean(stillShort && !contract.ok && contract.missing.includes("report"));
-        const recordedStatus: DomainRunStatus = terminalReportFailure ? "failed" : status;
+        const recordedStatus: DomainRunStatus = attributionFailure || terminalReportFailure ? "failed" : status;
         const { notified, failure, incompleteReason: _previous, launchRetry: _retry, statusAskedAt, ...rest } = next;
         // The answer to the re-request restating the same outcome is the same news, never told twice.
         const restated = answering && status === run.status;
@@ -947,13 +954,14 @@ export async function syncFirstmateDomainRuns(options: {
           // The outcome's report, in the same commit as the outcome: a restart can never lose it (command/report.ts).
           // A reply after work was sent back to its boss is reviewed afresh even when it says the same (as is one on a run
           // recorded before the report record that was never announced).
-          ...(cameBack(recordedStatus) && (predates || news || terminalReportFailure || (run.report ? run.report.sentBack : !notified))
+          ...(cameBack(recordedStatus) && (predates || news || terminalReportFailure || attributionFailure || (run.report ? run.report.sentBack : !notified))
             ? { report: predates ? quietReport(recordedStatus, settledAt) : dueReport(recordedStatus, settledAt) } : {}),
-          ...(status === "failed" ? { failure: parsed.result.brief } : failure !== undefined && !news ? { failure } : {}),
-          ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
+          ...(status === "failed" && !attributionFailure ? { failure: parsed.result.brief } : failure !== undefined && !news && !attributionFailure ? { failure } : {}),
+          ...(!handoff.ok && !attributionFailure ? { incompleteReason: handoff.reason } : {}),
           ...(stillShort ? { incompleteReason: stillShort } : {}),
-          ...(strict.fragment && !stillShort ? { incompleteReason: strict.reason, failure: strict.reason } : {}),
+          ...(strict.fragment && !stillShort && !attributionFailure ? { incompleteReason: strict.reason, failure: strict.reason } : {}),
           ...(terminalReportFailure ? { failure: stillShort, incompleteReason: stillShort } : {}),
+          ...(attributionFailure ? { failure: attributionFailure, incompleteReason: attributionFailure } : {}),
           ...(statusAskedAt && outcome === "unclear" ? { statusAskedAt } : {}),
           ...(answering ? { handoffRetry: { ...run.handoffRetry!, answeredAt: settledAt } } : {}),
         };
