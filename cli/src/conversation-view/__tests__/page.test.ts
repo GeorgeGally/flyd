@@ -1458,7 +1458,7 @@ describe("conversation page", () => {
     expect(input.value).toBe("");
   });
 
-  it("shows the island's loader in the message box from the end of speech until the reply starts", async () => {
+  it("shows the island's loader in the message box from the end of speech until Flyd stops working on it", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
@@ -1485,7 +1485,14 @@ describe("conversation page", () => {
     stream.emit("update", { order: ["note:1"], messages: [asked], working: true });
     await settle();
     expect(loader.hidden).toBe(false);
-    stream.emit("update", { order: ["note:1", "a1"], messages: [asked, { id: "a1", role: "assistant", html: "<p>Opening it.</p>" }], working: true });
+    const reply = { id: "a1", role: "assistant", html: "<p>Opening it.</p>" };
+    const now = new Date().toISOString();
+    // A first reply while the island still shows Flyd working: the box keeps its loader too.
+    stream.emit("update", { order: ["note:1", "a1"], messages: [asked, reply], working: true, lastActivity: now });
+    await settle();
+    expect(loader.hidden).toBe(false);
+    // The work ends, as the island's spinner does: the loader goes.
+    stream.emit("update", { order: ["note:1", "a1"], messages: [asked, reply], working: false, lastActivity: now });
     await settle();
     expect(loader.hidden).toBe(true);
     expect(composer.classList.contains("voice-waiting")).toBe(false);

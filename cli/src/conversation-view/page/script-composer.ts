@@ -553,7 +553,7 @@ export const COMPOSER_SCRIPT = `
     voiceInput = null;
   }
   // After he stops talking the box shows the island's loader: his words being written down, then
-  // the wait for the reply, until the reply starts. Driven by the voice events and the
+  // the wait for the reply, for as long as the island shows Flyd working on it. Driven by the voice events and the
   // conversation's own updates, never by a timer: a failed or cancelled recording, a send that
   // did not go, or a reply that shows elsewhere takes it away.
   var voiceWait = document.getElementById("voice-wait");
@@ -574,20 +574,25 @@ export const COMPOSER_SCRIPT = `
     composer.classList.remove("voice-waiting");
     voiceWaitSaid.textContent = "";
   }
-  /** Each conversation update: the loader goes once the reply to his spoken message starts. */
-  function voiceWaitSeen(update) {
+  /**
+   * Each time the island's working state is refreshed: the loader mirrors the island's, so it stays while the conversation
+   * is working on his spoken message (the island's own working result, including its ten-minute staleness re-check) and goes when that work ends. A reply with no work reported ends it too.
+   */
+  function voiceWaitSeen() {
     if (!voiceWaitFor || !voiceWaitFor.id) return;
     if (drawnFrom !== voiceWaitFor.session) { endVoiceWait(); return; }
-    var order = update.order || [];
+    var order = shownOrder;
     var at = order.indexOf(voiceWaitFor.id);
     if (at === -1) return;
-    if (update.working) voiceWaitFor.started = true;
+    var working = islandWorking;
+    if (working) voiceWaitFor.started = true;
     var replied = order.slice(at + 1).some(function (id) {
       var node = nodes.get(id);
       return node && !node.classList.contains("user");
     });
+    if (working) return;
     // A turn that ended without a reply he can see also ends the wait.
-    if (replied || (voiceWaitFor.started && update.working === false)) endVoiceWait();
+    if (replied || voiceWaitFor.started) endVoiceWait();
   }
   window.flydVoice = {
     start: function () {

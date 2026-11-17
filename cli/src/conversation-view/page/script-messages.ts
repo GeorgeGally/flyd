@@ -417,8 +417,12 @@ export const MESSAGES_SCRIPT = `
     var shown = main.querySelectorAll(".msg");
     var last = shown[shown.length - 1];
     var speaking = !!(last && last.querySelector(":scope > .queued:not(.still):not(.settled)"));
-    working.hidden = !(isWorking && recent) || speaking;
+    islandWorking = !!(isWorking && recent);
+    working.hidden = !islandWorking || speaking;
+    if (typeof voiceWaitSeen === "function") voiceWaitSeen();
   }
+  var islandWorking = false;
+  var shownOrder = [];
   setInterval(refreshWorking, 15000);
 
   function apply(update) {
@@ -467,7 +471,7 @@ export const MESSAGES_SCRIPT = `
     conversationConfirm = update.confirm;
     if (typeof paintConfirm === "function" && centre !== "news") paintConfirm(conversationConfirm);
     isWorking = update.working;
-    if (typeof voiceWaitSeen === "function") voiceWaitSeen(update);
+    shownOrder = update.order;
     var projectBadge = document.getElementById("project-badge");
     if (projectBadge.textContent !== (update.project || "")) {
       projectBadge.textContent = update.project || "";

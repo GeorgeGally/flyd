@@ -54,7 +54,7 @@ Reference for the calm conversation view. Product authority: [personal-intellige
 - firstmate home is `~/Documents/firstmate` (`FLYD_FIRSTMATE_HOME` overrides; never the real one under vitest — `cli/src/lib/firstmate-home.ts`).
 - "/" at the start of the box lists Claude Code's skills and commands (`commands.ts`, `/api/commands`); a sent command carries a hidden marker telling firstmate to run it.
 - Pasted images: transcript ones are read back by line byte offset (`/api/image`); box ones are saved to firstmate's `data/inbox-images` and named in the note as `[image: /path]`.
-- After push-to-talk speech stops, the box shows the Dynamic Island's spoke loader while the words are transcribed and until the reply starts (`page/script-composer.ts`); it follows the voice events and conversation updates, with no timer, and clears on a failed or cancelled recording, a send that did not go, or a reply shown elsewhere.
+- After push-to-talk speech stops, the box shows the Dynamic Island's spoke loader while the words are transcribed and for as long as the island shows Flyd working on the reply (`page/script-composer.ts`); it mirrors the island's working state (`refreshWorking` in `page/script-messages.ts`) and the voice events, with no timer of its own, and clears on a failed or cancelled recording, a send that did not go, or a reply shown elsewhere.
 - Composer typing suggestions (Tab accepts, Escape dismisses, ↹ toggles): [flyd-composer-predictions.md](flyd-composer-predictions.md).
 
 ## Answers under a question
