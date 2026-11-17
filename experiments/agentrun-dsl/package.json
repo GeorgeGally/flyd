@@ -1,0 +1,9 @@
+{
+  "name": "flyd-agentrun-dsl-feasibility",
+  "private": true,
+  "type": "module",
+  "description": "Isolated AgentRun DSL P0 probe; NOT a Flyd production dependency",
+  "engines": { "node": ">=24.22.3" },
+  "scripts": { "test": "node --test ./p0.test.mjs" },
+  "dependencies": { "@parcha/agentrun-dsl": "0.1.0-beta.43" }
+}
