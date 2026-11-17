@@ -307,7 +307,7 @@ describe("before display", () => {
       transport: { kind: "firstmate", requestId: id, externalId: "note-9" },
     });
 
-    await syncFirstmateDomainRuns({ transport });
+    await syncFirstmateDomainRuns({ transport, judge: async () => "completed" });
 
     const run = readDomainRun(id)!;
     expect(run.status).toBe("failed");
