@@ -26,6 +26,7 @@ import { forHim, shortHeadline, staffStatusLine } from "../lib/pa-voice.js";
 import { SnapshotGate, type SnapshotGateOptions } from "./snapshot-gate.js";
 import { BoardShots, boardShotSrc, publicBoardUrl } from "./board-shots.js";
 import { BoardNames, boardKeyOf, boardTitle, isBoardKey, ProjectBoards, viaOpener } from "./liesel.js";
+import { ProjectUrls } from "./project-urls.js";
 import type { HoldCheck, HoldState } from "./hold-check.js";
 import { asksSomething, onlyTells } from "./asks.js";
 import type { RetiredCards } from "./retired-cards.js";
@@ -253,7 +254,9 @@ function linkLabel(url: string): string {
   const pr = url.match(/github\.com\/[\w.-]+\/([\w.-]+)\/pull\/(\d+)/);
   if (pr) return `${pr[1]} #${pr[2]}`;
   try {
-    return new URL(url).hostname;
+    const host = new URL(url).hostname;
+    // A project running on this Mac is opened, not named by its address.
+    return /^(?:127\.0\.0\.1|localhost|\[::1\])$/i.test(host) ? "Open" : host;
   } catch {
     return url;
   }
@@ -489,6 +492,10 @@ export interface TaskExtra {
   note?: string;
   /** The screenshot that note names by its path, among `shots`. */
   namedShot?: string;
+  /** The Liesel boards its own files link. */
+  boards?: string[];
+  /** It wrote a report (`report.md` in its data folder). */
+  report?: boolean;
 }
 
 /** The picture a worker's status line names by its path ("… shot at /…/data/task/after-390.png"), among the task's own files. Pure. */
@@ -633,6 +640,8 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
       const dir = referencedDirs(entry).find((name) => name !== row.task && extras.get(name)?.shots?.length);
       if (dir) next = { ...next, shots: extras.get(dir)!.shots!, shotDir: dir };
     }
+    // A board its own files link (an Imogen task's "posted on http://…:4747/board/…") is where he looks at it.
+    if (!next.references?.length && extra?.boards?.length) next.references = reviewLinks(extra.boards, next.url ?? entry?.url);
     const previews = extra?.previews?.length ? extra.previews : next.shotDir ? extras.get(next.shotDir)?.previews : undefined;
     if (previews?.length) next.previews = previews;
     if (!next.url && entry?.url) next.url = entry.url;
@@ -1153,6 +1162,8 @@ export function weekLandedRows(entries: Map<string, BacklogEntry>, now: number):
 }
 
 const IMAGE = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
+/** A task's written files: its report and notes, where the boards it posted to are named. */
+const TEXT_FILE = new Set([".md", ".txt", ".json"]);
 export const SHOTS_PER_TASK = 4;
 /** Smaller than this is an icon or a texture, not a picture of the work. */
 const MIN_SHOT_BYTES = 12_000;
@@ -1676,12 +1687,19 @@ export function withVoice(
 /** No more than this many landed rows from one project, so one busy repository never fills the screen. */
 export const LANDED_PER_REPO = 3;
 
-/** Recently finished work with pictures of it, as landed rows, the most recently pictured first. Pure. */
-export function landedRows(recent: Array<{ task: string; entry: BacklogEntry }>, extras: Map<string, TaskExtra>): ArtefactRow[] {
+/**
+ * Recently finished work with something to see or open — pictures, a report, its own link, a board
+ * or its project's running URL — as landed rows, the most recent first. A picture is never required. Pure.
+ */
+export function landedRows(recent: Array<{ task: string; entry: BacklogEntry }>, extras: Map<string, TaskExtra>, runsAt: (repo: string | undefined) => boolean = () => false): ArtefactRow[] {
   const at = (task: string) => extras.get(task)?.shotAt ?? extras.get(task)?.at ?? "";
   const perRepo = new Map<string, number>();
+  const shown = ({ task, entry }: { task: string; entry: BacklogEntry }) => {
+    const extra = extras.get(task);
+    return Boolean(extra?.shots?.length || extra?.report || extra?.boards?.length || entry.url || runsAt(entry.repo));
+  };
   return recent
-    .filter(({ task }) => extras.get(task)?.shots?.length)
+    .filter(shown)
     .sort((a, b) => at(b.task).localeCompare(at(a.task)))
     .filter(({ entry }) => {
       const seen = perRepo.get(entry.repo ?? "") ?? 0;
@@ -1978,6 +1996,8 @@ export class ArtefactFeed {
   private runBoardKeys = new Set<string>();
   /** Each board's own name, from its board.json; none under vitest unless a test passes them. */
   private boardNameSource?: BoardNames | null;
+  /** Where each project runs on this Mac (~/.flyd/project-urls.json); none under vitest unless a test passes them. */
+  private projectUrlSource?: ProjectUrls | null;
 
   /** Notices and replies use the same decision owner as polled fleet changes. */
   decide(changes: FirstmateChange[]): Promise<ExecutiveDecisionRecord[]> | null {
@@ -2018,6 +2038,8 @@ export class ArtefactFeed {
       projectBoards?: ProjectBoards;
       /** Each board's own name; by default from the board files ~/.easel/state.json lists, none under vitest. */
       boardNames?: BoardNames;
+      /** Where each project runs on this Mac; by default ~/.flyd/project-urls.json, none under vitest. */
+      projectUrls?: ProjectUrls;
     } = {},
   ) {}
 
@@ -2066,7 +2088,7 @@ export class ArtefactFeed {
 
   /** Each card that names a board carries when its picture was taken; a missing or old picture is taken again. */
   private withBoards(given: FleetArtefact): FleetArtefact {
-    const fleet = this.withBoardNames(this.withProjectBoards(given));
+    const fleet = this.withBoardNames(this.withProjectBoards(this.withProjectUrls(given)));
     const boards = this.boards();
     if (!boards || fleet.unavailable) return fleet;
     const keys = new Set<string>();
@@ -2078,6 +2100,26 @@ export class ArtefactFeed {
     };
     this.boardKeys = keys;
     return { ...fleet, calls: fleet.calls.map(pictured), live: fleet.live.map(pictured), ready: fleet.ready.map(pictured), landed: fleet.landed.map(pictured), held: fleet.held.map(pictured), next: fleet.next.map(pictured) };
+  }
+
+  private projectUrls(): ProjectUrls | undefined {
+    if (this.projectUrlSource === undefined) this.projectUrlSource = this.options.projectUrls ?? (process.env.VITEST ? null : new ProjectUrls());
+    return this.projectUrlSource ?? undefined;
+  }
+
+  /**
+   * A finished card with no link of its own (a local-only ship: no PR, no board) opens its
+   * project where it runs now ("logan" → http://127.0.0.1:3002), from ~/.flyd/project-urls.json.
+   */
+  private withProjectUrls(fleet: FleetArtefact): FleetArtefact {
+    const urls = this.projectUrls();
+    if (fleet.unavailable || !urls) return fleet;
+    const opened = (row: ArtefactRow): ArtefactRow => {
+      if (row.url || row.board || row.references?.some((link) => LIESEL_BOARD.test(link.url))) return row;
+      const url = urls.urlFor(row.repo);
+      return url ? { ...row, url } : row;
+    };
+    return { ...fleet, ready: fleet.ready.map(opened), landed: fleet.landed.map(opened) };
   }
 
   /**
@@ -2348,7 +2390,22 @@ export class ArtefactFeed {
       } catch {
         // No data directory: no screenshots.
       }
-      if (extra.at || extra.shots || extra.started) extras.set(task, extra);
+      try {
+        // Its written files say whether it reported and which boards it posted to.
+        const names = (await readdir(dir, { recursive: true })).slice(0, 400)
+          .filter((name) => TEXT_FILE.has(extname(name).toLowerCase()) && name.split(sep).length <= 2).slice(0, 24);
+        if (names.includes("report.md")) extra.report = true;
+        const boards = new Set<string>();
+        for (const name of names) {
+          const info = await stat(join(dir, name));
+          if (info.size > 256_000) continue;
+          for (const url of proseLinks(await readFile(join(dir, name), "utf8"))) if (LIESEL_BOARD.test(url)) boards.add(url);
+        }
+        if (boards.size) extra.boards = [...boards].slice(0, 4);
+      } catch {
+        // No data directory: no report or boards.
+      }
+      if (extra.at || extra.shots || extra.started || extra.report || extra.boards) extras.set(task, extra);
     }));
     return extras;
   }
@@ -2434,7 +2491,8 @@ export class ArtefactFeed {
       });
       const extras = await this.extras([...new Set([...listed, ...recent.map(({ task }) => task), ...referenced])]);
       this.shots = new Map([...extras].map(([task, extra]) => [task, new Set(extra.shots ?? [])]));
-      const withRecent: FleetArtefact = { ...bearings, landed: [...bearings.landed, ...landedRows(recent, extras)] };
+      const urls = this.projectUrls();
+      const withRecent: FleetArtefact = { ...bearings, landed: [...bearings.landed, ...landedRows(recent, extras, (repo) => Boolean(urls?.urlFor(repo)))] };
       // The screen is an accumulating list, persisted: a refresh adds or updates rows, and a read that fails drops nothing.
       this.loadLedger();
       const merged = this.mergeLedger(withRecent, Date.now(), !bearings.unavailable);

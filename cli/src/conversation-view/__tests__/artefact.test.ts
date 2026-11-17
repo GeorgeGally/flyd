@@ -11,6 +11,7 @@ import { readyItems,
   callItems, doneItems, underwayItems, namedShotIn, workerStarted, weekLandedRows, fleetReadTimeout, labPreviews, holdDecisions, decisionProgress, reviewLinks, proseLinks, type FleetArtefact,
 } from "../artefact.js";
 import { firstmateChangesFromFleet, projectFleetDecisions } from "../artefact.js";
+import { parseProjectUrls } from "../project-urls.js";
 import { BoardShots, LIESEL_TAILNET_ORIGIN, captureArgs, lieselBoardKey, lieselPublicOrigin, publicBoardUrl } from "../board-shots.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
@@ -471,7 +472,28 @@ describe("the backlog", () => {
     const now = Date.parse("2026-10-11T12:00:00Z");
     expect(recentlyFinished(archive, now).map(({ task }) => task)).toEqual(["gnm-tickets", "gnm-slide", "gnm-xmas-map"]);
     const rows = landedRows(recentlyFinished(archive, now), new Map([["gnm-tickets", { shots: ["shots/final-phone-invite.png"] }]]));
-    expect(rows).toEqual([{ label: "Good Neighbours: ticket modal", task: "gnm-tickets", status: "landed", repo: "good_neighbours", url: "https://github.com/GeorgeGally/good-neighbours/pull/14" }]);
+    expect(rows.map((row) => row.task)).toEqual(["gnm-tickets", "gnm-slide", "gnm-xmas-map"]);
+    expect(rows[0]).toEqual({ label: "Good Neighbours: ticket modal", task: "gnm-tickets", status: "landed", repo: "good_neighbours", url: "https://github.com/GeorgeGally/good-neighbours/pull/14" });
+  });
+
+  it("gives finished work with no picture a card that opens its running project or its board", () => {
+    const backlog = parseBacklog([
+      "- [x] logan-hide-layers - Logan: hide layers (repo: logan) (kind: ship) (done 2026-11-17)",
+      "- [x] imogen-sky - Imogen: sky pass (repo: imogen) (done 2026-11-17)",
+      "- [x] quiet-fix - Quiet: a fix (repo: quiet) (done 2026-11-17)",
+    ].join("\n"));
+    const recent = recentlyFinished(backlog, Date.parse("2026-11-17T12:00:00Z"));
+    const board = "http://127.0.0.1:4747/board/imogen-sky-1";
+    const extras = new Map([["imogen-sky", { report: true, boards: [board] }]]);
+    const urls = parseProjectUrls(JSON.stringify({ Logan: "http://127.0.0.1:3002", bad: "ftp://x" }));
+    const rows = landedRows(recent, extras, (repo) => urls.has(repo ?? ""));
+    // No picture needed: a running project or a report is enough; nothing to see or open is still no card.
+    expect(rows.map((row) => row.task).sort()).toEqual(["imogen-sky", "logan-hide-layers"]);
+    expect([...urls]).toEqual([["logan", "http://127.0.0.1:3002"]]);
+    const fleet = enrichFleet({ ...parseBearings(BEARINGS), landed: rows.map((row) => row.repo === "logan" ? { ...row, url: urls.get("logan") } : row) }, backlog, extras);
+    expect(fleet.landed.find((row) => row.task === "imogen-sky")).toMatchObject({ board: "imogen-sky-1", references: [{ label: "Open board", url: board }] });
+    const items = composeArtefact({ fleet, memories: [], news: [], taste: [] });
+    expect(items.find((item) => item.task === "logan-hide-layers")?.links).toEqual([{ label: "Open", url: "http://127.0.0.1:3002" }]);
   });
 
   it("shows a call the pictures its own words point at", () => {
