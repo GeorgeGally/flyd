@@ -11,6 +11,7 @@ import { readyItems,
   callItems, doneItems, underwayItems, namedShotIn, workerStarted, weekLandedRows, fleetReadTimeout, labPreviews, holdDecisions, decisionProgress, reviewLinks, proseLinks, type FleetArtefact,
 } from "../artefact.js";
 import { firstmateChangesFromFleet, projectFleetDecisions } from "../artefact.js";
+import { ProjectUrls } from "../project-urls.js";
 import { BoardShots, LIESEL_TAILNET_ORIGIN, captureArgs, lieselBoardKey, lieselPublicOrigin, publicBoardUrl } from "../board-shots.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
@@ -471,7 +472,39 @@ describe("the backlog", () => {
     const now = Date.parse("2026-10-11T12:00:00Z");
     expect(recentlyFinished(archive, now).map(({ task }) => task)).toEqual(["gnm-tickets", "gnm-slide", "gnm-xmas-map"]);
     const rows = landedRows(recentlyFinished(archive, now), new Map([["gnm-tickets", { shots: ["shots/final-phone-invite.png"] }]]));
-    expect(rows).toEqual([{ label: "Good Neighbours: ticket modal", task: "gnm-tickets", status: "landed", repo: "good_neighbours", url: "https://github.com/GeorgeGally/good-neighbours/pull/14" }]);
+    expect(rows.map((row) => row.task)).toEqual(["gnm-tickets", "gnm-slide", "gnm-xmas-map"]);
+    expect(rows[0]).toEqual({ label: "Good Neighbours: ticket modal", task: "gnm-tickets", status: "landed", repo: "good_neighbours", url: "https://github.com/GeorgeGally/good-neighbours/pull/14" });
+  });
+
+  it("gives finished work with no picture a card that opens its running project or its board", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-no-picture-"));
+    for (const dir of ["bin", "state", "data"]) mkdirSync(join(home, dir));
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), "#!/bin/sh\necho '{}'\n", { mode: 0o755 });
+    const today = new Date().toISOString().slice(0, 10);
+    writeFileSync(join(home, "data", "backlog.md"), [
+      `- [x] logan-hide-layers - Logan: hide layers (repo: logan) (kind: ship) (done ${today})`,
+      `- [x] logan-pr - Logan: shipped https://github.com/GeorgeGally/logan/pull/9 (repo: logan) (done ${today})`,
+      `- [x] imogen-sky - Imogen: sky pass (repo: imogen) (done ${today})`,
+      `- [x] quiet-fix - Quiet: a fix (repo: quiet) (done ${today})`,
+    ].join("\n"));
+    const board = "http://127.0.0.1:4747/board/imogen-sky-1";
+    mkdirSync(join(home, "data", "imogen-sky", "notes"), { recursive: true });
+    writeFileSync(join(home, "data", "imogen-sky", "notes", "log.md"), `Posted to ${board} for review.\n`);
+    mkdirSync(join(home, "data", "quiet-fix"));
+    writeFileSync(join(home, "data", "quiet-fix", "report.md"), "Fixed it. Nothing to open.\n");
+    const urlsFile = join(home, "project-urls.json");
+    writeFileSync(urlsFile, JSON.stringify({ Logan: "http://127.0.0.1:3002", bad: "ftp://x" }));
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none"), projectUrls: new ProjectUrls(urlsFile) });
+    await feed.refresh();
+    const landed = feed.current().fleet!.landed;
+    // A card needs a picture, a link or a board: a report alone is nothing to open.
+    expect(landed.map((row) => row.task).sort()).toEqual(["imogen-sky", "logan-hide-layers", "logan-pr"]);
+    expect(landed.find((row) => row.task === "logan-hide-layers")?.url).toBe("http://127.0.0.1:3002");
+    expect(landed.find((row) => row.task === "logan-pr")?.url).toBe("https://github.com/GeorgeGally/logan/pull/9");
+    expect(landed.find((row) => row.task === "imogen-sky")).toMatchObject({ board: "imogen-sky-1", references: [{ label: "Open board", url: board }] });
+    expect(landed.find((row) => row.task === "imogen-sky")?.url).toBeUndefined();
+    const items = composeArtefact({ fleet: feed.current().fleet!, memories: [], news: [], taste: [] });
+    expect(items.find((item) => item.task === "logan-hide-layers")?.links).toEqual([{ label: "Open", url: "http://127.0.0.1:3002" }]);
   });
 
   it("shows a call the pictures its own words point at", () => {
