@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,7 @@ import { Last30daysContractError, last30daysHealth, parseLast30daysAgent, parseL
 import { discoveryCandidates, readDiscoveryCache, refreshDiscovery } from "../scout-discovery.js";
 import { groupScoutStories, previouslyCovered, sameStory } from "../scout-stories.js";
 import { recordScoutMetrics, readScoutMetrics } from "../scout-metrics.js";
+import { editorialEvaluationSummary, editorialShadowBrief, recordEditorialJudgment } from "../scout-eval.js";
 import type { ScoutCandidate } from "../scout.js";
 
 const dirs: string[] = [];
@@ -103,6 +104,21 @@ describe("discovery and event curation", () => {
     expect(grouped[0]?.independentSources).toBe(2);
     expect(previouslyCovered(b, [{ title: a.title, url: a.url }])).toBe(true);
     expect(sameStory(a, c)).toBe(false);
+  });
+
+  it("blinds and records comparisons without publishing shadow stories", () => {
+    const dir = temp();
+    writeFileSync(join(dir, "editorial-shadow.json"), JSON.stringify({
+      date: "2026-11-17",
+      baseline: [{ title: "Old story", url: "https://example.com/old" }],
+      candidate: [{ title: "Interesting discovery", url: "https://example.com/new" }],
+    }));
+    const brief = editorialShadowBrief(dir);
+    expect(brief).toContain("Blind edition 2026-11-17");
+    expect(brief).toContain("Interesting discovery");
+    expect(brief).toContain("Old story");
+    expect(recordEditorialJudgment(dir, "tie")).toContain("recorded");
+    expect(editorialEvaluationSummary(dir)).toContain("1 days");
   });
 
   it("records only bounded summary counters", () => {
