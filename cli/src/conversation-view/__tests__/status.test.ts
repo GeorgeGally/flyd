@@ -78,7 +78,7 @@ describe("conversation status for the island", () => {
 
   it("says what is happening only to his newest message, never an older one left waiting", () => {
     const messages = [
-      { id: "u1", role: "user" as const, text: "check the deploy", waiting: "Flyd was interrupted before answering; send it again" },
+      { id: "u1", role: "user" as const, text: "check the deploy", waiting: "Flyd couldn't answer that", waitingFailed: true },
       { id: "u2", role: "user" as const, text: "what's the weather?" },
       { id: "r2", role: "assistant" as const, text: "Sunny all day." },
     ];
