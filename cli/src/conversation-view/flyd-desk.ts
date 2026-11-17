@@ -4,7 +4,7 @@ import { asksToChangeFlyd, isAccountIntent } from "../connectors/invocation.js";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { shortConversationTitle } from "./session-title.js";
 import { clipKeepingLinks } from "./line-links.js";
@@ -74,6 +74,10 @@ const RECENT_FOR_ROUTE = 4;
 const HISTORY_EXCHANGES = 4;
 const DAY_PREFIX = "day:";
 const MAX_ERROR_CHARS = 160;
+/** How recent a question cut off by a restart must be for Flyd to ask it again itself; older ones stay unanswered. */
+const RESUME_WINDOW_MS = 60 * 60_000;
+/** The one line under a question Flyd tried twice and still could not answer. */
+const COULD_NOT_ANSWER = "Flyd couldn't answer that";
 const MAX_STEP_CHARS = 90;
 
 export function routePrompt(text: string, recent: ConversationMessage[]): string {
@@ -197,13 +201,19 @@ interface AskRecord {
   artefact?: string;
   answeredAt?: string;
   error?: string;
+  /** Set once Flyd has asked it again itself, after an error or a restart cut the first answer off; never twice. */
+  retried?: true;
+  /** Set once the turn began a tool that changes something outside the conversation; asking it again would repeat that. */
+  acted?: true;
+  /** Where he asked it: a project's conversation or the general chat, kept so asking it again reads it the same way. */
+  scope?: ChatScope;
   understanding?: TurnUnderstanding;
   /** Status lines that only said something was happening, and the concrete status George was shown instead. */
   statusSubstitutions?: Array<{ raw: string; shown: string }>;
 }
 
 /** Flyd's own answer to a question, given the window's earlier questions and answers; `onStep` says what it is doing as it goes. */
-export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void; askUser?(prompt: string): Promise<boolean | "always">; outside?: boolean; attached?: string; scope?: ChatScope }) => Promise<string | AnswerBody>;
+export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void; onMutation(): void; askUser?(prompt: string): Promise<boolean | "always">; outside?: boolean; attached?: string; scope?: ChatScope }) => Promise<string | AnswerBody>;
 
 /** What the screenshots he attached to a question show, in words, for Flyd's turn, which takes words only. */
 export type Seer = (question: string, images: ImageUpload[], onStep?: (step: string, tool?: InFlightTool) => void) => Promise<string>;
@@ -273,8 +283,11 @@ export class FlydDesk {
   private readonly see?: Seer;
   private readonly afterTurn?: (turn: { sessionId: string; user: string; assistant: string; recordInCognition?: boolean }) => void | Promise<void>;
   private readonly preparations: PreparationStore;
-  /** Questions this process is answering right now. */
-  private readonly inFlight = new Set<string>();
+  /** Questions this process is answering right now, each with its current attempt. */
+  private readonly inFlight = new Map<string, object>();
+  /** When this process started; only a question asked before it can have been cut off by a restart. */
+  private readonly startedAt = Date.now();
+  private resumed = false;
   /** A remember from an article chat, held until George says yes or the wait runs out. */
   private readonly confirms = new Map<string, { sessionId: string; prompt: string; resolve: (answer: boolean | "always") => void; timer: ReturnType<typeof setTimeout> }>();
   /** What Flyd is doing on each question it is answering, said the moment it changes. */
@@ -429,11 +442,43 @@ export class FlydDesk {
     const documents = checkDocuments(files);
     const kept = this.keepImages(id, images);
     const filed = this.keepFiles(id, documents);
-    let record: AskRecord = { id, sessionId, at: new Date().toISOString(), text: text.trim(), ...(kept.length ? { images: kept } : {}), ...(filed.length ? { files: filed.map((file) => file.name) } : {}) };
-    const conversation = conversationOf(record);
+    const record: AskRecord = { id, sessionId, at: new Date().toISOString(), text: text.trim(), ...(kept.length ? { images: kept } : {}), ...(filed.length ? { files: filed.map((file) => file.name) } : {}), ...(scope ? { scope } : {}) };
     // "I meant CleanX" after a misheard "Kleenex": typed or spoken, Flyd learns his spelling.
-    learnNameCorrection(record.text, this.recordsForSession(conversation).at(-1)?.text, "chat");
-    const earlierAnswered = this.recordsForSession(conversation)
+    learnNameCorrection(record.text, this.recordsForSession(conversationOf(record)).at(-1)?.text, "chat");
+    this.write(record);
+    return this.startAnswer(record, images, filed);
+  }
+
+  /**
+   * Asks again, itself, each recent question a restart cut off before its answer, once per question:
+   * he is not asked to send it again. One cut off again, or older than `RESUME_WINDOW_MS`, stays a plain failure.
+   */
+  resumeInterrupted(now = Date.now()): void {
+    for (const record of this.records()) {
+      if (record.answer || record.error || record.retried || record.acted || this.inFlight.has(record.id)) continue;
+      if (Date.parse(record.at) > this.startedAt || !(now - Date.parse(record.at) <= RESUME_WINDOW_MS)) continue;
+      const images = (record.images ?? []).flatMap((imageId) => {
+        const image = this.image(imageId);
+        return image ? [{ mediaType: image.mediaType, data: image.data.toString("base64") }] : [];
+      });
+      const filed = (record.files ?? []).map((name) => ({ name, ext: extname(name).slice(1).toLowerCase(), path: join(this.dir, "files", record.id, name) }));
+      const again: AskRecord = { ...record, retried: true };
+      this.write(again);
+      this.startAnswer(again, images, filed);
+    }
+  }
+
+  /** Starts answering a stored question; a failed answer is asked again once before he hears it failed. */
+  private startAnswer(asked: AskRecord, images: ImageUpload[], filed: Array<{ name: string; ext: string; path: string }>): SentMessage {
+    let record = asked;
+    const { id } = record;
+    const sessionId = record.sessionId ?? "conversation";
+    const conversation = conversationOf(record);
+    const earlier = this.recordsForSession(conversation)
+      .filter((other) => other.id !== id && Date.parse(other.at) <= Date.parse(record.at));
+    const kept = record.images ?? [];
+    const scope = record.scope;
+    const earlierAnswered = earlier
       .filter((earlier) => earlier.answer)
       .slice(-HISTORY_EXCHANGES);
     const history = earlierAnswered
@@ -441,13 +486,15 @@ export class FlydDesk {
         { role: "user" as const, content: asAsked(earlier, HISTORY_READ_CHARS) },
         { role: "assistant" as const, content: earlier.artefact && !earlier.answer!.includes(earlier.artefact) ? `${earlier.answer!}\n\n${earlier.artefact}` : earlier.answer! },
       ]);
-    this.write(record);
-    this.inFlight.add(record.id);
+    // Each attempt is its own: a first attempt's late steps never touch the one asking again.
+    const attempt = {};
+    const live = (): boolean => this.inFlight.get(id) === attempt;
+    this.inFlight.set(id, attempt);
     const first = clipKeepingLinks(answeringLine(record.text, kept.length > 0), MAX_STEP_CHARS, 40);
     this.steps.set(record.id, first);
     const onStep = (step: string, tool?: InFlightTool): void => {
       const line = step.replace(/\s+/g, " ").trim();
-      if (!line || !this.inFlight.has(record.id)) return;
+      if (!line || !live()) return;
       // The one boundary a relayed status crosses before it becomes the line under his message: a placeholder
       // never passes; it is replaced by a status built from the tool call under way, and both are kept for review.
       const shown = relayStatus(line, tool) || this.steps.get(record.id);
@@ -467,19 +514,20 @@ export class FlydDesk {
       : undefined;
     const turn = {
       source: { turnId: `ask:${id}`, sessionId: `view:${sessionId}`, surface: "view" as const, text: record.text,
-        context: this.recordsForSession(conversation).filter(earlier => earlier.id !== id)
+        context: earlier
           .slice(-4).map(earlier => ({ ref: `ask:${earlier.id}`, text: earlier.text.slice(0, 350) })),
         revision: 1, consentRef: `conversation:view:${sessionId}`, final: true as const, retention: "local_default" as const },
       ...(askUser ? { askUser } : {}),
       ...(scope ? { scope } : {}),
       ...(filed.length || earlierAnswered.some((earlier) => earlier.read?.length) ? { outside: true } : {}),
-      turnNumber: this.recordsForSession(conversation).filter((earlier) => earlier.id !== id).length + 1,
-      onInteraction: (interactionClass: "conversation" | "work_status" | "decision" | "deliverable") => { record = { ...record, interactionClass }; this.write(record); },
-      onUnderstanding: (understanding: TurnUnderstanding) => { record = { ...record, understanding }; this.write(record); },
-      onPreparation: (preparationId: string) => { record = { ...record, preparationId }; this.write(record); },
-      onArtefact: (artefact: string) => { record = { ...record, artefact }; this.write(record); },
+      turnNumber: earlier.length + 1,
+      onInteraction: (interactionClass: "conversation" | "work_status" | "decision" | "deliverable") => { if (!live()) return; record = { ...record, interactionClass }; this.write(record); },
+      onUnderstanding: (understanding: TurnUnderstanding) => { if (!live()) return; record = { ...record, understanding }; this.write(record); },
+      onPreparation: (preparationId: string) => { if (!live()) return; record = { ...record, preparationId }; this.write(record); },
+      onArtefact: (artefact: string) => { if (!live()) return; record = { ...record, artefact }; this.write(record); },
+      onMutation: () => { if (!live() || record.acted) return; record = { ...record, acted: true }; this.write(record); },
     };
-    const seeing: Promise<void> = images.length && this.see
+    const seeing: Promise<void> = images.length && this.see && !record.seen
       ? this.see(record.text, images, onStep).then((seen) => {
         if (seen.trim()) {
           record = { ...record, seen: seen.trim() };
@@ -487,32 +535,47 @@ export class FlydDesk {
         }
       })
       : Promise.resolve();
-    const reading: Promise<void> = filed.length
+    const reading: Promise<void> = filed.length && !record.read
       ? readDocuments(filed).then((read) => {
         record = { ...record, read };
         this.write(record);
       })
       : Promise.resolve();
-    const answering: Promise<string | AnswerBody> = (images.length && this.see) || filed.length
+    const answering: Promise<string | AnswerBody> = (images.length && this.see) || filed.length || record.seen || record.read
       ? Promise.all([seeing, reading]).then(() => {
         const attached = attachedWords(record, MAX_READ_CHARS);
         return this.answerer(record.text, history, onStep, attached ? { ...turn, attached } : turn);
       })
       : this.answerer(record.text, history, onStep, turn);
+    const settle = (): void => {
+      if (!live()) return;
+      this.inFlight.delete(id);
+      this.steps.delete(id);
+    };
     void answering
       .then((answer) => {
         const body = typeof answer === "string" ? null : answerBody(answer);
         const text = (typeof answer === "string" ? withoutObviousAsk(answer) : plainAnswer(body!)).trim();
         if (!text) throw new Error("no answer came back");
         this.write({ ...record, answer: text, ...(body ? { form: body } : {}), answeredAt: new Date().toISOString() });
-        void Promise.resolve(this.afterTurn?.({ sessionId, user: record.text, assistant: text })).catch(() => undefined);
+        settle();
+        try {
+          void Promise.resolve(this.afterTurn?.({ sessionId, user: record.text, assistant: text })).catch(() => undefined);
+        } catch {
+          // The answer is written; a failing follow-up never asks it again.
+        }
       })
       .catch((error: unknown) => {
-        this.write({ ...record, error: (error instanceof Error ? error.message : String(error)).slice(0, MAX_ERROR_CHARS) });
-      })
-      .finally(() => {
-        this.inFlight.delete(record.id);
-        this.steps.delete(record.id);
+        if (!live()) return;
+        settle();
+        if (record.retried || record.acted) {
+          this.write({ ...record, error: (error instanceof Error ? error.message : String(error)).slice(0, MAX_ERROR_CHARS) });
+          return;
+        }
+        // A passing failure is Flyd's to retry, once, before he hears about it.
+        record = { ...record, retried: true };
+        this.write(record);
+        this.startAnswer(record, images, filed);
       });
     return { id: `ask:${record.id}`, timestamp: record.at, waiting: first };
   }
@@ -584,6 +647,10 @@ export class FlydDesk {
   }
 
   exchanges(sessionId?: string): Exchange[] {
+    if (!this.resumed) {
+      this.resumed = true;
+      this.resumeInterrupted();
+    }
     return (sessionId === undefined ? this.records() : this.recordsForSession(sessionId)).map((record) => {
       const question: ConversationMessage = { id: `ask:${record.id}`, role: "user", text: record.text, timestamp: record.at, ...(record.images?.length ? { images: record.images } : {}), ...(record.files?.length ? { files: record.files } : {}) };
       if (record.answer) {
@@ -601,9 +668,8 @@ export class FlydDesk {
         };
       }
       if (this.inFlight.has(record.id) && !record.error) return { question, waiting: this.steps.get(record.id) ?? answeringLine(record.text, Boolean(record.images?.length)) };
-      // What went wrong is Flyd's to read in its own record; he gets one plain line and the way to try again.
-      const waiting = record.error ? "Flyd couldn't answer that; send it again" : "Flyd was interrupted before answering; send it again";
-      return { question, waiting, waitingFailed: true };
+      // Flyd has already asked it again itself: what went wrong is Flyd's to read in its own record; he gets one plain line.
+      return { question, waiting: COULD_NOT_ANSWER, waitingFailed: true };
     });
   }
 }
