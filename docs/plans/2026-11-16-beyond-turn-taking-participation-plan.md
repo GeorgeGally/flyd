@@ -1,11 +1,36 @@
 # Flyd — Beyond Turn-Taking: Participation, Attention & Persistent Context
 
 **Date:** 16 November 2026
-**Status:** Implementation plan, not implementation or rollout
+**Status:** VALIDATED WITH CORRECTIONS against main at 75558499faa6aca8d71a497557eec5554d31f3d3 on 17 November 2026. Implementation has NOT started.
 **Source audited:** `GeorgeGally/flyd`, `main` at `b5c6844ec4f1e3096f7a58c9e66078255fb72bc4` (includes conversation timeline PR #315 and response PR #314).
 **Research:** Bruce Liu, *Beyond Taking Turns in Human-AI Interaction*, UCLA PhD dissertation (2026), especially Visual Captions, Inner Thoughts, Doki.
 **Product authority:** `docs/product/flyd-personal-intelligence-prd.md`; `AGENTS.md` governs repo/workflow. Do not implement against the retired Rails product.
-**Verification boundary:** GitHub source inspection and prior repo documentation; no local checkout, installed Mac/permissions test, live provider call, runtime config inspection, or test execution was performed for this plan.
+**Verification boundary:** GitHub source inspection against 75558499 (new PRs #316–#324) and the matching GitHub CI success (run 44003441193, completed 17 November 2026). No local checkout, installed Mac/permissions test, live provider call or runtime configuration inspection was performed. CI success is a source/build/test baseline, not proof of the new participation feature.
+
+## 0. Revalidation verdict (17 November 2026)
+
+**Decision: keep the event-driven approach, but fix three existing correctness faults before constructing the shared policy.** This validation supersedes any inconsistent ordering or presentation assumption later in this document.
+
+Review scope: main at 75558499, including the November 17 interrupted-question retry, finished-work links, voice loader, scroll-position stability, and conversation continuity changes, plus the November 16 independent checking and CoS acceptance hardening. [CI run 44003441193](https://github.com/GeorgeGally/flyd/actions/runs/44003441193) succeeded on that commit. This validation did **not** run tests locally or operate an installed Flyd.
+
+### Source-backed corrections
+
+1. **An advisory can be lost without ever reaching George.** In runtime/conversation-responder.ts (around 1485–1490) an advisory chosen for the model is marked shown after a successful final answer even if the final text does not contain it. resolve.ts (around 884–889) similarly marks it shown on a non-empty model resolution. Selection, inclusion in generated output, UI emission, and verified receipt are different events. Change these transitions and tests **before** introducing a new relevance gate. A model-selected but omitted insight must remain eligible later, with retry/deduplication to prevent nagging.
+2. **Council bypasses receipt-aware attention.** council/council.ts (around 123–136) directly calls notify('Flyd', text), catches failure, increments its per-day count regardless, and puts the advisory into the notified array. runCouncilInBackground uses runtime/agenda.ts notifyMac, whose Promise<void> discards the richer deliverNotificationLine outcome. Existing notifyMacOutcome/deliverNotificationLine distinguish shown, kept, idle, backstage, placeholder, repeat and undelivered. Use this outcome or the established delivered ledger for Council; decide semantics for screened/undelivered/duplicate cases explicitly. Preserve source identity and the existing maximum as a *candidate throttle*, not proof of receipt. Council notices currently travel with the generic 'deliverable' default; check whether that classification is appropriate before changing notification frequency.
+3. **ImportanceJudge can hide a user-owned call.** conversation-view/server.ts (around 676–700) filters show.items **and show.calls** when ImportanceJudge returns false. importance-judge.ts has no deterministic protected-class exception. Add a structural guard for genuine user decisions/required approvals and verified requested outcomes, then regression tests, *before* enabling any new suppression logic. Keep soft relevance scoring on optional information only.
+4. **The new timeline is not an ambient publication stream.** page/script-timeline.ts draws from frontJobs; workInTimeline includes actual needs, running items, and recently done non-bare work. Proactive-care cards are ActivityRecord items in the Activity panel, not job messages. For v1, publish quiet insights there (or as a genuine artefact when the user opens one); **never fake an AgentTask, Needs You request, or job to get an idea into the timeline**. Defer a new inline, non-job 'insight' object until a separate interaction/design test justifies it.
+5. **The semantic snapshot is a projection, not durable Doki-style shared state.** conversation-view/semantic.ts derives identities from ShowItem and source adapters; server.ts composes per-refresh snapshots. Activities already persist in activity/records.jsonl, while executive reports and delivery receipts use the intelligence event spine. Don't assert a universal persisted semantic workspace or force a storage migration. Preserve source IDs/refs and derive the view from authoritative stores.
+6. **Potential over-filtering already exists independently of this plan.** ImportanceJudge currently re-asks Jev per changed ShowItem with an in-memory cache; it may show candidate items while waiting, then remove them. New participation filtering must not add oscillation to that asynchronous view. Tests should cover stabilizing the reader's position, the new auto re-ask interrupted questions, and rehydration after restart.
+7. **The existing fast path is sufficient for user-turn note selection.** turn-plan.ts already batches note_relevant with turn routing/skill selection; room-context.ts already bounds eligible advisories. Do not add a new System-1 predicate or extra full-model call to every conversation. Off-turn Council and care are separate producers, not candidates for per-token reasoning.
+8. **A source-level CI success is not a production pilot.** Native Mac Calendar consent, on-screen visibility, source revocation, delivery receipts, current flags and real provider latency still require an installed-app run.
+
+### What stays unchanged
+
+One Core; one CoS objective owner; one permission and egress policy; existing agenda, Council, command scheduler and attention timing; existing source stores and event spine; no new always-on LLM; no new independent inbox; no extra hot-path call; the single conversation composer.
+
+### What the revised pilot should prove
+
+A real grounded insight is either (a) actually displayed and acknowledged in source state, (b) quietly held for another appropriate moment, or (c) explicitly rejected with a reason; no arbitrary marking as 'shown', duplicate ringing, new demands on George, or disappearance of user-owned work.
 
 ## 1. The actual goal
 
@@ -33,10 +58,10 @@ The immediate engineering goal is narrower: give existing proactive sources a **
 | Delivery timing | `runtime/attention.ts`, `command/scheduler.ts`, `runtime/delivered.ts` | Focus/meeting holds, dedupe, batching and receipt-backed delivery exist. Preserve especially user-owned/blocking cases. |
 | Executive opportunity scoring | `intelligence/executive/executive-cycle.ts` | Has benefit/confidence/interruption scoring and reasons, but search found no production caller to `new ExecutiveCycle` / `pendingInterventions`. Fixed daily interruption budget conflicts with newer adaptive timing direction. **Do not activate it wholesale**; harvest its policy concepts. |
 | Proactive work already on agenda | `runtime/agenda-tick.ts`, `runtime/proactive-care.ts` | Existing five-minute tick drives consensual meeting briefs, creative references and dated commitments. They quietly use activity records; installed Mac pilot still unverified. |
-| One living surface | `conversation-view/semantic.ts`, `placement.ts`, `page/script-timeline.ts`, `importance-judge.ts` | Timeline is now home, jobs inline, one composer, canonical Needs/Moving/Done. ImportanceJudge can hide confident non-relevant items. Do not invent a new scene renderer, panel system or 'thought inbox'. |
-| Canonical state and learning | `intelligence/event-store.ts`, `context-envelope.ts`, `intelligence/dream/cycle.ts` | Reuse append-only idempotent spine, provenance, consent, erasure and policy promotion. No parallel mutable truth store. |
+| One living surface | `conversation-view/semantic.ts`, `placement.ts`, `page/script-timeline.ts`, `importance-judge.ts` | Timeline is home for real work items, not ambient insights. The semantic snapshot is derived on refresh, not durable persisted workspace. ImportanceJudge currently can hide calls; fix that. Keep one composer; reuse Activity for ambient. |
+| Canonical state and learning | `intelligence/event-store.ts`, `context-envelope.ts`, `intelligence/dream/cycle.ts`, `conversation-view/activity.ts` | Canonical intelligence events and existing Activity JSONL coexist; do not pretend Activity is in the event spine. Correlate stable source IDs and minimal decision receipts; no new parallel truth store or migration. |
 
-**Diagnosis:** This is primarily a **cross-path consistency and timing** problem. The room reader, Council, proactive care, CoS reports, Jev presentation judgement and UI placement each independently decide whether something deserves attention. They do not consistently record *why now, why not, what was suppressed, what later became useful*. New LLMs and screens are not the missing ingredient.
+**Diagnosis:** This is primarily a **cross-path consistency and timing** problem. The room reader, Council, proactive care, CoS reports, Jev presentation judgement and UI placement each independently decide whether something deserves attention. They do not consistently record *why now, why not, what was suppressed, what later became useful*. More importantly, present source shows inaccurate 'shown' and 'notified' transitions and optional relevance hiding real calls. Fix those first. New LLMs and screens are not the missing ingredient.
 
 ## 3. Research translated into Flyd-specific decisions
 
@@ -78,13 +103,13 @@ Sources (already running, already consented)
 ```
 
 **Boundaries:**
-- **Only CoS/domain owners decide and execute work.** Participation selects presentation; it cannot call workers, mint grants, retry an uncertain outward effect, or invent a permission.
+- **Existing action owners (CoS/domain teams and authorized direct tools) decide and execute work.** Participation selects presentation; it cannot call workers, mint grants, retry an uncertain outward effect, or invent a permission.
 - **No new model call on the hot voice/text routing path.** Reuse the existing Jev note batch and room fallback; if unavailable, use deterministic safe defaults.
 - **No new scheduler.** Use Council/agenda tick and the existing CoS/delivery triggers. Never turn PRESENT into a sensing or network source.
-- **One canonical identity.** A candidate references existing advisory, task, artifact or care source identity; new presentation records are not a second task.
+- **One stable source identity.** A candidate references an existing advisory, task, artifact or care source key and revision. SemanticObject is a derived presentation projection; it is not the authoritative durable object. New presentation records are not another task.
 - **Epistemic separation.** A suggestion/inference is not a verified outcome, a user intention, or a permanent memory. Preserve exact evidence refs and source permissions.
 - **Fail safe without hiding critical work.** Never suppress an already-grounded, user-owned approval, urgent blocker or verified result based only on uncertain model relevance.
-- **Consent is checked when publishing and reading.** Revoking a sensitive source hides previously staged content, just as current care-card visibility does.
+- **Consent is checked when publishing and reading.** Current care-card visibility is an implementation precedent, not universal coverage. New staged sensitive content needs source-specific revocation checks before any pilot; disable/hide does not silently erase historic records.
 - **Quiet is a first-class, reasoned output.** Do not add a fake 'thinking...' bubble or a status item for a suppressed thought.
 
 ### Suggested typed contract (conceptual, refine during U1)
@@ -126,83 +151,90 @@ interface ParticipationDecision {
 
 Keep records of material decisions in existing `IntelligenceEventStore` via validated `ContextEnvelope`, with **bounded retention** and idempotency. Avoid logging unchanged 'silent' decisions on every five-minute tick. Do not introduce a second SQLite/JSONL brain.
 
-## 5. Implementation units (in order)
+## 5. Revised implementation units, in dependency order
 
-### U0 — Prove the current wiring and establish a replay baseline
+### U0 — Baseline, protected paths and current runtime wiring (required)
 
-**Files to inspect/run:** `runtime/turn-plan.ts`, `turn-stages.ts`, `room-context.ts`, `council/advisors.ts`, `command/scheduler.ts`, `runtime/attention.ts`, `conversation-view/importance-judge.ts`, `conversation-view/server.ts`, `page/script-timeline.ts`, `intelligence/executive/executive-cycle.ts`. Reuse `cli/src/intelligence/evaluation/episode-replay.ts`, `cli/scripts/eval-conversational-initiative.ts`, and relevant unit tests.
+**Inspect:** runtime/turn-plan.ts, turn-stages.ts, room-context.ts, conversation-responder.ts, resolve.ts; council/{council,advisors,muse}.ts; runtime/{agenda,attention,delivered,proactive-care}.ts; command/scheduler.ts and CoS tick; conversation-view/{server,importance-judge,activity,semantic,placement}.ts and page/script-{timeline,messages}.ts.
 
-**Tasks:** Verify in a runnable checkout the exact call paths and flags; freeze source SHA and a replay fixture corpus from consented/redacted or synthetic scenarios; measure current conversational notes shown, quiet care cards, deferred delivery, latency, repeats and missed urgent reports. Verify whether `ExecutiveCycle` has any runtime use missed by code search. Verify actual current on-screen behavior of Nov 16 timeline separately from what tests assert.
+**Run in an isolated checkout:** npm test, npm run lint and npm run build under cli/; inspect installed Mac only with explicit access and source-consent approvals. Confirm whether the ExecutiveCycle is actually uncalled (default-branch code search finds no production caller).
 
-**Acceptance:** A reproducible baseline report distinguishes shipped source, verified unit behavior, installed Mac behavior and unknowns. No new feature enabled. This is a blocking prerequisite.
+**Freeze replay fixtures:** advisory selected but omitted from final; advisory genuinely shown; Council notice shown, screened, undelivered, repeated; meeting/focus delivery hold; user-owned call scored irrelevant by Jev; care record hidden after revocation; same project insight across restarts; auto re-asked interrupted question; scroll-preservation on redraw. Use synthetic or consented redacted data. This is not a request to read George's installed private records by default.
 
-### U1 — Add one pure participation-decision policy
+**Gate:** record exact function calls, flags, source keys, timing and output surfaces. Distinguish CI-tested, locally reproduced and installed-Mac verified. Do not report a feature as shipped from source inspection alone.
 
-**Create:** `cli/src/runtime/participation-policy.ts`, `cli/src/runtime/__tests__/participation-policy.test.ts` (exact module location may adjust after U0).
-**Reuse:** `runtime/attention.ts`, `council/advisors.ts`, `intelligence/context-envelope.ts`, existing source consent.
+### U1 — Repair truthful delivery and protected attention before new policy
 
-**Tasks:**
-- Normalize *existing* advisory and care candidates first, with stable source/revision keys, TTL, evidence and sensitivity. Add CoS reporting adapter **only** after its current delivery contract is tested.
-- Deterministically gate expired, duplicated, withdrawn, disallowed, ungrounded, unrelated and out-of-context content; compute two explicit groups of reasons (for/against participation). Prefer no model call by default.
-- Output *recommendation*, not direct UI action. Only existing delivery/timing code can issue actual user notifications.
-- Version policy and include a no-op off switch. Use a shadow path with identical inputs to existing behavior.
+**Change A: Council receipt correctness.** In council/council.ts, use an outcome-bearing notification adapter (runtime/agenda.ts notifyMacOutcome or the existing runtime/delivered ledger, only if it matches Council's semantics). Treat *shown* as demonstrated delivery. Keep screened/held/undelivered distinct. Do not count an attempt as seen, and do not retry without stable advisory identity and idempotent claim. Decide whether an unreceived urgent advisory should be retained for a later relevant moment; no surprise burst of backlogged notifications. Preserve the Council output schema or version migration for consumers. Verify title and advisory kind pass reachesGeorge and screenBeforeDisplay correctly.
 
-**Tests:** irrelevant news remains quiet; fresh project advisory retained for later; same advice across restarts is not resurfaced; low confidence cannot suppress verified user-owned work; revoked consent blocks display; hostile quoted content cannot become an instruction or task.
+**Change B: advisory consumption truth.** In runtime/conversation-responder.ts and resolve.ts, separate 'candidate handed to answerer' from 'actually surfaced'. A completed answer is not proof of inclusion. Only mark shown when a real, source-linked visible contribution is confirmed; otherwise retain open with an explicit bounded attempt/cooldown. Prefer explicit structured inclusion/visible source identity where feasible, not brittle keyword matching or extra hot-path LLM calls. Prevent cross-session repetition by stable advisory identity and TTL. Do not treat a mere resolved model prompt as an on-screen receipt.
 
-### U2 — Make conversational participation smarter without another turn
+**Change C: protected visibility.** In conversation-view/server.ts and importance-judge.ts, prevent false relevance judgements from removing genuine user-owned decisions, unresolved required approvals, and verified requested deliverables. Use deterministic facts from decision/outcome/source state before the model filter; don't rely on words alone. The model may still downgrade optional hints. Do not change placement.ts.
 
-**Modify:** `runtime/room-context.ts`, `runtime/turn-stages.ts`; minimal changes to `runtime/turn-plan.ts` and `council/advisors.ts` only when necessary.
-**Tests:** `runtime/__tests__/read-the-room.test.ts` / `turn-plan.test.ts`, `council/__tests__/council.test.ts`, plus new participation tests (use actual filenames from U0).
+**Tests:** extend council/__tests__/council.test.ts, conversation-view/__tests__/importance-judge.test.ts, runtime/__tests__/read-the-room.test.ts and turn-plan.test.ts, plus notification and conversation-view integration cases. Test thrown notify, 'kept'/'repeat'/'undelivered', selection-but-omission, no duplicate resend, source revocation, model confidence false on true user-owned call, and no new conversation tool grants.
 
-**Tasks:** Run pure eligibility/expiry checks **before** submitting candidate notes to existing `note_relevant` batch. Keep its ability to choose zero or one note; preserve room fallback and source refs. Retain relevant but unspoken advisories until their existing expiration or meaningful state change. Mark shown/dismissed through current advisory lifecycle only after a truthful presentation receipt.
+**Gate:** no lost advisory from a false shown flag; no false Council notification receipt; no user-owned call suppressed by Jev. U1 should be independently mergeable and releasable, before any new participation feature.
 
-**Tests:** a live conversation can raise one genuinely relevant novel insight; a venting turn adds no work; a remark about a different project gets no off-topic intrusion; fast Jev route and slow room reader agree on safe defaults; no added hot-path provider call, no change to tool routing or grants.
+### U2 — One narrow participation decision, shadow-first
 
-### U3 — Evaluate off-turn participation at existing background/report triggers
+**Build:** runtime/participation-policy.ts (pure) with test fixtures; a typed adapter for *existing* Council advisory and care candidates only. Reuse their source keys, TTLs and consent policies; do not build an independent thought repository.
 
-**Modify:** adapters next to `runtime/agenda-tick.ts` / `runtime/proactive-care.ts` / `command/scheduler.ts`, **not** a new timer. Reuse `runtime/delivered.ts` and `runtime/attention.ts`.
-**Create:** a small `runtime/participation-receipt.ts` only if existing `IntelligenceEventStore` call sites cannot cleanly own the typed decision.
-**Tests:** new `runtime/__tests__/participation-delivery.test.ts` plus existing attention/delivery/CoS suites.
+**Input:** stable source ID + revision, minimal evidence reference, confidence (if actually available), expiry, optional project, known context/focus, and existing optional/notifiable class. Candidate data is bounded, classified and user-visible text from already approved sources; never ingest raw emails, mic/screen or secrets by accident.
 
-**Tasks:** First emit **shadow** participation dispositions correlated to actual source and actual delivery outcomes; compare differing choices. Preserve CoS report ownership, request IDs and `placeOf`. Fold useful executive scoring concepts (`whyNow`, `whyMe`, positive/negative evidence) into the pure decision policy; **do not turn on the legacy ExecutiveCycle notification queue or its fixed daily cap**. After replay proof, allow the new policy to choose only among non-critical ambient/retain/silent outcomes. Leave urgent/user-owned notification timing to existing code.
+**Output:** a versioned reasoned recommendation: suppress invalid/duplicate; retain valid-but-not-now; consider an optional private note on a current turn; surface an already-supported quiet Activity item; or pass a genuinely eligible notification to the existing attention/delivery decision. 'Silent' must distinguish policy rejection from 'valid but deferred' so useful work is not discarded. It grants no actions and makes no delivery claims.
 
-**Tests:** report arriving in a meeting holds and resurfaces after; relevant currently focused project report appears as existing policy specifies; unknown outward send is never retried; an unapproved user-owned decision remains in Needs You however old; two concurrent sweeps do not duplicate an item; app restart cannot re-ring a shown item.
+**Ownership:** the existing attention.ts decides timing for CoS reports; the existing Council/agenda and Activity writers own their source lifecycle; the participation policy never owns a timer, notification queue, semantic object database or external effects. Do not switch on ExecutiveCycle.consider as a second owner.
 
-### U4 — Persistent shared work, no new UI framework
+**Tests:** 100% pure deterministic fixtures for expiry, source-consent revocation, dedupe, mistaken relevance, unspecific evidence, context change, and stable idempotent reasons. In shadow mode, never suppress or introduce a visible item.
 
-**Modify selectively:** `conversation-view/semantic.ts`, `activity.ts`, `show.ts`, `server.ts`, and existing presentation adapters. **Preserve** `placement.ts` and `page/script-timeline.ts` as the home.
-**Tests:** `conversation-view/__tests__/semantic.test.ts`, `activity.test.ts`, `placement.test.ts` (or current analogous suite), `page.test.ts`.
+### U3 — Improve current-turn initiative using the existing fast route
 
-**Tasks:** For promoted ambient insights, reuse stable `SemanticObject` identity and source links. An investigation remains an `investigation`; a finished result remains an `artifact`; an ongoing action remains an `activity`. No synthetic jobs or demands in Needs You. Follow-up replies reference the same object and revised provenance; source expiry/supersession makes the old visual stale or removes it, never rewrites canonical history. Use existing media/article previews where sources permit, without fresh asset generation.
+**Modify minimally:** runtime/room-context.ts, runtime/turn-stages.ts; modify turn-plan.ts only when a failing regression fixture proves necessary. Keep current note_relevant in the already batched Jev route and LLM fallback; no new full-model call and no new Jev predicate simply for participation.
 
-**Acceptance:** One visual is quietly available **while** a conversation continues, and users can inspect or reply without losing the conversational timeline. Returning to the view rehydrates from current facts rather than a detached ChatGPT-style reply; consent revocation hides private material immediately.
+Apply source eligibility, explicit user intent, expiry and recent-consumption guard *before* building the ten-note pool. Select zero or one advisory, and record selection separately from inclusion/delivery (U1). A venting or unrelated turn should not prepare work or narrate a status. Remits in conversational-initiative.ts remain explicit, scoped, cancellable and orthogonal.
 
-### U5 — Optional LIVE/voice parallel visuals only after text pilot succeeds
+**Tests:** advisory is relevant but omitted -> retained, not marked shown; actually surfaced -> shown once; another project -> quiet; venting -> no unauthorized work; cross-session callback -> no repetition; no regression on tool routing, fallback or hot-path model count.
 
-**Inspect before implementation:** `runtime/turn-stages.ts`, `resolve.ts`, realtime session handling under `cli/src/`, `mac-adapter/Sources/Bridge/LiveAudioBridge.swift`, `LiveSessionController.swift`, and the Conversation view bridge.
-**Tasks:** Keep LIVE speech separately user-directed. A grounded reference may arrive as a quiet visual in the already-open conversation surface; do not automatically interrupt or speak over George. Confirm source finalization, cancellation, session context ownership, reconnect and current voice latency. Do not add new calls on the live audio hot path or expand microphone/screen sensing.
+### U4 — Off-turn awareness through existing producers, no new scheduler
 
-**Release gate:** No LIVE implementation until U0–U4 produce a tested and useful text-only improvement. A voice-specific latency, interruption and stale-card replay suite is mandatory.
+**Pilot Council first, care second.** Normalize Council's already-produced advisories into U2 shadow decisions at runCouncilPass. Compare the Council notification outcome to what participation *would* have chosen, after U1 is correct. Then shadow existing proactive-care records from agenda-tick.ts and conversation-triggered prepareCreativeForConversation in commands/view.ts. Keep consent, daily limits and existing Activity display unchanged while in shadow.
 
-### U6 — Frozen evaluation, canary, learning and rollback
+**Only later** compare CoS reports in read-only shadow mode, keyed to the report/decision and the runtime/delivered receipt. Do not let the participation policy suppress, retry, delay or alter CoS's legitimate user-owned/blocking work. Avoid breaking its unknown external effect recovery, acceptance checker and Nov 16 verified-result semantics.
 
-**Reuse:** `intelligence/evaluation/episode-replay.ts`, System-1 registry/replay, `intelligence/dream/cycle.ts`, existing policy-promotion/versioned rollouts.
-**Add:** synthetic/consented frozen evaluation fixtures covering at least 100 independent cases, including protected privacy/permission/partial-receipt/restart/meeting/venting cases; the 100 is a *proposed benchmark size*, not a claim that results have been run.
+**Tests:** repeated Council ticks, screened-but-counted attempts, Mac unavailable, focus/meeting holds, no duplicate cross-process notifications, an expired design reference, consent revoked after recording, same creative topic across turns, and an unapproved user-owned question retained in Needs you.
 
-**Compare:** current behavior (control) vs new shadow decisions; then opt-in canary. Count *useful additional contributions*, *irrelevant or intrusive contributions*, *important items missed*, *duplicate resurfacing*, *provenance errors*, p50/p95 time overhead, model calls/tokens, and revoked-source visibility. Require **zero protected regressions** and no increased hot-path model calls. Measure real provider variance only in a consent-approved run. Don't label a source-level green test as a deployed Mac outcome.
+### U5 — Ambient manifestation with actual source identity (not fake jobs)
 
-**Flags/rollback:** one scoped `FLYD_PARTICIPATION=off|shadow|canary` gate (or existing policy-rollout control if it already fits), default `off` or `shadow`. Kill switch prevents new candidates from being published without deleting existing canonical work. Canaries fail back to current delivery; never backfill a burst of suppressed alerts. No automatic policy promotion without frozen replay.
+**Use:** conversation-view/activity.ts, existing left-column/rail cards and the current source URL/evidence media display. Preserve page/script-timeline.ts, placement.ts, frontJobs and the single composer as-is for v1. An ambient insight is not an AgentTask, WorkFact, decision or a 'Done' report.
 
-## 6. Build order and dependency gates
+The source stays authoritative in Council or care. The ActivityRecord is a legacy display record, not canonical event-spine truth; do not silently migrate it. Minimal participation decision receipts can go in IntelligenceEventStore with source IDs/policy version and without raw sensitive content. Existing semantic.ts can project valid activity/monitor/artefact objects when appropriate, but a rendered SemanticObject is not by itself persisted Doki-style state.
 
-1. **U0** baseline and observed wiring (blocker).
-2. **U1 + U2** source-normalized candidate policy and better conversational note selection. Lowest-risk meaningful increment.
-3. **U3** shadow decision receipts at background/CoS triggers; compare before altering presentation.
-4. **U4** surface only validated ambient contributions through the existing semantic timeline. Do not conflate a thought with a task.
-5. **U6** measured opt-in canary and feedback.
-6. **U5** LIVE visuals later, conditional on text pilot and real Mac verification.
+Add a source-linked inspect/reply affordance only if the existing Activity/rail contract can support it with a read-only interaction; otherwise defer that interaction and keep today's ambient cards. Check that disabling care or revoking source permissions removes sensitive cards from *every* derived view, not just the ActivityReader. Ensure content stays still during updates (PR #321) and the new interrupted-question retry (#324) does not duplicate ambient items.
 
-Do **not** make the AgentRun DSL experiment, Jev-versus-Gemini switch, new long-running worker, a new storage engine, native UI redesign, or new permissions prerequisites. Those are separate proposals with their own measurement gates.
+**Gate:** a useful insight quietly appears in Activity without inventing work or reordering the conversation; it is source-grounded and expires/revokes correctly. Only then consider a separate design exploration for inline non-job insight messages.
+
+### U6 — Frozen replay, live Mac pilot, staged activation and later LIVE
+
+**Test suites:** runtime/__tests__/proactive-care.test.ts and attention.test.ts; council/__tests__/council.test.ts; conversation-view/__tests__/{importance-judge,activity,semantic,page}.test.ts; command scheduler/CoS integration tests; intelligence event-store and sensor-consent tests. Extend rather than add a large duplicate evaluation harness. The 100-case holdout is a *target corpus*, not measured evidence.
+
+**Measure:** additional useful contributions, selected-but-omitted notes, false 'shown' transitions, missed protected items, duplicate notifications, private-data exposure, p50/p95 response overhead, background calls/token cost, actual notification outcomes, interface movement and source revocation. Protected reliability and privacy cases must show zero regressions relative to current tested behavior. Optional relevance may be A/B compared only after U1.
+
+**Activation:** an opt-in 'off/shadow/canary' switch using existing policy promotion where applicable; control behavior remains default. Shadow must not mutate advisory 'shown' state or send extra notifications. Rollback never replays a backlog of suppressed notices and must not erase known work.
+
+**LIVE comes last:** after successful text/Activity pilot, inspect the realtime transport and Mac Swift bridge with actual final transcript/reconnect/cancellation behavior. A quiet visual may coexist with voice only if it does not add an audio hot-path model call, capture PRESENT context, or speak over George. Require real installed-app proof; no claim of LIVE parity from backend tests alone.
+
+## 6. Corrected release order
+
+1. **U0:** current-main fixtures and runtime baseline; latest CI is green but installed Mac remains unverified.
+2. **U1:** repair the *existing* Council receipts, advisory consumption, and protected-call visibility; ship separately.
+3. **U2 + U3:** shadow-only policy and current-turn filtering via existing note route. No new user UI.
+4. **U4:** Council off-turn shadow; then care; CoS read-only shadow only after trusted receipt correlation.
+5. **U5:** optional ambient improvements in the **Activity** surface, no fake timeline jobs.
+6. **U6:** canary + replay + installed-Mac validation. LIVE visuals deferred until value is proven.
+
+The critical change from v1: do not start with a new generalized abstraction; first fix misleading 'shown/notified' signals. Everything else depends on their correctness.
+
+Do not make AgentRun, Gemini/Jev provider switching, another worker, another scheduler, a new database, new sensing, Rails, or a scene redesign prerequisites. They are separate choices.
 
 ## 7. Main technical objections and how this plan can fail
 
@@ -215,10 +247,10 @@ Do **not** make the AgentRun DSL experiment, Jev-versus-Gemini switch, new long-
 ## 8. Definition of done
 
 - A relevant new advisory can improve an ongoing answer without a new user prompt specifically requesting it, and an irrelevant one remains private.
-- A grounded, consented off-turn insight can appear ambiently in the existing timeline without speaking or creating fake work.
-- Work outcomes retain canonical identity, evidence, existing delivery receipts and their original owner. Old user-owned questions never vanish due to relevance scoring.
+- A grounded, consented off-turn insight can appear in the existing **Activity panel** without speaking or creating fake work. Inline non-job insights are deferred.
+- Work outcomes retain source identity, evidence, existing delivery receipts and their original owner. Old user-owned questions never vanish due to relevance scoring. Council's 'notified' and advisers' 'shown' states never mean merely attempted/composed.
 - Replay and live pilot establish the benefit, cost and interruption tradeoffs versus current source behavior; no protected safety, authority, privacy or verification regression.
 - Off/shadow/canary rollback is real; no extra scheduler, independent agent or legacy Rails dependency.
 - Installed Mac, TCC, and real provider behavior are **explicitly verified before claims of production completion**.
 
-**First engineering move:** run U0 on current `main`, producing a concrete source-to-user visibility trace for (a) Council advisory raised in a conversation, (b) proactive care visual card, (c) CoS report held during focus/meeting, and (d) genuine user-owned blocker. Freeze those as protected replay cases *before* changing policy.
+**First engineering move:** run U0 on main at 75558499 (or rebase to a newer head), then implement U1's three correctness fixes. Specifically reproduce (a) adviser selected-but-omitted yet marked shown, (b) Council notify failure counted as delivered, and (c) user-owned call suppressed by Jev. Freeze these as protected regression cases before touching the generalized participation policy.
