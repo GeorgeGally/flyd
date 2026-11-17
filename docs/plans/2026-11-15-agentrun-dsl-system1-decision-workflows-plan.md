@@ -2,7 +2,7 @@
 
 **Originally drafted:** 2026-11-15  
 **Revalidated:** 2026-11-16  
-**Status:** Source-validated, conditional feasibility proposal; **not implemented or runtime-tested**.  
+**Status:** P0 isolated DSL interpreter probe and strict choice-only System-1 contract implemented on 2026-11-17; **production integration, Mac verification and P2–P6 remain blocked on the plan's gates**. See [P0 implementation evidence](../benchmarks/agentrun-dsl-p0-2026-11-17.md).  
 **Owner:** Flyd / Chief of Staff  
 **Flyd source rechecked:** [GeorgeGally/flyd at `59ee06bc20166e631ee17b6b9553ae5c97aa45dc`](https://github.com/GeorgeGally/flyd/commit/59ee06bc20166e631ee17b6b9553ae5c97aa45dc), 2026-11-15 (original review `aaa804dfa7f84555e201f8f5780772b3086e7c11`).  
 **AgentRun source rechecked:** [Parcha-ai/agentrun at `039beb7f3354851150b5d2855a2c141be6a636aa`](https://github.com/Parcha-ai/agentrun/commit/039beb7f3354851150b5d2855a2c141be6a636aa), 2026-11-15 (original review `908004c0a9d0681571d28341afe963436dfc9471`).  
@@ -11,6 +11,12 @@
 **Upstream references:** [AgentRun DSL](https://github.com/Parcha-ai/agentrun/tree/main/packages/dsl), [host integration](https://github.com/Parcha-ai/agentrun/blob/main/docs/host-integration.md), [DSL guide](https://github.com/Parcha-ai/agentrun/blob/main/docs/guide.md), [Jev adapter](https://github.com/Parcha-ai/agentrun/tree/main/packages/jev), [read + judge example](https://github.com/Parcha-ai/agentrun/blob/main/packages/dsl/skills/author/examples/read-source-decision.json).
 
 > **Decision in one sentence:** Experiment with AgentRun DSL as a **trusted, optional, in-process subroutine interpreter** inside CoS, using Flyd's existing Jev/Gemini System-1 and authority/evidence infrastructure; do **not** adopt AgentRun Server, replace CoS/FirstMate, or create a second scheduler, event ledger or agent runtime.
+
+## Implementation record — 17 November 2026
+
+The code for an isolated, pinned Node 24.22.3+ AgentRun v2 interpreter smoke test and strict System-1 response adapter was added in [PR #325](https://github.com/GeorgeGally/flyd/pull/325). The [isolated AgentRun CI workflow](https://github.com/GeorgeGally/flyd/actions/runs/44052427157) passed. Neither CoS routing nor Flyd's Node 22 dependency graph was changed. The adapter has negative controls for wrong predicate IDs/rubrics, unapproved egress, malformed distributions, abort and uncertain provider outcomes. Details and unresolved P0 gate decisions: [docs/benchmarks/agentrun-dsl-p0-2026-11-17.md](../benchmarks/agentrun-dsl-p0-2026-11-17.md).
+
+**Do not mistake this for a P0 product GO.** Real Mac runtime, an observed recurring multi-step workflow, frozen 100-case evaluation and live provider/receipt validation are outstanding. P2–P6 must not be silently activated on the evidence of an isolated scripted success.
 
 ## 0. Independent source validation — 16 November 2026
 
