@@ -2,6 +2,8 @@ import { mkdtemp, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, describe, expect, it } from "vitest";
+import { CognitiveCurator } from "../../cognition/curator/curator.js";
+import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import {
   createConversationMemorySession,
   mergeAgentMemoryEvidence,
@@ -95,6 +97,47 @@ describe("conversation memory", () => {
       stale: false,
     });
     expect(evidence.matches[0].excerpt).toContain("release my artwork");
+  });
+
+  it("carries the newest chat-window thread into a fresh session, not the last terminal chat", async () => {
+    const flydDir = await temporaryFlydDirectory();
+    const terminal = createConversationMemorySession({
+      flydDir,
+      id: "terminal-september",
+      now: () => new Date("2026-09-29T03:45:00.000Z"),
+    });
+    await terminal.recordTurn({
+      user: "I need to be building faster and managing my life better.",
+      assistant: "Start with the one project that earns.",
+    });
+    const curator = new CognitiveCurator(new IntelligenceEventStore({ path: join(flydDir, "intelligence.sqlite") }));
+    curator.recordConversationTurn({
+      sessionId: "view:window:yesterday",
+      turnNumber: 1,
+      user: "Imogen should batch and upscale the Cap5 images.",
+      assistant: "I'll get the design team on the Imogen UI.",
+      projectIds: ["project:imogen"],
+    });
+    curator.recordConversationTurn({
+      sessionId: "view:window:today",
+      turnNumber: 1,
+      user: "where did we leave off",
+      assistant: "",
+    });
+    curator.close();
+
+    const continuity = mergeAgentMemoryEvidence("where did we leave off", [
+      await retrieveRecentConversationEvidence("where did we leave off", {
+        flydDir,
+        excludeSessionId: "view:window:today",
+      }),
+    ]);
+    expect(continuity.matches).toHaveLength(1);
+    expect(continuity.matches[0]).toMatchObject({ kind: "conversation", path: "conversations/view:window:yesterday" });
+    expect(continuity.matches[0].excerpt).toContain("upscale the Cap5 images");
+
+    const byProject = await retrieveRecentConversationEvidence("what's next on imogen", { flydDir });
+    expect(byProject.matches[0]?.excerpt).toContain("upscale the Cap5 images");
   });
 
   it("finds a relevant recent conversation by topic after restart", async () => {
