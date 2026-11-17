@@ -265,6 +265,15 @@ export class IntelligenceEventStore {
     return rows.flatMap(row => typeof row.label === "string" ? [row.label] : []);
   }
 
+  /** The newest attributed conversation turns, newest first, whatever was said in them. */
+  recentConversations(limit = 200): StoredEvent[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM personal_events WHERE erased = 0 AND source_id IN ('chat.cognition','conversation.import')" +
+      " AND json_type(payload_json, '$.conversation') = 'object' ORDER BY sequence DESC LIMIT ?",
+    ).all(Math.max(1, Math.min(limit, 1_000))) as Array<Record<string, unknown>>;
+    return rows.map(row => this.mapRow(row));
+  }
+
   /** Search original attributed conversation evidence without a second archive/index. */
   searchConversations(terms: string[], projectIds: string[] = [], limit = 8): StoredEvent[] {
     const words = [...new Set(terms.map(t => t.toLowerCase().trim()).filter(t => t.length >= 3))].slice(0, 8);

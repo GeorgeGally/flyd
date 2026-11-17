@@ -1,6 +1,8 @@
 import { randomUUID } from "crypto";
+import { existsSync } from "fs";
 import { mkdir, readFile, readdir, rename, stat, writeFile } from "fs/promises";
 import { dirname, join, resolve } from "path";
+import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { FLYD_DIR, PROJECT } from "../lib/config.js";
 import { serialize } from "../lib/frontmatter.js";
 import { extractKeywords } from "../lib/retrieval.js";
@@ -294,9 +296,52 @@ export async function retrieveRecentActionableOutcome(
   return latest;
 }
 
+const MAX_SCANNED_CHAT_TURNS = 400;
+
+/**
+ * The chat window and every other surface record each turn on the event spine
+ * (chat.cognition), not as terminal records, so without these threads a fresh
+ * session's "where did we leave off" only ever found the last terminal chat.
+ */
+function readChatThreads(flydDir: string): ConversationRecord[] {
+  const path = join(flydDir, "intelligence.sqlite");
+  if (!existsSync(path)) return [];
+  let store: IntelligenceEventStore | undefined;
+  try {
+    store = new IntelligenceEventStore({ path });
+    const threads = new Map<string, ConversationRecord>();
+    for (const event of store.recentConversations(MAX_SCANNED_CHAT_TURNS).reverse()) {
+      const turn = event.payload?.conversation as
+        { sessionId?: unknown; user?: unknown; assistant?: unknown; projectIds?: unknown } | undefined;
+      if (!turn || typeof turn.user !== "string") continue;
+      const id = typeof turn.sessionId === "string" && turn.sessionId ? turn.sessionId : event.correlationId ?? `event-${event.sequence}`;
+      const projects = Array.isArray(turn.projectIds) ? turn.projectIds.filter((p): p is string => typeof p === "string") : [];
+      const thread = threads.get(id) ?? {
+        version: 1 as const, id, project: "", projectPath: "", startedAt: event.capturedAt,
+        updatedAt: event.capturedAt, title: sessionTitle(turn.user), exchanges: [],
+      };
+      for (const project of projects) {
+        const name = project.replace(/^project:/, "");
+        if (!thread.project.split(" ").includes(name)) thread.project = `${thread.project} ${name}`.trim();
+      }
+      thread.updatedAt = event.capturedAt;
+      thread.exchanges.push({
+        user: turn.user,
+        assistant: typeof turn.assistant === "string" ? turn.assistant : "",
+        recordedAt: event.capturedAt,
+      });
+      threads.set(id, thread);
+    }
+    return [...threads.values()];
+  } catch {
+    return [];
+  } finally {
+    store?.close();
+  }
+}
+
 function countKeywordMatches(record: ConversationRecord, keywords: string[]): number {
-  const content = record.exchanges
-    .map((exchange) => exchange.user)
+  const content = [record.project, ...record.exchanges.map((exchange) => exchange.user)]
     .join("\n")
     .toLowerCase();
   return keywords.reduce((score, keyword) => score + (content.includes(keyword) ? 1 : 0), 0);
@@ -361,8 +406,9 @@ export async function retrieveRecentConversationEvidence(
   if (!continuityQuestion && keywords.length === 0) {
     return { verdict: "insufficient", matches: [] };
   }
-  const records = (await readRecords(flydDir))
-    .filter((record) => record.id !== options.excludeSessionId);
+  const records = [...await readRecords(flydDir), ...readChatThreads(flydDir)]
+    .filter((record) => record.id !== options.excludeSessionId)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 
   const ranked = continuityQuestion
     ? records

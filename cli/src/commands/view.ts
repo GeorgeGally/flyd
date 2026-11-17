@@ -96,7 +96,8 @@ export const answerAsFlyd: Answerer = async (question, history, onStep, turn) =>
   const situation = await loadAgentSituation().catch(() => null);
   const crossRepo = await refreshRepoRegistry(situation?.projectRoot).catch(() => []);
   onStep?.("Remembering what I know about this", memoryLookup(question));
-  const memory = await retrieveAgentMemory(question).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
+  // This window's own turns are already its history; memory brings the threads before it.
+  const memory = await retrieveAgentMemory(question, turn ? { excludeConversationSessionId: turn.source.sessionId } : {}).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
   const article = turn ? await articleForTurn(turn.source.sessionId, question) : undefined;
   const text = await respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact, ...(turn.askUser ? { askUser: turn.askUser } : {}), ...(turn.outside ? { outside: true } : {}), ...(turn.attached ? { attached: turn.attached } : {}), ...(turn.scope ? { chatScope: turn.scope } : {}) } : {}), ...(article ? { article } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: FORM_PROMPT });
   // Quiet design companionship: already-curated, sourced references become
