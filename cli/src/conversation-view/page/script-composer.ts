@@ -553,7 +553,7 @@ export const COMPOSER_SCRIPT = `
     voiceInput = null;
   }
   // After he stops talking the box shows the island's loader: his words being written down, then
-  // the wait for the reply, until the reply starts. Driven by the voice events and the
+  // the wait for the reply, for as long as the island shows Flyd working on it. Driven by the voice events and the
   // conversation's own updates, never by a timer: a failed or cancelled recording, a send that
   // did not go, or a reply that shows elsewhere takes it away.
   var voiceWait = document.getElementById("voice-wait");
@@ -574,20 +574,27 @@ export const COMPOSER_SCRIPT = `
     composer.classList.remove("voice-waiting");
     voiceWaitSaid.textContent = "";
   }
-  /** Each conversation update: the loader goes once the reply to his spoken message starts. */
+  /**
+   * Each conversation update: the loader mirrors the island's, so it stays while the conversation
+   * is working on his spoken message (the same working flag the island's spinner shows, stale after ten
+   * minutes like the island's) and goes when that work ends. A reply with no work reported ends it too.
+   */
   function voiceWaitSeen(update) {
     if (!voiceWaitFor || !voiceWaitFor.id) return;
     if (drawnFrom !== voiceWaitFor.session) { endVoiceWait(); return; }
     var order = update.order || [];
     var at = order.indexOf(voiceWaitFor.id);
     if (at === -1) return;
-    if (update.working) voiceWaitFor.started = true;
+    var since = update.lastActivity ? Date.now() - new Date(update.lastActivity).getTime() : 0;
+    var working = !!update.working && since < 10 * 60 * 1000;
+    if (working) voiceWaitFor.started = true;
     var replied = order.slice(at + 1).some(function (id) {
       var node = nodes.get(id);
       return node && !node.classList.contains("user");
     });
+    if (working) return;
     // A turn that ended without a reply he can see also ends the wait.
-    if (replied || (voiceWaitFor.started && update.working === false)) endVoiceWait();
+    if (replied || voiceWaitFor.started) endVoiceWait();
   }
   window.flydVoice = {
     start: function () {

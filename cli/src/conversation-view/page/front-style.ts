@@ -164,6 +164,8 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] .composer .row { max-width: none; margin: 0 !important; padding: 0; }
 :root[data-layout="front"] .composer .field { margin-left: 0; padding: 7px 7px 7px 16px; border-radius: 12px; background: var(--sheet); align-items: center; box-shadow: 0 0 0 1px var(--line); }
 :root[data-layout="front"] .composer .field:focus-within { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent); }
+/* Push-to-talk and the voice loader keep the box's accent fill on the front sheet too. */
+:root[data-layout="front"] .composer:is(.listening, .transcribing, .voice-waiting) .field { background: color-mix(in srgb, var(--accent) 12%, var(--sheet)); }
 :root[data-layout="front"] .composer #send { height: 32px; padding: 0 12px; border-radius: 8px; font: 600 12px/1 var(--mono); letter-spacing: 0.02em; color: var(--sheet); background: var(--ink); }
 :root[data-layout="front"] .composer .about, :root[data-layout="front"] .composer .unread, :root[data-layout="front"] .composer .attachments { margin-left: 0; }
 :root[data-layout="front"] .composer .hint { margin-top: 8px; padding-left: 2px; font-size: 11.5px; font-variant-numeric: tabular-nums; opacity: 0; transition: opacity .2s ease; }
