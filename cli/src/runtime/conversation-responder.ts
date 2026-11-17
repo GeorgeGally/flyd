@@ -87,6 +87,8 @@ interface ConversationInput {
   onActivity?: (activity: string) => void;
   /** Called with each tool that ran, so the journal knows the turn found something out. */
   onTool?: (name: string) => void;
+  /** Called once a tool that changes something outside the conversation is about to run. */
+  onMutation?: () => void;
   /** Native state-change lifecycle, separate from prose/tool activity. */
   onAction?: (action: import("../conversation-view/semantic.js").SemanticObject) => void;
   /** Cancels provider requests and stops further tool calls. */
@@ -1366,7 +1368,7 @@ export async function respondToConversation(
     }
     input.onActivity?.(describeToolActivity(name, toolInput));
     input.onTool?.(name);
-    if (isMutatingToolCall(name, toolInput)) attemptMutated = true;
+    if (isMutatingToolCall(name, toolInput)) { attemptMutated = true; input.onMutation?.(); }
     try {
       const result = await handler(name, toolInput);
       const succeeded = !TOOL_FAILURE.test(result);

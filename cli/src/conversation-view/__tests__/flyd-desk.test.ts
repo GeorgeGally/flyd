@@ -373,6 +373,33 @@ describe("FlydDesk", () => {
     expect(statusOf({ messages, working: false }).waiting).toEqual({ id: messages[2]!.id, text: "Flyd couldn't answer that", failed: true });
   });
 
+  it("never asks again a turn that already began a change outside the conversation", async () => {
+    let calls = 0;
+    const desk = new FlydDesk({ dir, answer: async (_q, _h, _s, turn) => { calls += 1; turn!.onMutation(); throw new Error("timed out"); } });
+    desk.ask("hand this off");
+    await until(() => (desk.exchanges()[0]?.waitingFailed ? true : undefined));
+    expect(calls).toBe(1);
+
+    const cut = deferred();
+    const first = new FlydDesk({ dir, answer: async (_q, _h, _s, turn) => { turn!.onMutation(); return cut.answer(_q, _h, _s, turn); } });
+    first.ask("send the draft");
+    await until(() => (first.exchanges().find((e) => e.question === "send the draft") ? true : undefined));
+    const asked: string[] = [];
+    const restarted = new FlydDesk({ dir, answer: async (question) => { asked.push(question); return "ok"; } });
+    restarted.resumeInterrupted();
+    expect(asked).not.toContain("send the draft");
+  });
+
+  it("keeps a written answer when the follow-up after it throws", async () => {
+    let calls = 0;
+    const desk = new FlydDesk({ dir, answer: async () => { calls += 1; return "Sunny."; }, afterTurn: () => { throw new Error("boom"); } });
+    desk.ask("weather?");
+    await until(() => desk.exchanges()[0]?.answer);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls).toBe(1);
+    expect(desk.exchanges()[0]!.answer).toBe("Sunny.");
+  });
+
   it("reads a stored question again only when its file changes", async () => {
     const desk = new FlydDesk({ dir, answer: async () => "Siam Paragon, sir." });
     const sent = desk.ask("bkk tonight?");

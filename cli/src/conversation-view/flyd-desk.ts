@@ -203,6 +203,8 @@ interface AskRecord {
   error?: string;
   /** Set once Flyd has asked it again itself, after an error or a restart cut the first answer off; never twice. */
   retried?: true;
+  /** Set once the turn began a tool that changes something outside the conversation; asking it again would repeat that. */
+  acted?: true;
   /** Where he asked it: a project's conversation or the general chat, kept so asking it again reads it the same way. */
   scope?: ChatScope;
   understanding?: TurnUnderstanding;
@@ -211,7 +213,7 @@ interface AskRecord {
 }
 
 /** Flyd's own answer to a question, given the window's earlier questions and answers; `onStep` says what it is doing as it goes. */
-export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void; askUser?(prompt: string): Promise<boolean | "always">; outside?: boolean; attached?: string; scope?: ChatScope }) => Promise<string | AnswerBody>;
+export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void; onMutation(): void; askUser?(prompt: string): Promise<boolean | "always">; outside?: boolean; attached?: string; scope?: ChatScope }) => Promise<string | AnswerBody>;
 
 /** What the screenshots he attached to a question show, in words, for Flyd's turn, which takes words only. */
 export type Seer = (question: string, images: ImageUpload[], onStep?: (step: string, tool?: InFlightTool) => void) => Promise<string>;
@@ -450,7 +452,7 @@ export class FlydDesk {
    */
   resumeInterrupted(now = Date.now()): void {
     for (const record of this.records()) {
-      if (record.answer || record.error || record.retried || this.inFlight.has(record.id)) continue;
+      if (record.answer || record.error || record.retried || record.acted || this.inFlight.has(record.id)) continue;
       if (!(now - Date.parse(record.at) <= RESUME_WINDOW_MS)) continue;
       const images = (record.images ?? []).flatMap((imageId) => {
         const image = this.image(imageId);
@@ -520,6 +522,7 @@ export class FlydDesk {
       onUnderstanding: (understanding: TurnUnderstanding) => { if (!live()) return; record = { ...record, understanding }; this.write(record); },
       onPreparation: (preparationId: string) => { if (!live()) return; record = { ...record, preparationId }; this.write(record); },
       onArtefact: (artefact: string) => { if (!live()) return; record = { ...record, artefact }; this.write(record); },
+      onMutation: () => { if (!live() || record.acted) return; record = { ...record, acted: true }; this.write(record); },
     };
     const seeing: Promise<void> = images.length && this.see && !record.seen
       ? this.see(record.text, images, onStep).then((seen) => {
@@ -552,13 +555,17 @@ export class FlydDesk {
         const text = (typeof answer === "string" ? withoutObviousAsk(answer) : plainAnswer(body!)).trim();
         if (!text) throw new Error("no answer came back");
         this.write({ ...record, answer: text, ...(body ? { form: body } : {}), answeredAt: new Date().toISOString() });
-        void Promise.resolve(this.afterTurn?.({ sessionId, user: record.text, assistant: text })).catch(() => undefined);
         settle();
+        try {
+          void Promise.resolve(this.afterTurn?.({ sessionId, user: record.text, assistant: text })).catch(() => undefined);
+        } catch {
+          // The answer is written; a failing follow-up never asks it again.
+        }
       })
       .catch((error: unknown) => {
         if (!live()) return;
         settle();
-        if (record.retried) {
+        if (record.retried || record.acted) {
           this.write({ ...record, error: (error instanceof Error ? error.message : String(error)).slice(0, MAX_ERROR_CHARS) });
           return;
         }
