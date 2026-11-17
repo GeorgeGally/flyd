@@ -38,7 +38,7 @@ function sourceHost(url: string): string {
 }
 
 function specificNumbers(title: string): string[] {
-  return title.match(/\b(?:v?\d+(?:\.\d+){1,3}|\d{4})\b/gi)?.map((token) => token.toLowerCase()).sort() ?? [];
+  return title.match(/\b(?:v\d+(?:\.\d+){0,3}|\d+(?:\.\d+){1,3}|\d{4})\b/gi)?.map((token) => token.toLowerCase()).sort() ?? [];
 }
 
 /** Titles referring to the same event, not just the same broad topic. */
@@ -49,7 +49,7 @@ export function sameStory(left: Pick<ScoutCandidate, "title" | "url">, right: Pi
   if (a.length < 3 || b.length < 3) return false;
   const numsA = specificNumbers(left.title);
   const numsB = specificNumbers(right.title);
-  if (numsA.length && numsB.length && numsA.join(",") !== numsB.join(",")) return false;
+  if ((numsA.length || numsB.length) && numsA.join(",") !== numsB.join(",")) return false;
   const aSet = new Set(a);
   const common = b.filter((word) => aSet.has(word)).length;
   const union = new Set([...a, ...b]).size;
