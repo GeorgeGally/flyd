@@ -6,6 +6,8 @@ import { dirname, join } from "node:path";
 import { FLYD_DIR, RAW_DIR } from "../lib/config.js";
 import { parse } from "../lib/frontmatter.js";
 import { readUserProfile } from "../lib/user-profile.js";
+import { newsInterestsPath, readNewsInterests, writeNewsInterests } from "./news-interests.js";
+import { readTaste as readScoutTaste, readFeedback as readScoutFeedback } from "./scout.js";
 import { readJournalSince, type JournalTurn } from "./journal.js";
 import { applyTasteOps, normalizeTasteOps, readTaste, tasteChanged, tastePath, tasteRuleLines, TASTE_CURATION_RULES, TASTE_OPS_FORMAT, writeTaste, type TasteApplyReceipt, type TasteOp } from "./taste.js";
 import { applyProjectOps, describeProject, PROJECT_KINDS, PROJECT_STATUSES, readProjects, type Project, type ProjectApplyReceipt, type ProjectOp } from "./projects.js";
@@ -35,6 +37,7 @@ export interface LibrarianState {
   projectsSeededOn?: string;
   /** TASTE.md as the Librarian last saw it, so unchanged taste is not curated again. */
   tasteCuratedHash?: string;
+  newsCuratedHash?: string;
 }
 
 export function librarianStatePath(): string {
@@ -158,6 +161,9 @@ export interface LibrarianInput {
   taste?: string;
   /** Re-reading old material (CV, past notes, other assistants' memories) rather than what's new. */
   backfill?: boolean;
+  newsInterests?: string;
+  scoutTaste?: string;
+  scoutFeedback?: string;
 }
 
 export function librarianPrompt(input: LibrarianInput): string {
@@ -206,6 +212,7 @@ export function librarianPrompt(input: LibrarianInput): string {
     `- Keep his taste list (below) small and personal too, and decide what is his and what is one project's:\n  - ${TASTE_CURATION_RULES.replace(/\n- /g, "\n  - ")}`,
     input.projects?.length ? "" : "- He has no project list yet: build it now from his profile, memory, the repos, and the conversation. Only real, current projects; skip one-off tasks.",
     "- For every Commitments entry, stale or not: if the finished work below shows that exact thing done, archive it with reason \"done: [done:…]\" citing the id. A related piece of work is not proof; leave the entry when unsure.",
+    "- Update news_interests only when supported by evidence. Return a concise brief of broad subjects, scenes and likes/dislikes for news discovery. Never include personal facts, projects, names, commitments, private quotes or transcripts. Preserve existing interests unless contradicted. If unchanged, omit it.",
     "- Fewer, better entries. When nothing qualifies, return empty lists.",
     "",
     `Memory sections: ${MEMORY_SECTIONS.join(", ")}.`,
@@ -214,8 +221,10 @@ export function librarianPrompt(input: LibrarianInput): string {
     '{"memory_ops": [ {"op":"add","section":"...","text":"...","tier":"aging|perishable","sources":["j:..."]} | {"op":"update","id":"...","text":"...","sources":[...]} | {"op":"reinforce","id":"...","sources":[...]} | {"op":"archive","id":"...","reason":"..."} | {"op":"daily_note","text":"...","sources":[...]} ],',
     ` "project_ops": [ {"op":"upsert","id":"existing id, or omit for a new one","name":"...","what":"one line","kind":"${PROJECT_KINDS.join("|")}","status":"${PROJECT_STATUSES.join("|")}","now":"where it stands","next":"next step","due":"YYYY-MM-DD","people":["..."],"repos":["root path from the list"],"facts":["..."]} | {"op":"archive","id":"...","reason":"..."} ],`,
     ...(input.taste ? [` "taste_ops": [ ${TASTE_OPS_FORMAT} ],`] : []),
+    ' "news_interests": "<updated topic-only brief, or omit>",',
     ' "observations": ["<up to 5 short notes for George\'s advisors about what stands out: risks, patterns, momentum, loose ends>"] }',
     "",
+    ...(input.newsInterests ? [`--- Current news interests ---\n${input.newsInterests}\n--- Existing news taste ---\n${input.scoutTaste ?? ""}\n--- News feedback ---\n${input.scoutFeedback ?? ""}`] : []),
     `--- George's profile ---\n${input.profile ?? "(empty)"}`,
     `--- Current memory ---\n${memory || "(empty)"}`,
     `--- Stale entries needing a decision ---\n${stale || "(none)"}`,
@@ -234,6 +243,7 @@ export interface LibrarianProposal {
   profileOps: Array<{ section: string; fact: string }>;
   tasteOps: TasteOp[];
   observations: string[];
+  newsInterests?: string;
 }
 
 export function parseLibrarianProposal(text: string): LibrarianProposal {
@@ -241,7 +251,7 @@ export function parseLibrarianProposal(text: string): LibrarianProposal {
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) return empty;
   try {
-    const parsed = JSON.parse(match[0]) as { memory_ops?: unknown[]; profile_ops?: unknown[]; observations?: unknown[]; project_ops?: unknown[]; taste_ops?: unknown };
+    const parsed = JSON.parse(match[0]) as { memory_ops?: unknown[]; profile_ops?: unknown[]; observations?: unknown[]; project_ops?: unknown[]; taste_ops?: unknown; news_interests?: unknown };
     return {
       projectOps: (parsed.project_ops ?? []).filter((op): op is ProjectOp => {
         const record = op as { op?: unknown; name?: unknown; id?: unknown };
@@ -254,6 +264,7 @@ export function parseLibrarianProposal(text: string): LibrarianProposal {
         const record = op as { section?: unknown; fact?: unknown };
         return typeof record?.fact === "string" && record.fact.trim() ? [{ section: String(record.section ?? ""), fact: record.fact.trim() }] : [];
       }).slice(0, 10),
+      ...(typeof parsed.news_interests === "string" ? { newsInterests: parsed.news_interests } : {}),
       observations: (parsed.observations ?? []).map(String).map((note) => note.trim()).filter(Boolean).slice(0, 5),
     };
   } catch {
@@ -287,6 +298,7 @@ export interface LibrarianDependencies {
   repos?: () => Promise<Array<{ name: string; root: string }>>;
   projectsPath?: string;
   tastePath?: string;
+  scoutDir?: string;
 }
 
 const FIRST_PASS_LOOKBACK_MS = 7 * 86_400_000;
@@ -301,6 +313,7 @@ function applyProposal(
   proposal: LibrarianProposal,
   options: { now: Date; paths: MemoryPaths; repos: Array<{ root: string }>; deps: Pick<LibrarianDependencies, "addProfileFact" | "projectsPath" | "tastePath"> },
 ): { memory: ApplyReceipt; projects: ProjectApplyReceipt; taste: TasteApplyReceipt; profileAdded: number } {
+  writeNewsInterests(proposal.newsInterests, newsInterestsPath(options.paths.memory));
   const memory = applyMemoryOps(proposal.memoryOps, { now: options.now, paths: options.paths });
   const projects = applyProjectOps(proposal.projectOps, {
     knownRepos: options.repos.map((repo) => repo.root), now: options.now,
@@ -333,7 +346,10 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
     : [];
   const tasteSeen = tasteFingerprint(deps.tastePath);
   const tasteProfile = readTaste(deps.tastePath);
-  if (turns.length === 0 && captures.length === 0 && stale.length === 0 && finished.length === 0 && !seedProjects && !tasteCurationDue(state, deps.tastePath)) {
+  const scoutTaste = readScoutTaste(deps.scoutDir);
+  const scoutFeedback = readScoutFeedback(deps.scoutDir).slice(-30).map((item) => `${item.verdict}: ${item.topic} (${item.reason ?? ""})`).join("\n");
+  const newsSeen = createHash("sha256").update(scoutTaste).update("\0").update(scoutFeedback).digest("hex");
+  if (turns.length === 0 && captures.length === 0 && stale.length === 0 && finished.length === 0 && !seedProjects && !tasteCurationDue(state, deps.tastePath) && state.newsCuratedHash === newsSeen) {
     return { skipped: "nothing_new", turns: 0, captures: 0, profileAdded: 0, observations: [] };
   }
   const profile = (deps.readProfile ?? readUserProfile)();
@@ -341,6 +357,7 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
   const taste = tasteProfile.rules.length ? tasteRuleLines(tasteProfile) : undefined;
   const reply = await deps.complete(librarianPrompt({
     turns, captures, memory, stale, profile, today: localDay(now), finished, projects, repos, ...(taste ? { taste } : {}),
+    newsInterests: readNewsInterests(newsInterestsPath(paths.memory)), scoutTaste, scoutFeedback,
   }));
   // An unparseable reply must not consume the slice: keep the cursors and retry next pass.
   if (!/\{[\s\S]*\}/.test(reply)) throw new Error("Librarian returned no JSON proposal; cursors kept for retry");
@@ -355,6 +372,7 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
     runs: state.runs + 1,
     ...(seedProjects ? { projectsSeededOn: localDay(now) } : state.projectsSeededOn ? { projectsSeededOn: state.projectsSeededOn } : {}),
     tasteCuratedHash: tasteUntouched ? tasteFingerprint(deps.tastePath) : tasteSeen,
+    newsCuratedHash: newsSeen,
   }, deps.statePath);
   return { turns: turns.length, captures: captures.length, memory: receipt, projects: projectReceipt, taste: tasteReceipt, profileAdded, observations: proposal.observations };
 }
