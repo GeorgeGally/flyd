@@ -4320,12 +4320,41 @@ describe("the Machines screen", () => {
     (panel.querySelector("[data-mach-yes]") as HTMLElement).click();
     await settle();
     expect(sends()).toEqual(["Update Codex on the Mac from 0.162.0 to 0.167.0."]);
-    expect(document.documentElement.dataset.centre).toBe("talk");
+    expect(document.documentElement.dataset.centre).toBe("machines");
+    (document.querySelector(".machine .mach-btn") as HTMLElement).click();
+    await settle();
+    expect(sends().at(-1)).toBe("The Mac is short of memory. Find what can safely close.");
+  });
+
+  it("stays on Machines when Free up memory is pressed, says the ask went, and shows Flyd's answer in place", async () => {
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.startsWith("/api/machines?")) return json({ machines: [ONLINE] });
+      if (url === "/api/send") return json({ id: "ask1" });
+      return json({ sessions: SESSIONS });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    load("");
+    await settle();
+    const stream = open("latest", []);
     tab().click();
     await settle();
     (document.querySelector(".machine .mach-btn") as HTMLElement).click();
     await settle();
-    expect(sends().at(-1)).toBe("The Mac is short of memory. Find what can safely close.");
+    expect(fetcher.mock.calls.filter(([url]) => url === "/api/send")).toHaveLength(1);
+    expect(document.documentElement.dataset.centre).toBe("machines");
+    const row = () => document.querySelector(".machine.online")!;
+    expect(row().querySelector(".mach-wait p")!.textContent).toBe("Sent to Flyd. The answer will show here.");
+    expect(row().querySelector(".mach-btn")).toBeNull();
+    stream.emit("update", { order: ["ask1", "r1"], messages: [
+      { id: "ask1", role: "user", html: "<p>Free up memory</p>" },
+      { id: "r1", role: "assistant", html: "<p>Chrome can go: <b>15 GB</b>. Shall I close it?</p>" },
+    ], working: false });
+    await settle();
+    expect(document.documentElement.dataset.centre).toBe("machines");
+    expect(row().querySelector(".mach-wait.answered p")!.textContent).toBe("Flyd: Chrome can go: 15 GB. Shall I close it?");
+    expect(row().querySelector(".mach-btn")!.textContent).toBe("Free up memory");
+    (row().querySelector("[data-mach-talk]") as HTMLElement).click();
+    expect(document.documentElement.dataset.centre).toBe("talk");
   });
 
   it("keeps a half-typed message and its attachment when a button asks Flyd", async () => {
@@ -4350,7 +4379,7 @@ describe("the Machines screen", () => {
     expect(document.querySelectorAll(".attachment img")).toHaveLength(1);
   });
 
-  it("says so when a button could not ask Flyd, and leaves the message box alone", async () => {
+  it("says so in place when a button could not ask Flyd, and leaves the message box alone", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout"] });
     try {
       const fetcher = serve(() => ({ machines: [ONLINE] }));
@@ -4364,9 +4393,9 @@ describe("the Machines screen", () => {
       await vi.advanceTimersByTimeAsync(25_000);
       expect(fetcher.mock.calls.some(([url]) => url === "/api/send")).toBe(false);
       expect(input.value).toBe("half a thought");
-      const notice = document.getElementById("notice")!;
-      expect(notice.hidden).toBe(false);
-      expect(notice.textContent).toMatch(/could not ask that/);
+      expect(document.documentElement.dataset.centre).toBe("machines");
+      expect(document.querySelector(".machine .mach-wait.failed p")!.textContent).toMatch(/could not ask that/);
+      expect(document.querySelector(".machine .mach-btn")!.textContent).toBe("Free up memory");
     } finally {
       vi.useRealTimers();
     }
