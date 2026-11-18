@@ -4,11 +4,13 @@
  * there and at most one button; and, in the right column, the tool versions in
  * one sentence with one button, which model does which job in one sentence,
  * Claude's spend and the usage left.
- * A button asks Flyd in the conversation, in Core's words. One that would change
- * something asks him first, in place. The list is read only while the screen is
+ * A button asks Flyd in the conversation, in Core's words, and he stays on this
+ * screen: under the button it says the ask went, then Flyd's answer as it lands,
+ * with a way into the conversation. One that would change something asks him
+ * first, in place. The list is read only while the screen is
  * up, soon again while a machine is still being checked. Borrows VIEW_TOKEN, ago,
- * clock, frontEsc, frontRoot, current, deliver, noteRefusal, centre and
- * setCentre from the page's closure.
+ * clock, frontEsc, frontRoot, current, deliver, drawnFrom, shownOrder, nodes,
+ * centre and setCentre from the page's closure.
  */
 export const MACHINES_SCRIPT = `
   var machinesList = document.getElementById("machines-list");
@@ -24,6 +26,9 @@ export const MACHINES_SCRIPT = `
   var machinesTimer = null;
   var machineAsking = "";
   var machineActions = {};
+  // The one ask a button sent: which button, the message it became, the session it went to, and how it stands.
+  var machineWait = null;
+  var MACHINE_REPLY_CHARS = 600;
   var MACHINES_EVERY = 30000;
   var MACHINES_SOON = 2000;
   function machinesOnScreen() {
@@ -31,15 +36,26 @@ export const MACHINES_SCRIPT = `
     return centre === "machines";
   }
   // One button, or, once pressed on an action that changes something, the question and its two answers.
+  function machineWaitHtml(key) {
+    if (!machineWait || machineWait.key !== key) return "";
+    var said = machineWait.failed ? machineWait.failed
+      : machineWait.reply ? "Flyd: " + machineWait.reply
+      : machineWait.unsure ? "Flyd may not have got that. Check the conversation before asking again."
+      : "Sent to Flyd. The answer will show here.";
+    return '<div class="mach-wait' + (machineWait.reply ? " answered" : machineWait.failed || machineWait.unsure ? " failed" : "") + '" role="status" aria-live="polite"><p>' + frontEsc(said) + '</p>'
+      + (machineWait.failed ? "" : '<button type="button" class="machine-open" data-mach-talk>Open the conversation</button>') + '</div>';
+  }
   function machineButton(key, action) {
     if (!action) return "";
     machineActions[key] = action;
+    var waiting = machineWaitHtml(key);
+    if (waiting && !machineWait.reply && !machineWait.failed && !machineWait.unsure) return waiting;
     if (machineAsking === key && action.confirm) {
       return '<div class="mach-confirm" role="group" aria-label="' + frontEsc(action.label) + '"><p>' + frontEsc(action.confirm) + '</p>'
         + '<div class="mach-acts"><button type="button" class="mach-btn" data-mach-yes="' + frontEsc(key) + '">Yes, go ahead</button>'
         + '<button type="button" class="mach-btn quiet" data-mach-no="' + frontEsc(key) + '">Not now</button></div></div>';
     }
-    return '<button type="button" class="mach-btn" data-mach-act="' + frontEsc(key) + '">' + frontEsc(action.label) + '</button>';
+    return waiting + '<button type="button" class="mach-btn" data-mach-act="' + frontEsc(key) + '">' + frontEsc(action.label) + '</button>';
   }
   function machineRow(machine) {
     return '<article class="machine ' + frontEsc(machine.state) + '"><h2 class="machine-name">' + frontEsc(machine.name) + '</h2>'
@@ -118,37 +134,66 @@ export const MACHINES_SCRIPT = `
       .then(function (view) { machinesLoading = false; machinesView = view; machinesSetup = view.setup; machinesToolsWords = view.tools; return drawMachines(view); })
       .then(machinesAgain).catch(function () { machinesLoading = false; machinesAgain(false); });
   }
-  // A button sends its own words to Flyd in the conversation; the message box is left as it is.
-  function machineAsk(text) {
+  function machineWaitSet(patch) {
+    if (!machineWait) return;
+    Object.keys(patch).forEach(function (k) { machineWait[k] = patch[k]; });
+    machinesRedraw();
+  }
+  // Each conversation update: the first reply after his ask, in its own words, under the button.
+  function machineWaitSeen() {
+    if (!machineWait || !machineWait.id || machineWait.reply || drawnFrom !== machineWait.session) return;
+    var at = shownOrder.indexOf(machineWait.id);
+    if (at === -1) return;
+    var reply = "";
+    shownOrder.slice(at + 1).some(function (id) {
+      var node = nodes.get(id);
+      if (!node || node.classList.contains("user")) return false;
+      var body = node.querySelector(".body");
+      reply = ((body ? body.textContent : node.textContent) || "").replace(/\\s+/g, " ").trim();
+      return !!reply;
+    });
+    if (!reply) return;
+    machineWaitSet({ reply: reply.length > MACHINE_REPLY_CHARS ? reply.slice(0, MACHINE_REPLY_CHARS - 1).trimEnd() + "…" : reply });
+  }
+  // A button sends its own words to Flyd in the conversation and he stays here; the message box is left as it is.
+  function machineAsk(key, text) {
     machineAsking = "";
-    setCentre("talk", true);
+    var wait = machineWait = { key: key, id: "", session: null };
+    machinesRedraw();
     var tries = 0;
+    function failed(words) { if (machineWait === wait) machineWaitSet({ failed: words }); }
     (function sendWhenReady() {
+      if (machineWait !== wait) return;
       if (current) {
+        wait.session = current;
         deliver(JSON.stringify({ session: current, text: text, images: [], files: [] })).then(function (sent) {
-          if (sent.unsure) noteRefusal("Flyd may not have got that. Check the conversation before asking again.");
-        }, function () { noteRefusal("Flyd could not ask that. Try the button again in a moment."); });
+          if (machineWait !== wait) return;
+          if (sent.unsure) { machineWaitSet({ unsure: true }); return; }
+          wait.id = sent.id || "";
+          machineWaitSeen();
+        }, function () { failed("Flyd could not ask that. Try the button again in a moment."); });
         return;
       }
       if (tries++ < 100) setTimeout(sendWhenReady, 200);
-      else noteRefusal("Flyd could not ask that: the conversation is not open yet. Try the button again in a moment.");
+      else failed("Flyd could not ask that: the conversation is not open yet. Try the button again in a moment.");
     })();
   }
   document.getElementById("machines").addEventListener("click", function (event) {
     var act = event.target.closest("[data-mach-act]");
     var yes = event.target.closest("[data-mach-yes]");
     var no = event.target.closest("[data-mach-no]");
+    if (event.target.closest("[data-mach-talk]")) { setCentre("talk", true); return; }
     if (act) {
       var action = machineActions[act.dataset.machAct];
       if (!action) return;
-      if (!action.confirm) { machineAsk(action.ask); return; }
+      if (!action.confirm) { machineAsk(act.dataset.machAct, action.ask); return; }
       machineAsking = act.dataset.machAct;
       machinesRedraw();
       var first = document.querySelector("[data-mach-yes]");
       if (first) first.focus();
     } else if (yes) {
       var sure = machineActions[yes.dataset.machYes];
-      if (sure) machineAsk(sure.ask);
+      if (sure) machineAsk(yes.dataset.machYes, sure.ask);
     } else if (no) {
       var back = no.dataset.machNo;
       machineAsking = "";

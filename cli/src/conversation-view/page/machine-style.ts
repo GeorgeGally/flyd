@@ -49,6 +49,10 @@ export const MACHINE_STYLE = `
 .mach-acts { display: flex; flex-wrap: wrap; gap: 10px; }
 .machines .mach-acts .mach-btn { margin-top: 16px; }
 
+.mach-wait, .machine .mach-wait { align-self: flex-start; margin: 28px 0 0; max-width: 620px; }
+.mach-wait p { margin: 0 0 8px; font: 500 16px/1.42 var(--sans); color: var(--mute); text-wrap: pretty; overflow-wrap: anywhere; }
+.mach-wait.answered p, .mach-wait.failed p { color: var(--ink); }
+.mach-wait + .mach-btn { margin-top: 16px; }
 .machine-open { display: inline; margin: 0; padding: 0; border: 0; background: none; color: var(--mute); font: 400 15px/1.4 var(--sans); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .machine-open:hover { color: var(--ink); }
 .machine-open[hidden], .machine-form[hidden] { display: none; }

@@ -420,6 +420,7 @@ export const MESSAGES_SCRIPT = `
     islandWorking = !!(isWorking && recent);
     working.hidden = !islandWorking || speaking;
     if (typeof voiceWaitSeen === "function") voiceWaitSeen();
+    if (typeof machineWaitSeen === "function") machineWaitSeen();
   }
   var islandWorking = false;
   var shownOrder = [];
