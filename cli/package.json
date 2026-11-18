@@ -49,10 +49,11 @@
     "ws": "^8.21.1"
   },
   "overrides": {
+    "@hono/node-server": "2.1.9",
     "@modelcontextprotocol/sdk": "1.32.1",
     "braces": "$braces",
     "fast-uri": "3.1.9",
-    "hono": "4.13.13",
+    "hono": "4.13.19",
     "ip-address": "10.7.4",
     "nanoid": "5.1.16",
     "proxy-addr": "2.0.8",
