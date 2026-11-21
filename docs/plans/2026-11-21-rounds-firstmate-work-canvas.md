@@ -1,6 +1,6 @@
 # Flyd × Rounds: First Mate-Native Work Canvas
 
-**Implementation plan** · 21 November 2026 · **Status:** Proposed; no code changed
+**Implementation plan** · 21 November 2026 · **Status:** Second-pass reviewed; implementation not started
 
 **Baseline examined (GitHub default branches, not uncommitted local work):**
 - Flyd `GeorgeGally/flyd` `71aca2a5e5a64457b566e39f6a76ba6113090ba9` (18 Nov 2026)
@@ -14,6 +14,80 @@
 **Non-goals for v1:** replacing Liesel; adding a second agent scheduler or task lifecycle; reading Claude transcripts to infer First Mate state; auto-executing feedback; publishing assets; remote Second Mate worker control; rewriting Flyd's conversation view; global automatic screen recording; fully supporting all media formats and mobile editing.
 
 **Key decision:** Fork and vendor the **Rounds React UI** and adapt its `Index` read model. Do not transplant Rounds' local backend, indexer, hook installers, transcript parser, or Claude session/resume assumptions into Flyd. First Mate stays an external source of operational truth; Flyd remains the host and owner of user feedback.
+
+
+## Second-pass review: binding engineering corrections (21 November 2026)
+
+These corrections override any less-specific statement in the original roadmap below. They come from checking Rounds' actual React/data/API code, First Mate's canonical fleet output, Flyd's existing artifact discovery and the repository's current product guardrails.
+
+### A. Critical findings and decisions
+
+| Finding | Evidence | Binding correction |
+|---|---|---|
+| **Rounds HTML stage is not safe to embed unchanged** | Rounds `src/Stage.tsx` renders `iframe src={pageSrc(hash)}` **without `sandbox`**. It also reads frame events; the page assumes a trusted origin. | **Block HTML page preview in the initial build.** Render verified static screenshots only until a sandboxed, opaque-origin viewer with no privileged bridge, no token access, restricted network and a malicious-page test is implemented. A same-origin iframe without a sandbox is a release blocker, not a Phase 5 cleanup. |
+| **Rounds frontend uses hard-coded root API URLs** | `src/data.ts` fetches `/api/index`, `/api/comments`, `/api/edits/:thread` and media endpoints; `src/App.tsx` polls `/api/stamp`. `vite.config.ts` imports Rounds' local API plugin. | Build a *static* React bundle without Rounds' Vite middleware; replace those calls with a single configured `/api/work/*` client. Do not mount Rounds' `server/api.mjs`. Add explicit equivalents for index, stamp, images, comments and read-only edits; return unsupported features deliberately. |
+| **First Mate snapshot is not an artifact-history manifest** | `fm-fleet-snapshot.v1` exposes tasks, current state, status log, report path, backlog and remote freshness, but no guaranteed versioned screenshot list. Flyd's `ArtefactFeed.extras()` discovers pictures through bounded directory scans and filename heuristics. | A bounded read-only importer is an **incomplete discovery fallback**, not a guarantee of “everything the fleet made”. Start with files already surfaced by Flyd; preserve gaps as `not_indexed` / `source_missing`. Introduce an explicit First Mate artifact-post manifest if Phase 2 cannot reliably identify versions. |
+| **Feedback must preserve who is speaking** | `FirstmateDomainTransport.sendFlydNote` labels its body as **FLYD NOTE**, not the user's words; `FirstmateInbox.send` is the user-facing captain channel. | For a user-authored review on an active Flyd DomainRun, use `sendRunMessage(kind='correction')` with the user's exact wording and structured provenance. For external or already-settled work, create a *new user follow-up through the existing CaptainInbox transport* with a referenced task, not a Flyd-owned delegated note. Do not impersonate the user via `sendFlydNote`. |
+| **Existing deduplication can collide across revisions** | Flyd `messageId` hashes `run.id`, `kind` and trimmed `body`. | Each delivery body must contain a stable `reviewId`, exact `artifactVersionId` and `taskKey` alongside an untouched quoted user note; otherwise identical text on two revisions can collapse into one message. Review IDs are the durable idempotency key. |
+| **Existing fleet reads already have backpressure** | Flyd `ArtefactFeed` reads bearings via a shared `SnapshotGate`; `fm-fleet-snapshot` may fan out bounded task/secondmate observations. | Do **not** independently poll the canonical full snapshot from a second timer. Reuse the existing single-flight feed for live status; build a coordinator for any extra full-snapshot read, with backoff and explicit on-demand enrichment. |
+| **A task key alone cannot guarantee the current worker generation** | Canonical First Mate snapshot carries `spawn_gen` and discards mutable observations if metadata generation changes mid-sample. | Preserve `sourceHomeId` + `taskId` + **`spawnGeneration`** in provenance. A review against an obsolete generation must become an explicit *new follow-up*, never silently steer a replacement worker. |
+| **Flyd intentionally has no project-first primary interface** | Flyd `AGENTS.md` and current conversation-view documentation keep conversation as the primary surface. | `/work` is a contextual **secondary workspace** opened from a job/artifact or on explicit request. Do not replace the Flyd home, introduce a new default dashboard, or surface private archives simply because they exist. |
+
+### B. Provenance contract: strict links, not guesses
+
+- First Mate primary home identity: allocate a stable opaque `sourceHomeId` in Flyd's local, owner-controlled registry, bound to the canonical `FM_HOME` root. Never expose the absolute path as a client ID. Reconcile a deliberately moved home, do not silently combine two histories.
+- Primary task identity: `sourceHomeId + taskId`. Track `spawnGeneration` separately so a new incarnation does not inherit an active feedback route. Worker/sessions are **episodes**, not tasks.
+- Remote Second Mate tasks: preserve the parent/remote-home provenance, original remote task identity, freshness and scope. **Read-only / no feedback routing in v1** unless First Mate publishes an explicit supported route. Never fabricate task identity by matching titles or repositories.
+- Objective→DomainRun→First Mate task attribution: take direct IDs from a receipt/record. If no explicit task ID is present, show an **unlinked First Mate task**; do not infer by repository, title, timing, or screenshot similarity. A Flyd-originated run without a deterministic task association may show a run-level link, not a false task edge.
+- Artifact provenance: `artifactId` identifies a logical output; `revisionId` captures content digest, source task generation, observed timestamp and, only where supplied, producer timestamp/commit/viewport. Mtime is observation metadata, not proof of production or version order.
+- A canvas history built from observed snapshots is **forward-looking from first enablement**; current state alone cannot reconstruct a true prior event log. Historical Git commits may be shown with their own Git provenance, not represented as observed First Mate transitions.
+
+### C. Rendering, routing and packaging contract
+
+**Runtime boundary:** build a pinned Rounds React/Tailwind frontend as static assets in Flyd's existing Node build/install path. Avoid bundling Rounds' independent Vite API plugin, local backend, hooks, IPC, relay and Claude transcript indexer. The output must work in WKWebView with no Vite dev server, Rounds port, or child daemon. Keep upstream MIT license and a short patch ledger with fork SHA.
+
+**UI adaptation:** implement a compatibility adapter producing the Rounds `Index` shape (projects, threads-as-canvas-group-keys, sets, pages, comments, changed, topics, previews). Treat it as **view-only**. The canonical `WorkCanvasIndex` stays typed and First Mate-native. Rounds `src/data.ts` must be adapted centrally, including `loadIndex`, `postComment`, `loadEdits`, `shot`, `thumb`, `img`, `pageSrc`, `threadLink`, `readSeen`, `markSeen` and `/api/stamp` polling. Never allow session/deep links to resolve to Claude URLs.
+
+**API boundary:** `/api/work/index`, `/api/work/stamp`, `/api/work/media/:opaqueId`, `/api/work/edits/...` and `/api/work/reviews/...` all require the existing Flyd Host/Origin and view-token checks. No URL or query parameter is a raw local file path. Serve a versioned static frontend under `/work/assets/`; integration tests assert that neither `/api/index` nor any other root Rounds endpoint is requested.
+
+**HTML preview hard gate:** before enabling the Page stage, require both an iframe `sandbox` **without `allow-same-origin`** and a server response CSP `sandbox` for untrusted HTML, plus no auth credentials in preview URLs or referrers. Disable navigation, downloads and external network where possible. If the preview cannot render correctly under those restrictions, retain an image snapshot and a trusted external link; do not weaken isolation to make a demo work. Untrusted SVG is served as an image or download, never injected as HTML.
+
+**Deep links and interaction:** open with `/work#task=<opaque-key>` (or an encoded equivalent) and return to the originating Flyd job without losing its conversation state. A review click drafts locally; only a clearly labeled **Send feedback** action dispatches a note. No global keyboard handling should intercept Flyd's composer when focus is outside the canvas.
+
+### D. Feedback dispatch decision table
+
+| Origin/current state | Route | User-facing outcome |
+|---|---|---|
+| Verified task belonging to an **active Flyd DomainRun** | Existing `sendRunMessage` with kind `correction` and review/version ID in body | Saved/sent → acknowledged → replied; never mark applied without evidence |
+| Verified First Mate task **not associated with a Flyd run** | Existing `FirstmateInbox` user-message path; explicitly mention source task ID and request follow-up | A new request addressed to First Mate's primary inbox, **not** direct worker steering |
+| **Completed/cancelled/stale-generation** task | New explicitly authorized follow-up referencing the old task and frozen revision | Do not reopen or modify the old task; First Mate determines whether to create new work |
+| Unverified task association, remote unsupported, missing home or transport down | Local draft/queued state only | Clear reason, no guess or background retry that grants authority |
+
+Delivery is a small append-only state machine: `draft → send_pending → saved (maybe unannounced) → acknowledged → replied`, with `delivery_unknown` / `failed` / `cancelled` cases. The canonical `fm-inbox.sh` receipt proves acceptance, not completion. After a crash, reconcile by the *same request ID* before a retry. Re-reading a reply cannot resubmit. Use the existing Flyd transport's idempotent note/reply behavior, not Rounds' Claude hooks.
+
+### E. Reduced scope and revised acceptance gates
+
+**Release 0 / spike:** render a static Rounds screenshot canvas with First Mate-shaped *synthetic* data, preserve zoom/pan/search/compare, and assert **no HTML iframe**, no Rounds server, no unexpected root `/api/*` call. This validates actual reuse without falsely claiming feature completeness.
+
+**Read-only MVP:** one opted-in project, actual First Mate task status, **explicitly surfaced image outputs**, version identity and a contextual **See work** link in Flyd. When source evidence is missing, say so. A comparison appears only if dimensions and viewports are compatible. No automatic import of arbitrary project files, remote history, or untrusted live page execution.
+
+**Feedback MVP:** one verified local First Mate task and two immutable image revisions, exactly one user-initiated delivery, acknowledgment/reply visible, new revision appearing after work continues. Include completed-task follow-up and duplicate-message replay tests before enabling on arbitrary tasks.
+
+**Post-MVP:** opt-in artifact manifest producer, richer code diff attribution, remote/secondmate routing, richer HTML preview, larger canvas history, topic inference. Each one needs a separate evidence, security and user-value gate.
+
+**Test additions (must pass before enabling):** malicious HTML cannot access Flyd auth or invoke APIs; nonexistent `/api/work/*` routes cannot fall back to Rounds' backend; identical feedback text on different revisions yields distinct review deliveries; worker generation change forces a follow-up; incomplete snapshot cannot claim “all artifacts”; remote-stale states stay unknown; cache deletion cannot erase the canonical First Mate task; signed macOS WKWebView build still opens normal conversation and Liesel.
+
+**Effort update:** original 10–18 days assumed artifact provenance and HTML isolation were close to turnkey. They are not. Treat **12–25 developer days** as an *unvalidated planning range* for a production-quality local end-to-end integration, with Phase 0/Release 0 explicitly used to refine it. Do not use this range as a delivery promise.
+
+### F. First engineering PR should be narrower than originally stated
+
+1. Pin the exact Rounds SHA and MIT notice; static-build it under Flyd without the Vite API plugin.
+2. Add the minimal Rounds `Index` fixture adapter and strict `/api/work/index`, `stamp` and image endpoint.
+3. Disable Page/HTML stage, comments dispatch and unsupported file diffs; retain screenshot stage, compare, pan/zoom and time rail.
+4. Add `/work` only behind `FLYD_WORK_CANVAS=1` and one contextual launcher from an existing Flyd job.
+5. Run isolated automated fixtures + signed WKWebView smoke; ship only when normal Flyd conversation and Liesel are unchanged.
+
+**Hard stop after the spike:** If retaining Rounds' interface requires rewriting most of `App.tsx`, `Stage.tsx` and `layout.ts` or duplicating Flyd's operational records, revisit the fork choice. A beautiful visual demo is not evidence of a maintainable embed.
 
 ## Source-verified system map
 
@@ -119,7 +193,7 @@ Implementation details:
 - `artifact-discovery.ts`: imports First Mate task screenshots, report files, linked pages, and optional future explicit artifact manifests; initially reuse `TaskExtra`, `pickShots`, and existing bounded scans.
 - `artifact-store.ts`: content-addressed immutable media cache under `~/.flyd/work-canvas/objects/sha256`, atomic copy, ownership and path validation. No write to First Mate home.
 - `review-store.ts`: durable local feedback IDs/state/receipts; Flyd owns user-authored review intent. Persist atomically and test cross-process concurrency. Existing work/feedback event store may be used instead if it has the correct ownership contract.
-- `review-delivery.ts`: routes explicit Send to known `DomainRun` via `sendRunMessage`, otherwise to `FirstmateDomainTransport.sendFlydNote` with task+artifact provenance. Unaddressable notes remain queued; no fallback to a random session.
+- `review-delivery.ts`: routes explicit user Send to an active, explicitly linked `DomainRun` via `sendRunMessage` or to `FirstmateInbox` as a **new user-authored follow-up** for external/settled tasks. Never treat user words as `sendFlydNote`. Unaddressable notes remain queued; no fallback to a random session.
 - `http.ts`: authenticated `/api/work/*` index, artifact, history, review, and receipt endpoints.
 
 **Routes** (proposed; not existing API promises):
@@ -137,7 +211,7 @@ Prefer reuse of the existing server token and local Origin/Host checks; don't ad
 
 ### Initial capture, without modifying First Mate
 
-1. Query First Mate's canonical `fm-fleet-snapshot.sh --json` via one gated read. Reuse Flyd's existing `parseBearings`/`enrichFleet` and task extras for title, state, screenshot, candidate and Liesel linkage. Confirm which fields can be obtained from the complete snapshot without additional per-task filesystem scans.
+1. Begin with Flyd's existing shared-gate `ArtefactFeed` bearings read for live state and its **bounded, incomplete** `TaskExtra` screenshot discovery. Inspect canonical `fm-fleet-snapshot.sh --json` *on demand* through a coordinated single-flight read for richer task metadata. Never run a second independent fleet-poll loop, and do not mistake either source for an exhaustive artifact manifest.
 2. For each accessible task, discover **already produced** screenshots (`png`, `jpg`, `webp`), declared HTML pages, reports and PR references. Explicitly permit only canonical files under known task/data roots and configured project roots. Read-only; don't traverse arbitrary symlinks or remote paths.
 3. Copy imported visuals into a content-addressed cache **once**; record task owner and source provenance. The source can later disappear without losing the captured snapshot.
 4. Create history revisions when **content bytes change**, not when mtime changes. Deduplicate same bytes. Preserve before/after as separate records; present comparison only for a pair captured at comparable dimensions/context.
@@ -160,9 +234,9 @@ User pins an immutable version on canvas
   -> User presses Send
   -> Flyd validates task ownership + current state + explicit scope
   -> Known active Flyd DomainRun? sendRunMessage(run, 'correction', ...)
-  -> Otherwise: FirstmateDomainTransport.sendFlydNote(
-       requestId = stable `flyd-...` review ID,
-       parentRequestId? = known Flyd run, contextRefs = [fm task, artifact version])
+  -> Otherwise: FirstmateInbox.send() as a NEW USER-AUTHORED FOLLOW-UP
+       with stable review identity, exact FM task/generation, and artifact version
+       (never FirstmateDomainTransport.sendFlydNote, which is Flyd-authored)
   -> First Mate inbox receipt saved/acknowledged
   -> First Mate routes work within its own task/worker policy
   -> First Mate replies via fm-inbox.sh reply / receipt cursor
@@ -196,11 +270,11 @@ User pins an immutable version on canvas
 - **Gate:** a deterministic sample index with at least one First Mate task and two artifact revisions renders in Rounds with no agent process started.
 
 **Phase 1 — Embed UI, read-only** (1–2 developer days)
-- Vendor Rounds `src/` frontend, license and styles; build as independently versioned bundle. Host at Flyd `/work` under its existing WKWebView/server. Retain pan, zoom, canvas clusters, search, timeline, screenshot stage and visual compare. Replace Claude-specific labels/links with task and objective navigation. Add “See work” to existing job detail.
+- Vendor Rounds `src/` frontend, license and styles; **remove its Vite API plugin and root API assumptions**, build a static independently versioned bundle. Host at Flyd `/work` under its existing WKWebView/server. Retain pan, zoom, canvas clusters, search, timeline, screenshot stage and visual compare; **disable unsafe HTML Page stage and comment dispatch**. Replace Claude-specific labels/links with task and objective navigation. Add “See work” to existing job detail.
 - **Gate:** no new port/daemon; keyboard+trackpad functional in macOS WKWebView; Flyd's conversation still works; Rounds can consume fixture index; Liesel still opens normally.
 
 **Phase 2 — First Mate read projection** (2–4 developer days)
-- Implement namespaced task and objective mapping; reuse snapshot gate and existing Flyd artifact enrichment. Persist read-only projection incrementally; show unknown state without losing older items. Link job/artefact cards to canvas items, and canvas back to Flyd job view.
+- Implement explicit namespaced task and objective mapping (including worker generation); reuse the **existing** shared-gated bearings feed and only coordinate additional canonical reads when needed. Treat screenshot discovery as bounded/incomplete. Persist read-only projection incrementally; show unknown state without losing older items. Link job/artefact cards to canvas items, and canvas back to Flyd job view.
 - **Gate:** First Mate task appears once even when multiple workers/snapshots report it; Flyd-originated objective association is exact; task started directly in First Mate appears without fake Flyd objective; stale/remote/partial status visible.
 
 **Phase 3 — Artifact cache & comparison** (2–3 developer days)
@@ -208,14 +282,14 @@ User pins an immutable version on canvas
 - **Gate:** missing original file still shows its snapshot; identical file produces no duplicate version; same repo from two tasks never misattributes; unsupported report shows an honest link rather than a fake preview.
 
 **Phase 4 — Feedback round trip** (2–4 developer days)
-- Implement durable reviews, click-pin, notes, Send, idempotent inbox routing through existing transport, receipt and reply display; enforce completed-task follow-up semantics.
+- Implement durable reviews, click-pin, notes, explicit Send, idempotent **user-authored** inbox routing through existing transport, receipt and reply display; include review/version identity in the delivery body and enforce completed/stale-generation follow-up semantics.
 - **Gate:** fresh, running and completed task; duplicate send; process kill between queue/write/ack; stale receipt; task moved between workers; all result in correct single delivery or visible unresolved state. No notes ever land on another task just because the repo matches.
 
 **Phase 5 — Hardening and incremental rollout** (2–3 developer days)
 - XSS/HTML sandbox and SSRF tests, traversal/symlink tests, schema/freshness tests, empty/large canvas, multi-home and unavailable First Mate tests. Confirm keyboard focus, zoom, date travel, reduced motion and narrow layout. Add feature flag `FLYD_WORK_CANVAS=1` initially; document uninstall/cache cleanup. Run tests and signed app smoke on Mac.
 - **Gate:** existing chat/jobs/Liesel tests pass, no First Mate state writes except explicit inbox notes, no additional worker sessions launched from read paths. Roll out to one real project, inspect logs, then enable more projects.
 
-**Effort is a planning estimate, not a benchmark:** roughly 10–18 developer days for the described phases, dependent on actual First Mate task-artifact linkage and bundled UI integration complexity. First useful vertical slice (read-only real artifacts in Flyd) should be targeted before feedback and history depth. If First Mate snapshot doesn't consistently identify task artifacts, add an explicit post manifest before attempting arbitrary scanning.
+**Effort is a planning estimate, not a benchmark:** roughly 12–25 developer days for the described phases, dependent on actual First Mate task-artifact linkage, HTML isolation and bundled UI integration complexity. First useful vertical slice (read-only real artifacts in Flyd) should be targeted before feedback and history depth. If First Mate snapshot doesn't consistently identify task artifacts, add an explicit post manifest before attempting arbitrary scanning.
 
 ### Test matrix
 
@@ -240,7 +314,7 @@ User pins an immutable version on canvas
 
 ## Suggested PR sequence
 
-1. `feat(work-canvas): vendor Rounds frontend and mount authenticated /work route` — static fixture only, MIT notice, UI smoke.
+1. `feat(work-canvas): vendor static Rounds frontend and mount authenticated /work route` — static fixture, isolated `/api/work/*` paths, HTML stage disabled, MIT notice, UI smoke.
 2. `feat(work-canvas): First Mate project/task projection from existing fleet/artifact sources` — read-only live records and freshness labels.
 3. `feat(work-canvas): immutable First Mate artifact import and revision comparison` — caching and diff stages.
 4. `feat(work-canvas): durable pinned notes through First Mate transport` — one verified feedback loop.
