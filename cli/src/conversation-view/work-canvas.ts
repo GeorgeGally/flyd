@@ -122,7 +122,7 @@ export function projectFirstmateWork(
 
   for (const row of rows) {
     const task = row.task;
-    if (!dataRoot || !task || !/^[\\w.-]+$/.test(task) || task.startsWith(".") || seen.has(task) || !row.shots?.length) continue;
+    if (!dataRoot || !task || !/^[\w.-]+$/.test(task) || task.startsWith(".") || seen.has(task) || !row.shots?.length) continue;
     seen.add(task);
     const pictures: CanvasShot[] = [];
     let latest = 0;
