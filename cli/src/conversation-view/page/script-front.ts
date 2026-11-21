@@ -448,7 +448,8 @@ export const FRONT_SCRIPT = `
     var links = (job.links || []).filter(function (link) { return link && link.url && !link.closed; });
     // The job itself can always be answered from the top: Reply takes him to its box.
     var replyJob = VIEW_TOKEN && !job.handled;
-    if (links.length || replyJob) {
+    var seeWork = document.body.dataset.workCanvas === "1" && Boolean((job.shots && job.shots.length) || (job.previews && job.previews.length));
+    if (links.length || replyJob || seeWork) {
       var acts = el("div", "jv-acts");
       if (replyJob) {
         var replyAll = el("button", "fbtn jv-reply", "Reply");
@@ -456,6 +457,11 @@ export const FRONT_SCRIPT = `
         replyAll.setAttribute("aria-label", "Reply about this job");
         replyAll.addEventListener("click", function () { frontAnswer(job).chat.quote("", ""); });
         acts.appendChild(replyAll);
+      }
+      if (seeWork) {
+        var canvas = el("a", "fbtn", "See work");
+        canvas.href = "/work";
+        acts.appendChild(canvas);
       }
       links.forEach(function (link) {
         var a = el("a", "fbtn", link.label || "Open");

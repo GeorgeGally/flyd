@@ -7,7 +7,7 @@
     "flyd": "./dist/entry.js"
   },
   "scripts": {
-    "build": "tsc && node scripts/postbuild.mjs",
+    "build": "tsc && node scripts/postbuild.mjs && node scripts/build-work-canvas.mjs",
     "dev": "tsx src/entry.ts",
     "export-state": "tsx src/export-state.ts",
     "core": "tsx src/server.ts start",

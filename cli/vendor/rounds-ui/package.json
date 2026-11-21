@@ -1,0 +1,58 @@
+{
+  "name": "rounds-app",
+  "version": "1.1.0",
+  "description": "A local canvas of everything your Claude Code sessions make: screens, pages and pushed changes, by project and topic, with a time machine, before and after, and notes that go back to the session.",
+  "license": "MIT",
+  "author": "Kris Puckett",
+  "homepage": "https://github.com/krispuckett/rounds#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/krispuckett/rounds.git" },
+  "bugs": "https://github.com/krispuckett/rounds/issues",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "mcp",
+    "canvas",
+    "design"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "rounds": "bin/rounds.mjs"
+  },
+  "files": [
+    "bin",
+    "server",
+    "hooks",
+    "skill",
+    "demo",
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "vite --port 4797 --strictPort",
+    "index": "node server/index-cli.mjs",
+    "topics": "node -e \"import('./server/topics.mjs').then(async (t) => { const i = JSON.parse(require('fs').readFileSync(require('path').join(require('os').homedir(), require('fs').existsSync(require('os').homedir() + '/.rounds') ? '.rounds' : '.workbench', 'index.json'), 'utf8')); console.log(await t.fileTopics(i, { log: console.log })); })\"",
+    "build": "vite build",
+    "start": "node bin/rounds.mjs",
+    "eval": "node evals/e2e.mjs",
+    "prepare": "vite build"
+  },
+  "dependencies": {
+    "playwright-core": "1.56.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@types/node": "^22.20.5",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

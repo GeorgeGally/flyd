@@ -15,7 +15,9 @@ import { existsSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { homedir } from "node:os";
-import { extname, join, sep } from "node:path";
+import { dirname, extname, join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { projectFirstmateWork, readWorkMedia, workCanvasEnabled, type WorkCanvasProjection } from "./work-canvas.js";
 import { FLYD_DIR } from "../lib/config.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { answerHtml } from "./answer-form.js";
@@ -825,6 +827,8 @@ export class ConversationViewServer {
   private readonly token = randomBytes(24).toString("hex");
   /** Review boards and finished deliverables the fleet left in firstmate's data tree. */
   private readonly workshop = new Workshop(() => join(firstmateHome(), "data"));
+  private canvasCache?: WorkCanvasProjection;
+  private stopCanvasRefresh?: () => void;
   /** What Core's staff watch found stuck (command/fleet-monitor.ts); nothing under tests unless one sets it. */
   staffView: () => StaffView | null = process.env.VITEST ? () => null : () => readStaffView();
   /** The Machines tab's models, Claude spend and usage left; nothing under tests unless one sets it. */
@@ -870,7 +874,87 @@ export class ConversationViewServer {
     private readonly week?: WeekReader,
   ) {}
 
+
+  /** Uses the existing single-flight ArtefactFeed; never polls a second fleet monitor. */
+  private canvasProjection(): WorkCanvasProjection {
+    // Hash images once per actual fleet refresh, not again for every image request.
+    if (this.canvasCache) return this.canvasCache;
+    return (this.canvasCache = projectFirstmateWork(this.feed.current(), (task, file) => this.feed.shotPath(task, file), firstmateHome()));
+  }
+
+  /** Static, read-only Rounds frontend and authenticated First Mate screenshot projection. */
+  private async workAction(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    if (!workCanvasEnabled()) { sendJson(res, 404, { error: "not found" }); return; }
+    if (req.method !== "GET") { sendJson(res, 405, { error: "read-only work canvas" }); return; }
+
+    const compiledDir = dirname(fileURLToPath(import.meta.url));
+    const built = join(compiledDir, "..", "work-canvas");
+    const devBuilt = join(compiledDir, "..", "..", "dist", "work-canvas");
+    const root = existsSync(join(built, "index.html")) ? built : devBuilt;
+    if (url.pathname === "/work" || url.pathname === "/work/") {
+      const template = await readFile(join(root, "index.html"), "utf8").catch(() => "");
+      if (!template.includes("__FLYD_WORK_TOKEN__")) {
+        sendJson(res, 503, { error: "Work canvas assets are not built. Run npm run build in cli." });
+        return;
+      }
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer",
+        "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      });
+      res.end(template.replace("__FLYD_WORK_TOKEN__", this.token));
+      return;
+    }
+    if (url.pathname.startsWith("/work/assets/")) {
+      const name = url.pathname.slice("/work/assets/".length);
+      if (!/^[a-zA-Z0-9_.-]+$/.test(name)) { sendJson(res, 404, { error: "not found" }); return; }
+      const type = name.endsWith(".js") ? "text/javascript; charset=utf-8" : name.endsWith(".css") ? "text/css; charset=utf-8" : "";
+      if (!type) { sendJson(res, 404, { error: "not found" }); return; }
+      const bytes = await readFile(join(root, "assets", name)).catch(() => null);
+      if (!bytes) { sendJson(res, 404, { error: "not found" }); return; }
+      res.writeHead(200, { "content-type": type, "cache-control": "private, max-age=31536000, immutable",
+        "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" });
+      res.end(bytes);
+      return;
+    }
+
+    if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+      sendJson(res, 403, { error: "missing or wrong token" });
+      return;
+    }
+    if (url.pathname === "/api/work/stamp") {
+      const generated = this.feed.current().fleet?.generated;
+      sendJson(res, 200, { posted: generated ? Date.parse(generated) || 0 : 0, comments: 0 });
+      return;
+    }
+    if (url.pathname === "/api/work/index") {
+      sendJson(res, 200, this.canvasProjection().index);
+      return;
+    }
+    if (url.pathname.startsWith("/api/work/edits/")) {
+      // First Mate source attribution is not a Claude transcript; do not invent hunks.
+      sendJson(res, 200, []);
+      return;
+    }
+    if (url.pathname.startsWith("/api/work/media/")) {
+      const hash = url.pathname.slice("/api/work/media/".length);
+      if (!/^[a-f0-9]{64}$/.test(hash)) { sendJson(res, 404, { error: "not found" }); return; }
+      const media = this.canvasProjection().media.get(hash);
+      const bytes = media ? readWorkMedia(media, firstmateHome()) : null;
+      if (!media || !bytes) { sendJson(res, 404, { error: "not found" }); return; }
+      res.writeHead(200, { "content-type": media.mime, "cache-control": "private, max-age=120",
+        "content-security-policy": "default-src 'none'; sandbox", "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer" });
+      res.end(bytes);
+      return;
+    }
+    sendJson(res, 404, { error: "not found" });
+  }
+
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
+    this.stopCanvasRefresh ??= this.feed.onRefresh(() => { this.canvasCache = undefined; });
     this.feed.start();
     this.weather?.start();
     const server = createServer((req, res) => {
@@ -892,6 +976,9 @@ export class ConversationViewServer {
   }
 
   async close(): Promise<void> {
+    this.stopCanvasRefresh?.();
+    this.stopCanvasRefresh = undefined;
+    this.canvasCache = undefined;
     this.predictions.close();
     this.previews.close();
     this.predictionContexts.clear();
@@ -910,6 +997,9 @@ export class ConversationViewServer {
       return;
     }
     const url = new URL(req.url ?? "/", `http://${VIEW_HOST}:${this.port}`);
+    if (url.pathname === "/work" || url.pathname === "/work/" || url.pathname.startsWith("/work/assets/") || url.pathname.startsWith("/api/work/")) {
+      await this.workAction(req, res, url); return;
+    }
     if (url.pathname === "/api/preparation") {
       await this.preparationAction(req, res, url); return;
     }
@@ -1069,6 +1159,7 @@ export class ConversationViewServer {
       const lasting = this.source.newSession ? await this.lastingSession() : undefined;
       res.end(renderPage({
         assistantLabel: this.source.assistantLabel,
+        workCanvas: workCanvasEnabled(),
         ...(this.source.canSend ? { sendToken: this.token } : {}),
         ...(this.source.newSession ? { newSession: lasting ?? `window:${randomBytes(16).toString("hex")}` } : {}),
       }));
