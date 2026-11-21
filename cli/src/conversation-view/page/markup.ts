@@ -2,7 +2,7 @@ import { escapeHtml } from "../markdown.js";
 import { LEFT_BUTTON, LEFT_HTML, LEFT_PREFERENCE } from "../left-column.js";
 import { FRONT_HTML } from "./front-markup.js";
 
-export interface PageOptions { assistantLabel: string; sendToken?: string; newSession?: string }
+export interface PageOptions { assistantLabel: string; sendToken?: string; newSession?: string; workCanvas?: boolean }
 
 /** The page's markup: header, preferences, columns, stream and message box. */
 export function pageMarkup(options: PageOptions, style: string, script: string): string {
@@ -28,7 +28,7 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
   <a class="site" id="site" hidden target="_blank" rel="noopener noreferrer"><span class="site-kind" id="site-kind"></span><span class="site-host" id="site-host"></span><span class="site-path" id="site-path"></span></a>
   <span class="when" id="when"></span>
   <span class="controls">
-    ${LEFT_BUTTON}<a href="/whatsapp" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">people</a><button id="prefs-open" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="prefs">preferences</button>
+    ${LEFT_BUTTON}${options.workCanvas ? '<a href="/work" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">work</a>' : ""}<a href="/whatsapp" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">people</a><button id="prefs-open" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="prefs">preferences</button>
   </span>
 </header>
 <div class="prefs" id="prefs" hidden role="dialog" aria-label="Preferences">
