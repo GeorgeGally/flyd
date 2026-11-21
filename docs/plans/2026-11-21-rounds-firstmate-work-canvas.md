@@ -27,7 +27,7 @@ These corrections override any less-specific statement in the original roadmap b
 | **Rounds HTML stage is not safe to embed unchanged** | Rounds `src/Stage.tsx` renders `iframe src={pageSrc(hash)}` **without `sandbox`**. It also reads frame events; the page assumes a trusted origin. | **Block HTML page preview in the initial build.** Render verified static screenshots only until a sandboxed, opaque-origin viewer with no privileged bridge, no token access, restricted network and a malicious-page test is implemented. A same-origin iframe without a sandbox is a release blocker, not a Phase 5 cleanup. |
 | **Rounds frontend uses hard-coded root API URLs** | `src/data.ts` fetches `/api/index`, `/api/comments`, `/api/edits/:thread` and media endpoints; `src/App.tsx` polls `/api/stamp`. `vite.config.ts` imports Rounds' local API plugin. | Build a *static* React bundle without Rounds' Vite middleware; replace those calls with a single configured `/api/work/*` client. Do not mount Rounds' `server/api.mjs`. Add explicit equivalents for index, stamp, images, comments and read-only edits; return unsupported features deliberately. |
 | **First Mate snapshot is not an artifact-history manifest** | `fm-fleet-snapshot.v1` exposes tasks, current state, status log, report path, backlog and remote freshness, but no guaranteed versioned screenshot list. Flyd's `ArtefactFeed.extras()` discovers pictures through bounded directory scans and filename heuristics. | A bounded read-only importer is an **incomplete discovery fallback**, not a guarantee of “everything the fleet made”. Start with files already surfaced by Flyd; preserve gaps as `not_indexed` / `source_missing`. Introduce an explicit First Mate artifact-post manifest if Phase 2 cannot reliably identify versions. |
-| **Feedback must preserve who is speaking** | `FirstmateDomainTransport.sendFlydNote` labels its body as **FLYD NOTE**, not the user's words; `FirstmateInbox.send` is the user-facing captain channel. | For a user-authored review on an active Flyd DomainRun, use `sendRunMessage(kind='correction')` with the user's exact wording and structured provenance. For external or already-settled work, create a *new user follow-up through the existing CaptainInbox transport* with a referenced task, not a Flyd-owned delegated note. Do not impersonate the user via `sendFlydNote`. |
+| **Feedback must preserve who is speaking** | `FirstmateDomainTransport.sendFlydNote` labels its body as **FLYD NOTE**, not the user's words; `FirstmateInbox.send` is the user-facing captain channel. | For a user-authored review on an active Flyd DomainRun, use `sendRunMessage(kind='correction')` with the user's exact wording and structured provenance. For external or already-settled work, create a *new user-authored follow-up* with a referenced task through a **small `FirstmateInbox.sendReview` extension that supplies a deterministic request ID** to the existing `FirstmateDomainTransport.submit`. The current `FirstmateInbox.send` calls `deskRequest`, which generates `desk-${randomUUID()}` and is **not idempotent across retries**. Do not use `sendFlydNote`, which marks the request as Flyd-authored. |
 | **Existing deduplication can collide across revisions** | Flyd `messageId` hashes `run.id`, `kind` and trimmed `body`. | Each delivery body must contain a stable `reviewId`, exact `artifactVersionId` and `taskKey` alongside an untouched quoted user note; otherwise identical text on two revisions can collapse into one message. Review IDs are the durable idempotency key. |
 | **Existing fleet reads already have backpressure** | Flyd `ArtefactFeed` reads bearings via a shared `SnapshotGate`; `fm-fleet-snapshot` may fan out bounded task/secondmate observations. | Do **not** independently poll the canonical full snapshot from a second timer. Reuse the existing single-flight feed for live status; build a coordinator for any extra full-snapshot read, with backoff and explicit on-demand enrichment. |
 | **A task key alone cannot guarantee the current worker generation** | Canonical First Mate snapshot carries `spawn_gen` and discards mutable observations if metadata generation changes mid-sample. | Preserve `sourceHomeId` + `taskId` + **`spawnGeneration`** in provenance. A review against an obsolete generation must become an explicit *new follow-up*, never silently steer a replacement worker. |
@@ -59,11 +59,11 @@ These corrections override any less-specific statement in the original roadmap b
 | Origin/current state | Route | User-facing outcome |
 |---|---|---|
 | Verified task belonging to an **active Flyd DomainRun** | Existing `sendRunMessage` with kind `correction` and review/version ID in body | Saved/sent → acknowledged → replied; never mark applied without evidence |
-| Verified First Mate task **not associated with a Flyd run** | Existing `FirstmateInbox` user-message path; explicitly mention source task ID and request follow-up | A new request addressed to First Mate's primary inbox, **not** direct worker steering |
+| Verified First Mate task **not associated with a Flyd run** | Extend `FirstmateInbox` with `sendReview(reviewId, userText, target)`; build a `desk-review-*` `DomainRequest` with a **stable ID**, include task/version and user words, then use existing `FirstmateDomainTransport.submit` | New idempotent user-authored request to First Mate's primary inbox, **not** direct worker steering |
 | **Completed/cancelled/stale-generation** task | New explicitly authorized follow-up referencing the old task and frozen revision | Do not reopen or modify the old task; First Mate determines whether to create new work |
 | Unverified task association, remote unsupported, missing home or transport down | Local draft/queued state only | Clear reason, no guess or background retry that grants authority |
 
-Delivery is a small append-only state machine: `draft → send_pending → saved (maybe unannounced) → acknowledged → replied`, with `delivery_unknown` / `failed` / `cancelled` cases. The canonical `fm-inbox.sh` receipt proves acceptance, not completion. After a crash, reconcile by the *same request ID* before a retry. Re-reading a reply cannot resubmit. Use the existing Flyd transport's idempotent note/reply behavior, not Rounds' Claude hooks.
+Delivery is a small append-only state machine: `draft → send_pending → saved (maybe unannounced) → acknowledged → replied`, with `delivery_unknown` / `failed` / `cancelled` cases. The canonical `fm-inbox.sh` receipt proves acceptance, not completion. **Persist the deterministic `desk-review-*` request ID and immutable message body before sending.** After a crash, reconcile by the *same request ID* before a retry. The current general-purpose `FirstmateInbox.send` must NOT be used unchanged for retries because it generates a fresh UUID; add a narrowly scoped `sendReview` method that reuses its user-authored contract construction, but uses `FirstmateDomainTransport.submit` with a fixed ID. Re-reading a reply cannot resubmit. Do not use Rounds' Claude hooks.
 
 ### E. Reduced scope and revised acceptance gates
 
@@ -75,7 +75,7 @@ Delivery is a small append-only state machine: `draft → send_pending → saved
 
 **Post-MVP:** opt-in artifact manifest producer, richer code diff attribution, remote/secondmate routing, richer HTML preview, larger canvas history, topic inference. Each one needs a separate evidence, security and user-value gate.
 
-**Test additions (must pass before enabling):** malicious HTML cannot access Flyd auth or invoke APIs; nonexistent `/api/work/*` routes cannot fall back to Rounds' backend; identical feedback text on different revisions yields distinct review deliveries; worker generation change forces a follow-up; incomplete snapshot cannot claim “all artifacts”; remote-stale states stay unknown; cache deletion cannot erase the canonical First Mate task; signed macOS WKWebView build still opens normal conversation and Liesel.
+**Test additions (must pass before enabling):** malicious HTML cannot access Flyd auth or invoke APIs; nonexistent `/api/work/*` routes cannot fall back to Rounds' backend; identical feedback text on different revisions yields distinct review deliveries; **a crash or timeout before the first send's receipt reuses exactly the same `desk-review-*` ID and produces exactly one inbox note**; worker generation change forces a follow-up; incomplete snapshot cannot claim “all artifacts”; remote-stale states stay unknown; cache deletion cannot erase the canonical First Mate task; signed macOS WKWebView build still opens normal conversation and Liesel.
 
 **Effort update:** original 10–18 days assumed artifact provenance and HTML isolation were close to turnkey. They are not. Treat **12–25 developer days** as an *unvalidated planning range* for a production-quality local end-to-end integration, with Phase 0/Release 0 explicitly used to refine it. Do not use this range as a delivery promise.
 
@@ -193,7 +193,7 @@ Implementation details:
 - `artifact-discovery.ts`: imports First Mate task screenshots, report files, linked pages, and optional future explicit artifact manifests; initially reuse `TaskExtra`, `pickShots`, and existing bounded scans.
 - `artifact-store.ts`: content-addressed immutable media cache under `~/.flyd/work-canvas/objects/sha256`, atomic copy, ownership and path validation. No write to First Mate home.
 - `review-store.ts`: durable local feedback IDs/state/receipts; Flyd owns user-authored review intent. Persist atomically and test cross-process concurrency. Existing work/feedback event store may be used instead if it has the correct ownership contract.
-- `review-delivery.ts`: routes explicit user Send to an active, explicitly linked `DomainRun` via `sendRunMessage` or to `FirstmateInbox` as a **new user-authored follow-up** for external/settled tasks. Never treat user words as `sendFlydNote`. Unaddressable notes remain queued; no fallback to a random session.
+- `review-delivery.ts`: routes explicit user Send to an active, explicitly linked `DomainRun` via `sendRunMessage` or to a narrow, deterministic-ID `FirstmateInbox.sendReview` extension (using existing `FirstmateDomainTransport.submit`) as a **new user-authored follow-up** for external/settled tasks. Never treat user words as `sendFlydNote`. Unaddressable notes remain queued; no fallback to a random session.
 - `http.ts`: authenticated `/api/work/*` index, artifact, history, review, and receipt endpoints.
 
 **Routes** (proposed; not existing API promises):
@@ -234,9 +234,10 @@ User pins an immutable version on canvas
   -> User presses Send
   -> Flyd validates task ownership + current state + explicit scope
   -> Known active Flyd DomainRun? sendRunMessage(run, 'correction', ...)
-  -> Otherwise: FirstmateInbox.send() as a NEW USER-AUTHORED FOLLOW-UP
-       with stable review identity, exact FM task/generation, and artifact version
-       (never FirstmateDomainTransport.sendFlydNote, which is Flyd-authored)
+  -> Otherwise: FirstmateInbox.sendReview(reviewId, userWords, target)
+       constructs a user-authored DomainRequest with stable desk-review-* ID,
+       exact FM task/generation/artifact version; submits via existing
+       FirstmateDomainTransport.submit (never sendFlydNote / randomUUID send)
   -> First Mate inbox receipt saved/acknowledged
   -> First Mate routes work within its own task/worker policy
   -> First Mate replies via fm-inbox.sh reply / receipt cursor
@@ -282,7 +283,7 @@ User pins an immutable version on canvas
 - **Gate:** missing original file still shows its snapshot; identical file produces no duplicate version; same repo from two tasks never misattributes; unsupported report shows an honest link rather than a fake preview.
 
 **Phase 4 — Feedback round trip** (2–4 developer days)
-- Implement durable reviews, click-pin, notes, explicit Send, idempotent **user-authored** inbox routing through existing transport, receipt and reply display; include review/version identity in the delivery body and enforce completed/stale-generation follow-up semantics.
+- Implement durable reviews, click-pin, notes, explicit Send, idempotent **user-authored** inbox routing through existing `submit` transport plus a new deterministic-ID `sendReview` wrapper, receipt and reply display; include review/version identity in the delivery body and enforce completed/stale-generation follow-up semantics.
 - **Gate:** fresh, running and completed task; duplicate send; process kill between queue/write/ack; stale receipt; task moved between workers; all result in correct single delivery or visible unresolved state. No notes ever land on another task just because the repo matches.
 
 **Phase 5 — Hardening and incremental rollout** (2–3 developer days)
