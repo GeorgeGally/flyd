@@ -27,29 +27,33 @@ export type Changed = { thread: string; repo: string; file: string; edits: [numb
 export type Edit = { at: number; add: number; del: number; hunks: { o: number; n: number; lines: string[] }[]; cut?: number; created?: boolean };
 export type Index = { builtAt: number; projects: Record<string, string>; threads: Thread[]; pages: Page[]; sets: ShotSet[]; changed?: Changed[]; topics?: Record<string, Topic[]>; comments: Comment[]; previews?: boolean };
 
+/** The embedded Rounds UI uses only Flyd's token-protected work namespace. */
+export const authUrl = (path: string): string => {
+  const token = document.querySelector<HTMLMetaElement>('meta[name="flyd-work-token"]')?.content ?? "";
+  return path + (path.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token);
+};
+
 export async function loadIndex(fresh = false): Promise<Index> {
-  const r = await fetch(`/api/index${fresh ? "?fresh" : ""}`);
+  const r = await fetch(authUrl(`/api/work/index${fresh ? "?fresh" : ""}`));
   if (!r.ok) throw new Error(`index: ${r.status}`);
   return r.json();
 }
 
 export async function loadEdits(thread: string, repo: string, file: string): Promise<Edit[]> {
-  const r = await fetch(`/api/edits/${encodeURIComponent(thread)}?repo=${encodeURIComponent(repo)}&file=${encodeURIComponent(file)}`);
+  const r = await fetch(authUrl(`/api/work/edits/${encodeURIComponent(thread)}?repo=${encodeURIComponent(repo)}&file=${encodeURIComponent(file)}`));
   if (!r.ok) throw new Error(`edits: ${r.status}`);
   return r.json();
 }
 
-export const shot = (hash: string, full = false) => `/api/shot/${hash}${full ? "-full" : ""}.png`;
-export const thumb = (hash: string) => `/api/thumb/${hash}.jpg`;
+export const shot = (hash: string, _full = false) => authUrl(`/api/work/media/${encodeURIComponent(hash)}`);
+export const thumb = (hash: string) => authUrl(`/api/work/media/${encodeURIComponent(hash)}`);
 /** A kept screen, at a width the canvas can afford, or the original. */
-export const img = (s: Shot, w?: 240 | 480 | 960 | 1600) => `/api/img/${s.hash}.${s.ext}${w ? `@${w}.jpg` : ""}`;
-export const pageSrc = (hash: string) => `/api/page/${hash}`;
-export const threadLink = (id: string) => `claude://claude.ai/epitaxy/${id}`;
+export const img = (s: Shot, _w?: 240 | 480 | 960 | 1600) => authUrl(`/api/work/media/${encodeURIComponent(s.hash)}`);
+export const pageSrc = (_hash: string) => "about:blank"; // HTML previews remain disabled.
+export const threadLink = (_id: string) => "/";
 
-export async function postComment(c: { page: string; hash: string; x: number; y: number; text: string; set?: string }): Promise<Comment> {
-  const r = await fetch("/api/comments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(c) });
-  if (!r.ok) throw new Error(`comment not saved: ${r.status}`);
-  return r.json();
+export async function postComment(_c: { page: string; hash: string; x: number; y: number; text: string; set?: string }): Promise<Comment> {
+  throw new Error("Review comments are not enabled in the read-only work canvas.");
 }
 
 const DAY = 864e5;

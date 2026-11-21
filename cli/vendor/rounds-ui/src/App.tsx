@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { reducedTransparency } from "./look";
-import { clean, loadIndex, readSeen, markSeen, type Index, type Page } from "./data";
+import { clean, loadIndex, authUrl, readSeen, markSeen, type Index, type Page } from "./data";
 import { layout, type Cluster, type Group } from "./layout";
 import { useCamera, fit, type Cam } from "./camera";
 import { Stage, type Opening } from "./Stage";
@@ -189,7 +189,7 @@ export default function App() {
     // what sessions post shows within seconds, lit where it lands; notes and replies too
     let last: { posted: number; comments: number } | null = null;
     const s = setInterval(async () => {
-      const now = await fetch("/api/stamp").then((r) => r.json()).catch(() => null);
+      const now = await fetch(authUrl("/api/work/stamp")).then((r) => r.json()).catch(() => null);
       if (!now) return;
       if (last && (now.posted > last.posted || now.comments > last.comments)) {
         const i = await loadIndex();
@@ -643,7 +643,7 @@ export default function App() {
     let last: { key?: string; at?: number } = {};
     for (const f of files) {
       const data = await new Promise<string>((r) => { const fr = new FileReader(); fr.onload = () => r(String(fr.result)); fr.readAsDataURL(f); });
-      last = await (await fetch("/api/drop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: f.name, data, project, drop }) })).json();
+      last = await (await fetch("/api/work/unsupported-drop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: f.name, data, project, drop }) })).json();
     }
     if (asOf != null) changeDay(null);
     setIndex(await loadIndex());
@@ -713,10 +713,6 @@ export default function App() {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      onDragOver={onDragOver}
-      onDragEnter={() => { dragDepth.current++; }}
-      onDragLeave={() => { if (--dragDepth.current <= 0) { dragDepth.current = 0; setDropping(null); } }}
-      onDrop={onDrop}
       onFocus={onFocusIn}
       onScroll={(e) => { e.currentTarget.scrollTop = 0; e.currentTarget.scrollLeft = 0; }}
     >
@@ -864,8 +860,8 @@ export default function App() {
       {!index && unreachable && (
         <div className="fixed inset-0 grid place-items-center pb-24" role="alert">
           <div className="flex flex-col items-center px-6 text-center">
-            <div className="text-[22px] font-semibold tracking-[-0.02em] text-[var(--ink)]">Can't reach Rounds</div>
-            <p className="mt-2 text-[15px] text-[var(--muted)]">Start it again in your terminal, then try again.</p>
+            <div className="text-[22px] font-semibold tracking-[-0.02em] text-[var(--ink)]">Can't reach Flyd work</div>
+            <p className="mt-2 text-[15px] text-[var(--muted)]">Check that Flyd's conversation service is running, then try again.</p>
             <button onClick={() => location.reload()} className="press mt-6 h-11 rounded-full bg-[var(--ink)] px-5 text-[14px] font-[560] text-white">Try again</button>
           </div>
         </div>

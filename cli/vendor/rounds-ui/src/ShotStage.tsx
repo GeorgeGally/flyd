@@ -265,12 +265,7 @@ export function ShotStage({ opening, comments, gone, onComment, onStep, onClosin
             <Btn onClick={() => step(1)} label="Next" disabled={i === shots.length - 1}><span style={{ opacity: i === shots.length - 1 ? 0.3 : 1 }}><Glyph name="next" /></span></Btn>
           </>
         )}
-        <Btn on={placing} onClick={() => setPlacing((p) => !p)} label="Comment" honey><Glyph name="comment" /></Btn>
-        {thread && !gone.has(thread) && (
-          <a href={threadLink(thread)} target="_blank" rel="noreferrer" className="grid h-11 w-11 place-items-center rounded-full text-[var(--ink)] transition-colors hover:bg-black/5" aria-label="Open thread">
-            <Glyph name="open" />
-          </a>
-        )}
+        {/* Read-only: review sending will be enabled only after First Mate routing is proven. */}
         <Btn onClick={close} label="Close"><Glyph name="close" /></Btn>
         <style>{`@keyframes wb-up { from { opacity: 0; transform: translateY(16px) } } @keyframes wb-down { to { opacity: 0; transform: translateY(12px) } } @keyframes wb-pin { from { transform: scale(0.4); opacity: 0 } } @keyframes wb-pop { from { opacity: 0; transform: translateY(4px) } } @keyframes wb-fade-in { from { opacity: 0 } } @keyframes wb-fade-out { to { opacity: 0 } }`}</style>
       </div>

@@ -290,6 +290,8 @@ function Surface({ hash, before, scale, height, placing, notes, draft, current, 
         <>
           <iframe
             ref={frame}
+            sandbox=""
+            referrerPolicy="no-referrer"
             src={pageSrc(hash)}
             onLoad={onFrameLoad}
             className="absolute left-0 top-0 origin-top-left border-0 bg-white"
