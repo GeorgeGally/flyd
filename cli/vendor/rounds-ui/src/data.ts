@@ -25,7 +25,7 @@ export type Changed = { thread: string; repo: string; file: string; edits: [numb
 /** One change as Claude Code recorded it: hunks of lines, each marked " ", "+" or "-", from line o
  *  of the old file and line n of the new. A long change keeps its first lines; `cut` more followed. */
 export type Edit = { at: number; add: number; del: number; hunks: { o: number; n: number; lines: string[] }[]; cut?: number; created?: boolean };
-export type Index = { builtAt: number; projects: Record<string, string>; threads: Thread[]; pages: Page[]; sets: ShotSet[]; changed?: Changed[]; topics?: Record<string, Topic[]>; comments: Comment[]; previews?: boolean };
+export type Index = { builtAt: number; projects: Record<string, string>; threads: Thread[]; pages: Page[]; sets: ShotSet[]; changed?: Changed[]; topics?: Record<string, Topic[]>; comments: Comment[]; previews?: boolean; unavailable?: string; complete?: boolean };
 
 /** The embedded Rounds UI uses only Flyd's token-protected work namespace. */
 export const authUrl = (path: string): string => {

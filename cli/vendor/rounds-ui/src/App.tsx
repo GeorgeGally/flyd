@@ -187,7 +187,7 @@ export default function App() {
     });
     const t = setInterval(() => loadIndex().then((i) => { setIndex(i); setUnreachable(false); }, () => {}), 60e3);
     // what sessions post shows within seconds, lit where it lands; notes and replies too
-    let last: { posted: number; comments: number } | null = null;
+    let last: { posted: number; comments: number } | null = { posted: 0, comments: 0 }; // The first stamp may follow an initially empty fleet read.
     const s = setInterval(async () => {
       const now = await fetch(authUrl("/api/work/stamp")).then((r) => r.json()).catch(() => null);
       if (!now) return;
@@ -856,7 +856,7 @@ export default function App() {
         }}
       />
 
-      {index && !index.sets.length && !index.pages.length && <Empty onImported={() => loadIndex().then(setIndex)} />}
+      {index && !index.sets.length && !index.pages.length && <Empty unavailable={index.unavailable} onImported={() => loadIndex().then(setIndex)} />}
       {!index && unreachable && (
         <div className="fixed inset-0 grid place-items-center pb-24" role="alert">
           <div className="flex flex-col items-center px-6 text-center">
