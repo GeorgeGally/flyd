@@ -15,5 +15,7 @@ if (!existsSync(vite)) {
   // Separate lockfile keeps the upstream UI dependency graph out of Flyd Core.
   run(process.platform === "win32" ? "npm.cmd" : "npm", ["ci", "--no-audit", "--no-fund"]);
 }
+// Unlike Vite transpilation alone, a strict typecheck fails on an incompatible upstream merge.
+run(join(vendor, "node_modules", ".bin", "tsc"), ["--noEmit", "--project", "tsconfig.json"]);
 run(vite, ["build"]);
 console.log("postbuild: embedded Rounds work canvas prepared");

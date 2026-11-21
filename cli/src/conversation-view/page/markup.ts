@@ -17,7 +17,7 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
 <title>${label}</title>
 <style>${style}</style>
 </head>
-<body${token}>
+<body${token}${options.workCanvas ? ' data-work-canvas="1"' : ""}>
 <header>
   <span class="who">${label}</span>
   <span class="front-date" id="front-date"></span>
