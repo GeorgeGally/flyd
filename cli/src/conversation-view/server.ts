@@ -827,7 +827,8 @@ export class ConversationViewServer {
   private readonly token = randomBytes(24).toString("hex");
   /** Review boards and finished deliverables the fleet left in firstmate's data tree. */
   private readonly workshop = new Workshop(() => join(firstmateHome(), "data"));
-  private canvasCache?: { at: number; projection: WorkCanvasProjection };
+  private canvasCache?: WorkCanvasProjection;
+  private stopCanvasRefresh?: () => void;
   /** What Core's staff watch found stuck (command/fleet-monitor.ts); nothing under tests unless one sets it. */
   staffView: () => StaffView | null = process.env.VITEST ? () => null : () => readStaffView();
   /** The Machines tab's models, Claude spend and usage left; nothing under tests unless one sets it. */
@@ -876,11 +877,9 @@ export class ConversationViewServer {
 
   /** Uses the existing single-flight ArtefactFeed; never polls a second fleet monitor. */
   private canvasProjection(): WorkCanvasProjection {
-    const now = Date.now();
-    if (this.canvasCache && now - this.canvasCache.at < 3_000) return this.canvasCache.projection;
-    const projection = projectFirstmateWork(this.feed.current(), (task, file) => this.feed.shotPath(task, file), firstmateHome(), now);
-    this.canvasCache = { at: now, projection };
-    return projection;
+    // Hash images once per actual fleet refresh, not again for every image request.
+    if (this.canvasCache) return this.canvasCache;
+    return (this.canvasCache = projectFirstmateWork(this.feed.current(), (task, file) => this.feed.shotPath(task, file), firstmateHome()));
   }
 
   /** Static, read-only Rounds frontend and authenticated First Mate screenshot projection. */
@@ -955,6 +954,7 @@ export class ConversationViewServer {
   }
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
+    this.stopCanvasRefresh ??= this.feed.onRefresh(() => { this.canvasCache = undefined; });
     this.feed.start();
     this.weather?.start();
     const server = createServer((req, res) => {
@@ -976,6 +976,9 @@ export class ConversationViewServer {
   }
 
   async close(): Promise<void> {
+    this.stopCanvasRefresh?.();
+    this.stopCanvasRefresh = undefined;
+    this.canvasCache = undefined;
     this.predictions.close();
     this.previews.close();
     this.predictionContexts.clear();
