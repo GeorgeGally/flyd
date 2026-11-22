@@ -45,7 +45,7 @@ export function evidenceMatches(topic: string, item: Pick<EvidenceItem, "title" 
   const body = tokens(item.content.slice(0, 400));
   const commonTitle = [...target].filter((t) => headline.has(t)).length;
   const commonBody = [...target].filter((t) => body.has(t)).length;
-  return commonTitle >= Math.min(2, target.size) || (commonTitle >= 1 && commonBody >= Math.min(2, target.size));
+  return commonTitle >= Math.min(3, target.size) || (commonTitle >= 2 && commonBody >= Math.min(3, target.size));
 }
 
 export function sourceFamily(link: string): string {
@@ -90,7 +90,15 @@ function linkOf(item: RankedEvidence): ScoutEvidenceLink | null {
 }
 
 export function adjudicateScoutEvidence(topic: string, bundle: EvidenceBundle): ScoutResearchResult {
-  const support = bundle.evidence.filter((item) => evidenceMatches(topic, item));
+  const generated = Date.parse(bundle.generatedAt);
+  const support = bundle.evidence.filter((item) => {
+    if (!evidenceMatches(topic, item)) return false;
+    const published = item.publishedAt ? Date.parse(item.publishedAt) : NaN;
+    // Discovery claims of "just launched" cannot be corroborated by ancient or future-dated evidence.
+    if (Number.isFinite(published) && Number.isFinite(generated)
+      && (published < generated - 45 * 86_400_000 || published > generated + 86_400_000)) return false;
+    return true;
+  });
   const links = support.flatMap((item) => {
     const link = linkOf(item);
     return link ? [link] : [];
@@ -100,8 +108,17 @@ export function adjudicateScoutEvidence(topic: string, bundle: EvidenceBundle): 
   const unique = [...byUrl.values()].slice(0, 8);
   const independent = new Set(unique.map((link) => sourceFamily(link.url)).filter(Boolean));
   // Multiple mirrors of one release cannot establish two confirmations.
-  const independentReports = new Set(unique.filter((link) => !["reddit","hackernews","x","youtube"].includes(link.source))
-    .map((link) => sourceFamily(link.url)).filter(Boolean));
+  const independentReports = new Map<string, string>();
+  const syndicated = new Set<string>();
+  for (const link of unique.filter((entry) => !["reddit","hackernews","x","youtube"].includes(entry.source))) {
+    const family = sourceFamily(link.url);
+    if (!family) continue;
+    // Exact copied prose across hosts is syndication, not independent confirmation.
+    const fingerprint = (link.title + " " + link.snippet).toLowerCase().replace(/[^a-z0-9]+/g, " ").slice(0, 160);
+    if (syndicated.has(fingerprint)) continue;
+    syndicated.add(fingerprint);
+    independentReports.set(family, fingerprint);
+  }
   const hasPrimary = unique.some((link) => link.isPrimary);
   const evidenceStatus: ScoutEvidenceStatus =
     bundle.conflicts.length > 0 ? "contradicted" :
