@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Last30daysContractError, last30daysHealth, parseLast30daysAgent, parseLast30daysDiscovery } from "../scout-last30days.js";
 import { discoveryCandidates, readDiscoveryCache, refreshDiscovery, discoverNative } from "../scout-discovery.js";
-import { adjudicateScoutEvidence, evidenceMatches, sourceFamily } from "../scout-evidence.js";
+import { adjudicateScoutEvidence, evidenceMatches, sourceFamily, verifiedMustKnow } from "../scout-evidence.js";
 import { prepareScoutCandidates, scoutPreferenceSignal } from "../scout-editorial.js";
 import { noteworthyUpdate } from "../scout-stories.js";
 import type { EvidenceBundle, RankedEvidence } from "../../evidence/types.js";
@@ -163,6 +163,18 @@ describe("discovery and event curation", () => {
     expect(adjudicateScoutEvidence("Generative sound tool launches", bundle).evidenceStatus).toBe("contradicted");
     expect(evidenceMatches("Generative sound tool launches", toEvidence("https://other.example/independent"))).toBe(true);
     expect(sourceFamily("https://github.com/acme/tool/releases/1")).toBe("github:acme");
+  });
+
+  it("cannot issue a must-know alert merely because the ranker said must", async () => {
+    const example = { title: "A new coding engine launches", url: "https://example.com/launch" };
+    const unverified = await verifiedMustKnow([example], async () => ({
+      query: example.title, intent: "factual", generatedAt: new Date().toISOString(),
+      plan: { query: example.title, intent: "factual", depth: "quick", sourceWeights: {}, subqueries: [], maxResults: 5, maxPerStream: 3 },
+      evidence: [], conflicts: [], gaps: [{ code: "insufficient_evidence", message: "none" }], capabilityHealth: [],
+    }));
+    expect(unverified).toEqual([]);
+    const alreadyCorroborated = await verifiedMustKnow([{ ...example, evidenceStatus: "corroborated" as const }]);
+    expect(alreadyCorroborated).toHaveLength(1);
   });
 
   it("uses a public native fallback without inventing momentum or confirmation", async () => {
