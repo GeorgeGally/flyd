@@ -136,9 +136,16 @@ describe("Chief of Staff reports", () => {
     const store = new IntelligenceEventStore({ path: join(home, "intelligence.sqlite") });
     const objective = openObjective({ words: "do the thing", flydNotes: "", origin: { surface: "chat" } });
     let calls = 0;
-    const deps = { store, dispatch: (async () => ({ refused: "no" })) as Dispatch, complete: async () => "{}", say: async () => { calls += 1; if (calls === 1) throw new Error("store busy"); } };
+    let nowMs = Date.now();
+    const deps = { store, dispatch: (async () => ({ refused: "no" })) as Dispatch,
+      complete: async () => "{}", now: () => new Date(nowMs),
+      say: async () => { calls += 1; if (calls === 1) throw new Error("store busy"); } };
     await cosTick(deps);
-    expect([cosReports(objective.id, store).length, readObjective(objective.id)?.reportIds.length]).toEqual([0, 0]);
+    // The chosen result is durable before delivery, but it is NOT acknowledged.
+    expect([cosReports(objective.id, store).length, readObjective(objective.id)?.reportIds.length]).toEqual([1, 0]);
+    // A failed send's claim stays held for two minutes so another scheduler
+    // cannot immediately duplicate delivery. It is retried after lease expiry.
+    nowMs += 2 * 60_000 + 1;
     await cosTick(deps);
     await cosTick(deps);
     expect([calls, cosReports(objective.id, store).length, readObjective(objective.id)?.status]).toEqual([2, 1, "needs_george"]);
