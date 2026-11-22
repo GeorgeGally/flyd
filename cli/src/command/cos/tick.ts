@@ -8,6 +8,7 @@ import { sendRunMessage } from "../messages.js";
 import { readDomainRun } from "../store.js";
 import { judgeOperationalQuestion, operationalQuestionKey, type OperationalQuestion, type OperationalDisposition } from "./operational-judgment.js";
 import { judgeRecovery, type RecoveryInput, type RecoveryDisposition } from "./recovery.js";
+import { recordDslRollout } from "./decision-workflows/rollout-audit.js";
 import { resolveStrategicQuestion, type StrategicDecision } from "./strategic-judgment.js";
 import { cameBack, isAtWork } from "../run-state.js";
 import { shownLine } from "../report.js";
@@ -416,6 +417,12 @@ async function failed(objective: Objective, run: PlannedRun, key: string, why: s
     ? await deps.recoveryJudge(recoveryInput)
     : await judgeRecovery(recoveryInput, {
         store,
+        onDslResult: (mode, candidate, comparison) => {
+          // Observable rollout with zero raw source/model content. Telemetry
+          // must never turn a safe CoS judgment into an error.
+          try { recordDslRollout(store, recoveryInput, mode, candidate, comparison); }
+          catch { /* audit failures cannot authorize an effect */ }
+        },
         current: () => {
           const latest = readObjective(objective.id);
           const currentRun = latest && planOf(latest).find((entry) => entry.key === run.key);
