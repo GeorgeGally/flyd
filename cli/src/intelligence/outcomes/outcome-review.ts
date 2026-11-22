@@ -93,12 +93,18 @@ export function recordExplicitOutcomeReview(
     return "not_eligible";
   }
   const at = input.at ?? new Date();
-  const eligible = outcomeReviewCandidates(store, at, 2);
-  // An already-reviewed decision may be corrected, but must still have live,
-  // source-verified evidence. The candidate window intentionally stays bounded.
-  const reviewed = outcomeReviews(store);
-  const open = eligible.some((candidate) => candidate.decisionId === input.decisionId);
-  if (!open && !reviewed.has(input.decisionId)) return "not_eligible";
+  // Recheck the actual source on every write, including corrections. An
+  // erased or downgraded decision can never be rated just because an old
+  // review still exists.
+  const live = store.readSourcePage("executive.cycle", { limit: 300 })
+    .map((event) => parseExecutiveDecision(event.payload?.decision))
+    .find((decision) => decision?.decisionId === input.decisionId);
+  const createdAt = Date.parse(live?.createdAt ?? "");
+  if (!live || !live.show || live.disposition !== "handle_internally"
+    || live.verification.status !== "verified"
+    || !live.verification.evidenceRefs.length
+    || !Number.isFinite(createdAt) || at.getTime() < createdAt
+    || at.getTime() - createdAt > OUTCOME_REVIEW_WINDOW_MS) return "not_eligible";
 
   const key = "review:" + input.decisionId + ":" + input.verdict;
   if (store.findByIdempotencyKey(OUTCOME_REVIEW_SOURCE, key)) return "already_recorded";
