@@ -1,7 +1,7 @@
 # Flyd v10 — Self-Initiated Intelligence: From Curiosity to Verified Progress
 
 **Date:** 23 November 2026
-**Status:** PROPOSED PLAN — awaiting independent critical evaluation below; not implemented
+**Status:** REVIEWED AND REVISED IMPLEMENTATION PLAN — **not implemented**; adversarial evaluation and corrections in §9
 **Reviewed repository:** `GeorgeGally/flyd` main at `4f8e2cdf90585f7ea5387a5061eaa510bd9e0fc8` (GitHub source inspection)
 **Product authority:** `docs/product/flyd-personal-intelligence-prd.md` (sole authority)
 **Related validated plan:** `docs/plans/2026-11-16-beyond-turn-taking-participation-plan.md`, especially U1/U2/U5, which covers presentation participation and should not be rebuilt.
@@ -108,7 +108,7 @@ Start from **already permitted** state deltas and existing functions:
       resources: { estimatedCalls, tokenBudget, timeBudget },
       origin: "curiosity" | "council" | "scout" | "work_change" | "care",
       state: "candidate" | "investigating" | "prepared"
-        | "proposed" | "authorized" | "verified" | "shelved"
+        | "proposed" | "accepted_for_work" | "verified" | "shelved"
     }
 
 `id` = stable digest of **source identity + source revision + question class**, not `Date.now()` or paraphrase. New evidence/revision permits a new judgement; repeated ticks do not. Store via existing `IntelligenceEventStore` envelopes using permitted epistemic kinds (e.g. `inferred_belief` for hypotheses, `proposed_action` for suggested work, `executive_decision` for selection, `verified_outcome` only after verification). Don't create a competing Wiki/SQLite opportunity ledger. Use small projections over these events with provenance, retention and erasure.
@@ -156,7 +156,7 @@ Use existing `runtime/attention.ts`/`runtime/delivered.ts` for timing/receipt an
 
 **Critical tests:** corrected goal, completed task, unrelated Scout item, stale source, revoked consent, conflicting entity/person name, false contradiction, independent two-domain connection, no signal at all. Each produces either a grounded bounded candidate or a recorded reason to discard; never a confident invented claim.
 
-**Exit:** reproducible independent *questions* from ≥3 different consented domains without user prompts; candidates have evidence and a lifecycle, not a new notification stream.
+**Exit:** reproducible independent *questions* from at least three domains in **synthetic/consented fixtures** and at least two domains in a real opt-in pilot where those source contracts are available; each candidate has evidence, permission lineage and a lifecycle, not a new notification stream.
 
 ### P2 — Bounded curiosity and independent investigation
 
@@ -206,7 +206,7 @@ Record at each stage: what prompted the idea, what Flyd predicted, what was actu
 
 **Experience pilots:** creative connection; material business discrepancy; technical opportunity grounded in repo reality; stalled commitment; one personal-goal tension. Pilots require actual installed Mac/Core, real allowed contexts and consent. Test mobile/LIVE only after Core proof, preserving voice continuity and no extra hot-path model calls.
 
-**Exit:** verified, useful initiative across at least 3 domains with no ungranted effect, no missed protected approval, no fabricated private fact and acceptable attention/cost. An end-to-end Mac acceptance run is required before calling this “shipped.”
+**Exit:** verified, useful initiative in the actual consented pilot domains (at least two before expansion; a three-domain synthetic demonstration is required), no ungranted effect, no missed protected approval, no fabricated private fact and acceptable attention/cost. An end-to-end Mac acceptance run is required before calling this “shipped.”
 
 ## 6. Replay / evaluation specification (proposed acceptance targets, not results)
 
@@ -223,7 +223,7 @@ Label *separately*: accurate context, novelty, evidence, value of information, c
 **Hard gates:** zero unauthorized effects; zero unjustified protected-item suppression; zero known fabricated personal facts in held-out cases; no repeat of unknown outward effects; no egress from unconsented sources; no duplicate objective dispatch; revoked personal content hidden across views.
 
 **Quality targets for a subsequent real pilot (hypotheses; revise after baseline):**
-- At least 1 demonstrably helpful, not-user-requested insight or prepared result per active week spanning ≥3 domains across the pilot.
+- At least 1 demonstrably helpful, not-user-requested insight or prepared result per active week; pilot coverage spans at least two consented domains, with at least three separate domain cases validated synthetically before broader rollout.
 - At least half of the **surfaced** nonroutine suggestions judged useful in blinded review, with a clear explanation for those that weren't.
 - Better accepted/verified outcomes per user interruption and per actual model spend than the current baseline.
 - Decreased duplicate ideas; no compulsory daily quota of thoughts or notifications.
@@ -257,6 +257,77 @@ No fixed day count is promised without measuring actual integration, suite durat
 - No Gemini/Jev forced cascade; test bounded predicates using current model registry and measured Flyd-specific cases.
 - No automatic claiming of a deployed/verified personal assistant from GitHub test success alone.
 
-## 9. Critical evaluation (to be completed after drafting)
+## 9. Adversarial evaluation — second pass against current main
 
-**Pending a separate adversarial pass against the above plan and the existing repo paths.**
+**Verdict: approve the direction, not a blanket implementation of every proposed abstraction.** The first draft had the right product model but five weak points. Correct them before R1 implementation. This evaluation is based on inspected GitHub source and the earlier Nov 16 participation review; it is **not** a claim that the proposed design has been tested or independently peer-reviewed.
+
+### 9.1 Strongest arguments against this plan
+
+**Objection A — “You have already built curiosity. Why another initiative pipeline?”**
+The legacy daemon really does generate 3–5 original questions and investigate captured documents; `cli/src/commands/daemon.ts` runs a 4-hour attention and daily curiosity loop and writes Wiki reports. The production Council already generates evidence-linked critique and advice. If v10 adds a second periodic research agent or runs `ExecutiveCycle.consider`'s own delivery queue, v10 recreates the user's exact complaint: an organization that narrates its own work and consumes resources without agency. **Resolution:** R1 does not create any fresh executive scheduler/agent. Extract pure signal/question evaluation where safe, add **one** typed adapter into the existing event/agenda seams, and block all user-visible output in shadow. Keep legacy raw-indexing untouched until evidence of parity. Do not count running the legacy daemon as deploying the new personal-intelligence loop.
+
+**Objection B — “Consent can be valid for each source, but combining them may still violate purpose.”**
+A Scout item, personal memory and client project may be separately consented for different uses. A cross-domain synthesis can disclose more than any one source allows. Erasing a People source must invalidate not just one Calendar card but every derived opportunity or prepared artifact that depended on it. **Resolution:** for every multi-source candidate, evaluate the **intersection** of allowed purposes, sensitivity, retention, egress and revocation status before generation *and again before presentation/dispatch*. Persist complete source lineage in the canonical event; derive the effective least-permissive policy; tombstone/retract materialized cards and cached investigation outputs when any parent is revoked. Treat uncertain provenance as non-eligible, never “probably OK.” Add cross-source erasure/replay tests. Do not make existing Mac PRESENT a new observation feed.
+
+**Objection C — “An idea can quietly become a new job without his consent.”**
+A model may infer that George wants a project advanced. But accepting an objective and being interested in a project are not the same thing. Even writing a repo file for a “helpful prototype” may be an effect that requires a grant. **Resolution:** `accepted_for_work` is a lifecycle label **only**; it must point to a real user-accepted objective or explicitly verified scoped grant. It is not an authorization state. Persist the grant ID, target fingerprint, expiry, budget, verifier and CoS request ID on each effect. Lack of permission yields an ephemeral investigation or proposal—not a covert task. A revocation or superseded priority cancels pending new actions and re-evaluates any active task at a safe checkpoint.
+
+**Objection D — “A value-of-information ranker kills creativity and promotes productivity theater.”**
+Ranking only by urgency and clear ROI suppresses the surprising cross-domain idea that can be Flyd's most valuable contribution. Ranking by novelty alone incentivizes random and irrelevant suggestions. **Resolution:** maintain two conceptual queues in the **same scored decision process**: grounded leverage/risk cases and a tightly bounded speculative/serendipity lane. Both require evidence and a cheap test, but speculative ideas may pass with lower immediate expected value if they are genuinely distinctive, optional, reversible and inexpensive. Do not introduce an extra model or notification stream. Make subject-level dismissal/topic pause feed both lanes without suppressing unrelated discoveries.
+
+**Objection E — “A good model making an insight isn't a good experience.”**
+Current source already had different notions of selected, shown, notified and resolved. The Nov 16 plan diagnosed this, and `council/council.ts`, `council/advisors.ts`, `conversation-view/importance-judge.ts` now contain several relevant fixes. Ignoring these and rewarding cards produced would conflate outputs with benefits. **Resolution:** before any active release, test exactly-once source-linked display receipts, optional notification outcomes, protected user-owned decisions and cross-surface source revocation. A silent correct decision is positive; an invented pressing reason to interrupt fails. Keep the Nov 16 participation plan authoritative for presentation-level implementation detail.
+
+### 9.2 Corrections to implementation order
+
+These are **mandatory amendments** to ``5–7:
+
+1. **P0 scope/source proof comes before any scoring model.** First produce a table of available **consented** source classes, product authority, installed Core owner, legacy daemon role, existing Council output and deployment flags. Run protected receipt and interruption regression tests. If there are no consented sources for a domain, that domain cannot be promised as working.
+2. **P1 adds source-lineage and cross-purpose consent checks before any LLM-powered curiosity.** The `InitiativeCandidate` definition is only an in-memory/event projection. Do not copy legacy `wiki/curiosity-log.md` or raw captures as facts or create an “opportunities.db.” Define deterministic semantic deduplication for different source revisions/agents that raise **the same underlying question**, in addition to stable idempotency keys.
+3. **P2 uses cheap filters and an explicit stop condition before deeper research.** A question without credible potential to change a decision, artifact or knowledge gap is retired; a question with disconfirming evidence is marked refuted, not re-proposed on every tick. Reserve a small creativity lane, not an entitlement to publish.
+4. **P3's action permission check is a hard deterministic gate.** A model's `accepted_for_work` recommendation cannot create an actionable objective or spend resources outside standing mandates. All new background work must have budget/capability receipts.
+5. **P4 doesn't create a parallel attention policy.** Keep `runtime/attention.ts`, `runtime/delivered.ts` and Nov 16 participation U1/U2 as the only transport/receipt chain; extract `ExecutiveCycle`'s *pure scoring/digest* concepts only. Leave the fixed budget/queue implementation dormant unless later tests prove no double ownership.
+6. **P5 scores genuine outcomes and also missed opportunities.** Add a user-reviewable “why did Flyd surface/hold this?” evidence trail. Dismissal affects future topics but never overwrites verified goal facts. Attribute result quality to source freshness and research cost, not satisfaction alone.
+7. **R1's first slice is minimal:** one new question from a confirmed CoS technical failure and one cross-project idea drawn from permitted Scout/project facts; research each cheaply; preserve both as untrusted proposals, emit no unsolicited message. Only once both pass source, dedup, consent, evidence and spend tests does R2 begin.
+
+### 9.3 Hard engineering risks and concrete tests
+
+| Failure to falsify | Required test/mitigation | Release gate |
+|---|---|---|
+| Legacy daemon and Core investigate same curiosity topic twice | Same semantic candidate from daemon/Council/event feed yields one initiative key; no duplicate LLM calls, no duplicate CoS request | P1 |
+| Raw legacy capture silently becomes a LEARN source | Ineligible legacy raw source produces no candidate and zero external calls without a current source contract | P1 |
+| Cross-project synthesis leaks incompatible permissions | Intersection of source scopes denies candidate or downscopes allowed fields; revoked ancestor hides cached outputs | P1 |
+| One useful discovery triggers runaway research | Per-candidate and global spend, wall-time and model-call budgets; skip when unchanged; fail-safe under provider timeout | P2 |
+| Model "chooses" a repo edit without a grant | Grant/target/expiry verifier rejects; `accepted_for_work` alone does not act | P3 |
+| New idea duplicates George's active work | Compare semantic question, accepted objective, current CoS run and source revision; do not create a second objective | P3 |
+| Model-generated personal fact appears as verified | Explicit provenance check; factual claims must be source-grounded; uncertainty retained; absent source → no assertion | P2/P4 |
+| Quiet gate suppresses an essential approval | Deterministic protected-item bypass; model relevance cannot hide genuine user-owned/urgent call | P4 |
+| Proactive success metric is gamed through many cards | Holdout includes silent/no-op cases and a hidden important-opportunity recall set; evaluate useful verified outcomes per interruption | P5/P6 |
+| Mac and server each think they are Core writer | Canonical owner identity and lease; Mac-only data excluded until deliberately paired/consented | P0/P6 |
+
+### 9.4 Revised evaluation of the architecture
+
+| Dimension | Assessment | Reason |
+|---|---|---|
+| Strategic fit | **Strong** | Independent curiosity and useful follow-through directly serve the “personal intelligence” charter across domains. |
+| Reuse vs rebuilding | **Strong, conditional** | Existing curiosity, Council, CoS, events, attention, presentation and outcome machinery can serve v10 **only if** no parallel scheduler or truth store is added. |
+| Technical feasibility | **Moderate** | Consent-preserving source projections from legacy Wiki/daemon to modern Core are the real work; scoring itself is comparatively straightforward. |
+| Autonomy safety | **Moderate until P1/P3** | Model decisions help, but compound source permissions and grant-backed work must be enforced by code. |
+| User experience | **Promising, unverified** | Source-level CI cannot establish whether insights are genuinely insightful, properly timed or worth George's attention. |
+| Cost/operability | **Manageable if bounded** | The event-triggered design avoids an always-running model; real token, latency, and investigation counts must determine thresholds. |
+| Reversibility | **Good** | Shadow modes, source-lineage invalidation and existing authority/delivery systems permit rollback without inventing independent work streams. |
+
+**Strongest expert criticism:** This may still build an elegant *idea triage engine* that is not materially better than the already-existing Critic/Strategist and curiosity daemon. Do not judge R1 by “the system generated questions.” It passes only when those questions are substantially more relevant, cross-domain, falsifiable and useful than the baseline on **the same** consented evidence. If they are not, stop after P0 and improve existing Council/curiosity prompts and evidence routing instead of continuing to P2–P6.
+
+**Decision after review:** **Approve P0 + a tightly scoped P1/R1 prototype**, not automatic construction of the entire platform. Advancement beyond R1 depends on a measurable novelty/grounding and safety win over existing Council + legacy curiosity. This gate prevents expensive overbuilding while preserving the full ambitious product goal.
+
+## 10. One clear engineering starting point
+
+With an isolated checkout of current main and synthetic/consented fixture data, reproduce this full trace:
+
+`verified CoS outcome + relevant Scout/project evidence → one independently formed question → bounded local investigation → provenance-linked, consent-valid hypothesis/proposal event → policy decision to remain silent → replay proves no duplicate research and no unauthorized dispatch.`
+
+Then run the counterexample: revoke a source, change the goal, and rerun the tick. The derived insight must disappear or be recomputed under remaining allowed evidence; no second model call, no stale visible card, no outside effect, and no spurious task for George.
+
+**Nothing in this plan authorizes production background sensing, real-data migration, or autonomous high-impact actions.**
+
