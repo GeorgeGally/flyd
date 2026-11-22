@@ -71,6 +71,7 @@ const old = {
   FLYD_COS_DECISION_DSL: process.env.FLYD_COS_DECISION_DSL,
   FLYD_COS_DSL_SHADOW_CALLS: process.env.FLYD_COS_DSL_SHADOW_CALLS,
   FLYD_COS_DSL_CANARY_PERCENT: process.env.FLYD_COS_DSL_CANARY_PERCENT,
+  FLYD_COS_DSL_PRIVATE_REASONING: process.env.FLYD_COS_DSL_PRIVATE_REASONING,
 };
 afterEach(() => {
   for (const [key, value] of Object.entries(old)) {
@@ -235,6 +236,34 @@ describe("bounded live CoS DSL rollout", () => {
       });
       expect(selected.action).toBe("rebrief");
       expect(calls).toBe(1);
+    } finally { store.close(); }
+  });
+
+  it("escalates computational effort privately once, not George's attention", async () => {
+    process.env.FLYD_COS = "1";
+    process.env.FLYD_COS_DECISION_DSL = "on";
+    process.env.FLYD_COS_DSL_PRIVATE_REASONING = "1";
+    const store = new IntelligenceEventStore({ path: ":memory:" });
+    let fastCalls = 0, privateCalls = 0;
+    const opts = {
+      store, dslExecutor: adapter,
+      evaluate: async () => { fastCalls++; return evaluation("rebrief_with_different_tactic", 0.5); },
+      strategic: async () => {
+        privateCalls++;
+        return { kind: "internal" as const, reason: "test", message: "Investigate new evidence and verify." };
+      },
+    };
+    try {
+      const first = await judgeRecovery(input, opts);
+      expect(first.action).toBe("rebrief");
+      expect(first.reason).toMatch(/Investigate new evidence/);
+      const second = await judgeRecovery(input, opts);
+      expect(second.action).toBe("hold");
+      expect(fastCalls).toBe(1);
+      expect(privateCalls).toBe(1);
+      const trail = store.readSource("cos.dsl.private");
+      expect(trail).toHaveLength(1);
+      expect(JSON.stringify(trail)).not.toContain(input.failure);
     } finally { store.close(); }
   });
 
