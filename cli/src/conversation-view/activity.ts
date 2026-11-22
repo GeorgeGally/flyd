@@ -41,6 +41,8 @@ export interface ActivityStory {
   confidence?: "multi-source" | "single-source";
   evidenceStatus?: "corroborated" | "single-source" | "unverified" | "contradicted";
   updatedFrom?: string;
+  evidenceSnippets?: string[];
+  evidenceCheckedAt?: string;
   /** Its number in the latest edition: only an edition story can be told "more" or "less" like it. */
   n?: number;
   /** Same-origin picture, once the article's og:image has been fetched and kept. Never a remote URL. */
