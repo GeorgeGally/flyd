@@ -129,6 +129,24 @@ export const TRANSITION_JUDGE_CONTRACT: SourceContract = {
   enabledByDefault: true,
 };
 
+/**
+ * Separate opt-in to generalizing explicit outcome ratings. A review can
+ * appear on the user's screen without this grant. Only an explicit user
+ * enablement may pass aggregated negative patterns to the configured
+ * improvement model; no personal source text is forwarded.
+ */
+export const OUTCOME_REVIEW_LEARNING_CONTRACT: SourceContract = {
+  sourceId: "learning.outcome-reviews",
+  displayName: "Learn from my outcome ratings",
+  sensitivity: "low",
+  scopes: ["explicit.outcome-review.learning"],
+  retentionClass: "local_default",
+  retentionDays: 90,
+  egressDestinations: ["configured.improvement.model"],
+  purpose: "Summarize repeated explicit usefulness feedback on independently verified work for human-gated Flyd improvements; never auto-activate policies.",
+  enabledByDefault: false,
+};
+
 export const EXPERIENCE_RUNTIME_CONTRACT: SourceContract = {
   sourceId: "experience.runtime",
   displayName: "Runtime experience traces",
