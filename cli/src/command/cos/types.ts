@@ -105,6 +105,8 @@ export interface Objective {
   /** His corrections, in order, with the run each one targeted. */
   corrections?: Array<{ revision: number; run: string; text: string; at: string }>;
   adaptations?: Adaptation[];
+  /** Accepted correction messages awaiting idempotent delivery to their domain runs. */
+  pendingCorrections?: Array<{ revision: number; runId: string; text: string }>;
   /** What it waits on George for, once asked (v8 Phase 7): every wait carries a question, and his reply resumes it. */
   waitingOn?: Waiting;
   /** He set the wait aside until then: nothing is raised again before, and the rest of the work carries on. */
