@@ -171,6 +171,27 @@ describe("Flyd v10 source-grounded curiosity", () => {
     } finally { db.close(); }
   });
 
+  it("retains one unexpected creative connection when routine operational concerns dominate ranking", async () => {
+    const tmp = dir(); const db = store(tmp);
+    try {
+      const advices = ["Review the missing unit tests for typography", "Review the missing regression tests", "Review the missing contract tests"]
+        .map((text, index) => ({
+          ...advisory, id: "operational-" + index, text,
+          urgency: "high" as const, confidence: "high" as const,
+        }));
+      const result = await runInitiativeCycle({
+        now: () => now, store: db, projects: () => [project],
+        edition: () => edition, advisories: () => advices,
+        mode: "shadow", consented: () => true, maxInvestigations: 2,
+      });
+      expect(result.investigated).toBe(2);
+      const proposals = db.readSource("initiative.curated")
+        .filter(event => event.kind === "proposed_action").map(event => event.payload);
+      expect(proposals.some(item => item?.origin === "scout")).toBe(true);
+      expect(proposals).toHaveLength(2);
+    } finally { db.close(); }
+  });
+
   it("publishes no more than one quiet card, without requiring a new task or notification", async () => {
     const tmp = dir(); const db = store(tmp);
     const seen = new Set<string>(); const cards: ActivityRecord[] = [];
