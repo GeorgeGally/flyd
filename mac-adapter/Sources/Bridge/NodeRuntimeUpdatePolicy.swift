@@ -2,7 +2,7 @@ import Foundation
 
 /// Safe diagnostic from the authenticated loopback Core, not from a shell
 /// spawned by the Mac adapter. No credentials, receipts or personal data.
-struct NodeRuntimeDiagnostic: Decodable, Equatable {
+struct NodeRuntimeDiagnostic: Codable, Equatable {
     let mode: String
     let enabled: Bool
     let reason: String
