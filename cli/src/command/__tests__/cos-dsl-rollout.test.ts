@@ -1,0 +1,218 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { IntelligenceEventStore } from "../../intelligence/event-store.js";
+import { questionFor, predicateThreshold } from "../../cognition/system-one/registry.js";
+import type { PredicateEvaluation } from "../../cognition/system-one/types.js";
+import { judgeRecovery, type RecoveryInput } from "../cos/recovery.js";
+import {
+  dslMode, runRecoveryDsl, selectedForCanary, supportsAgentRunNode, type DslExecutor,
+} from "../cos/decision-workflows/recovery-runner.js";
+import { recoveryWorkflow, recoveryWorkflowDigest } from "../cos/decision-workflows/recovery-workflow.js";
+
+const input: RecoveryInput = {
+  objective: {
+    id: "obj-dsl-test", briefRevision: 2,
+    words: "Fix the component test", adaptations: [],
+  },
+  run: { key: "r1", team: "coding", outcome: "Fix unit test", attempt: 1, ref: "domain-run-internal" },
+  failure: "component test fails", retryable: true, effectKnownInternal: true,
+};
+const q = questionFor("cos_recovery_tactic");
+function evaluation(choice = "rebrief_with_different_tactic", p = 0.97): PredicateEvaluation {
+  return {
+    evaluator: "jev", ok: true, rubricVersion: "test",
+    projectionHash: "opaque", latencyMs: 1, evaluatedAt: "2026-11-22T00:00:00Z",
+    answers: {
+      cos_recovery_tactic: {
+        id: "cos_recovery_tactic", type: "choice", choice, probability: p, confidence: p,
+        probabilities: {
+          rebrief_with_different_tactic: choice === "rebrief_with_different_tactic" ? p : 1 - p,
+          hold_for_evidence: choice === "hold_for_evidence" ? p : 1 - p,
+        },
+      },
+    },
+  };
+}
+const adapter: DslExecutor = {
+  validateWorkflow: () => ({ ok: true }),
+  async runWorkflow(_workflow, _input, deps) {
+    const a = await deps.runEffect({
+      node: { via: "tool", tool: "cos.internal-evidence" },
+      input: { key: _input.sourceKey },
+    });
+    const result = await deps.runJudge({
+      kind: "judge",
+      state: {
+        source_kind: "domain_failure",
+        source_state: _input.source_state,
+        summary: _input.summary,
+        question: _input.question,
+        options: _input.options,
+        goal_context: _input.goal_context,
+        evidence_refs: a.references,
+      },
+      questions: {
+        cos_recovery_tactic: { type: "choice", instructions: q.instructions, criteria: q.criteria },
+      },
+    });
+    const answer = result.answers.cos_recovery_tactic;
+    await deps.recordDecision({
+      status: "answered", id: "decision-stable", state_sha256: "redacted-hash",
+      answers: result.answers, model: result.model, cost_usd: result.cost_usd,
+    });
+    const gate = predicateThreshold("cos_recovery_tactic");
+    const allowed = a.verified && answer.choice === "rebrief_with_different_tactic"
+      && answer.confidence >= gate && answer.probabilities[answer.choice] >= gate;
+    return { status: "complete", output: { action: allowed ? "rebrief" : "hold" } };
+  },
+};
+const old = {
+  FLYD_COS: process.env.FLYD_COS,
+  FLYD_COS_DECISION_DSL: process.env.FLYD_COS_DECISION_DSL,
+  FLYD_COS_DSL_SHADOW_CALLS: process.env.FLYD_COS_DSL_SHADOW_CALLS,
+  FLYD_COS_DSL_CANARY_PERCENT: process.env.FLYD_COS_DSL_CANARY_PERCENT,
+};
+afterEach(() => {
+  for (const [key, value] of Object.entries(old)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+});
+
+describe("bounded live CoS DSL rollout", () => {
+  it("has a source-controlled v2 workflow with no external-effect nodes", () => {
+    const doc = recoveryWorkflow();
+    expect(doc.v).toBe(2);
+    expect(recoveryWorkflowDigest()).toMatch(/^[a-f0-9]{64}$/);
+    const serialized = JSON.stringify(doc);
+    expect(serialized).not.toMatch(/"via":"shell"|"tool":"send"|"tool":"exec"/);
+    expect(serialized).toContain("cos.internal-evidence");
+  });
+
+  it("defaults to off; cohort selection is deterministic and false for invalid percentages", () => {
+    expect(dslMode("unknown")).toBe("off");
+    expect(selectedForCanary("objective:r1", "0")).toBe(false);
+    expect(selectedForCanary("objective:r1", "abc")).toBe(false);
+    expect(selectedForCanary("objective:r1", "100")).toBe(true);
+    expect(selectedForCanary("objective:r1", "13")).toBe(selectedForCanary("objective:r1", "13"));
+    expect(supportsAgentRunNode("22.16.0")).toBe(false);
+    expect(supportsAgentRunNode("24.22.2")).toBe(false);
+    expect(supportsAgentRunNode("24.22.3")).toBe(true);
+  });
+
+  it("writes an idempotent, redacted decision before branching and reuses it after restart", async () => {
+    const store = new IntelligenceEventStore({ path: ":memory:" });
+    let calls = 0;
+    const options = {
+      store, executor: adapter,
+      evaluate: async () => { calls++; return evaluation(); },
+    };
+    try {
+      const first = await runRecoveryDsl(input, {
+        source_state: "coding", summary: "private secret sk-not-allowed-in-a-record",
+        question: "Fix test", options: ["rebrief", "hold"],
+        goal_context: "Fix code",
+      }, options);
+      expect(first).toMatchObject({ kind: "decided", action: "rebrief", replayed: false });
+      expect(calls).toBe(1);
+      const second = await runRecoveryDsl(input, {
+        source_state: "coding", summary: "private secret sk-not-allowed-in-a-record",
+        question: "Fix test", options: ["rebrief", "hold"],
+        goal_context: "Fix code",
+      }, options);
+      expect(second).toMatchObject({ kind: "decided", action: "rebrief", replayed: true });
+      expect(calls).toBe(1);
+      const all = store.readSource("cos.dsl.recovery");
+      expect(all).toHaveLength(2);
+      const payloads = JSON.stringify(all);
+      expect(payloads).not.toContain("sk-not-allowed-in-a-record");
+      expect(payloads).not.toContain("Fix test");
+      expect(payloads).not.toContain("private secret");
+      expect(all.map((e) => e.payload?.phase)).toEqual(["started", "answered"]);
+    } finally { store.close(); }
+  });
+
+  it("records an uncertain provider request once and never asks a second time", async () => {
+    const store = new IntelligenceEventStore({ path: ":memory:" });
+    let calls = 0;
+    const options = {
+      store, executor: adapter,
+      evaluate: async (): Promise<PredicateEvaluation> => {
+        calls++; return { ...evaluation(), ok: false, answers: {}, error: "jev_http_503" };
+      },
+    };
+    try {
+      const first = await runRecoveryDsl(input, { source_state: "coding", summary: "test", question: "fix",
+        options: ["rebrief", "hold"], goal_context: "test" }, options);
+      expect(first.kind).toBe("hold");
+      const second = await runRecoveryDsl(input, { source_state: "coding", summary: "test", question: "fix",
+        options: ["rebrief", "hold"], goal_context: "test" }, options);
+      expect(second.kind).toBe("hold");
+      expect(calls).toBe(1);
+    } finally { store.close(); }
+  });
+
+  it("rejects a changed objective without starting a provider call", async () => {
+    let calls = 0;
+    const result = await runRecoveryDsl(input, {}, {
+      executor: adapter, testOnlyUndurable: true,
+      current: () => false, evaluate: async () => { calls++; return evaluation(); },
+    });
+    expect(result.kind).toBe("hold");
+    expect(calls).toBe(0);
+  });
+
+  it("keeps legacy recovery with the switch off, and safely holds protected work", async () => {
+    process.env.FLYD_COS = "1";
+    process.env.FLYD_COS_DECISION_DSL = "off";
+    let calls = 0;
+    const run = () => judgeRecovery(input, { dslExecutor: adapter, evaluate: async () => { calls++; return evaluation(); } });
+    expect((await run()).action).toBe("rebrief");
+    expect(calls).toBe(1);
+    process.env.FLYD_COS_DECISION_DSL = "on";
+    const forbidden = { ...input, objective: { ...input.objective, words: "Send email to client" } };
+    expect((await judgeRecovery(forbidden, { dslExecutor: adapter, evaluate: async () => {
+      calls++; return evaluation();
+    } })).action).toBe("hold");
+    expect(calls).toBe(1);
+  });
+
+  it("uses one live DSL path and does not double-call the legacy provider", async () => {
+    process.env.FLYD_COS = "1";
+    process.env.FLYD_COS_DECISION_DSL = "on";
+    const store = new IntelligenceEventStore({ path: ":memory:" });
+    let calls = 0;
+    try {
+      const selected = await judgeRecovery(input, {
+        store, dslExecutor: adapter,
+        evaluate: async () => { calls++; return evaluation(); },
+      });
+      expect(selected.action).toBe("rebrief");
+      expect(calls).toBe(1);
+    } finally { store.close(); }
+  });
+
+  it("keeps shadow candidate decisions invisible and opt-in", async () => {
+    process.env.FLYD_COS = "1";
+    process.env.FLYD_COS_DECISION_DSL = "shadow";
+    let calls = 0; const shadows: string[] = [];
+    const options = {
+      dslExecutor: adapter,
+      evaluate: async () => { calls++; return evaluation("hold_for_evidence", 0.96); },
+      onDslResult: (_mode: "shadow" | "canary" | "on", result: {kind:string}) => { shadows.push(result.kind); },
+    };
+    expect((await judgeRecovery(input, options)).action).toBe("hold");
+    expect(calls).toBe(1);
+    process.env.FLYD_COS_DSL_SHADOW_CALLS = "1";
+    expect((await judgeRecovery(input, options)).action).toBe("hold");
+    expect(calls).toBe(3);
+    expect(shadows).toEqual(["decided"]);
+  });
+
+  it("falls back to the legacy handler when a compatible interpreter is unavailable", async () => {
+    process.env.FLYD_COS = "1";
+    process.env.FLYD_COS_DECISION_DSL = "on";
+    // No injected Node 24 interpreter and no decision store; this is proven pre-send.
+    const decision = await judgeRecovery(input, { evaluate: async () => evaluation() });
+    expect(decision.action).toBe("rebrief");
+  });
+});
