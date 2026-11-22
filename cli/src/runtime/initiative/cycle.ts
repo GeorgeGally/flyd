@@ -140,7 +140,11 @@ export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<
       .sort((a, b) => b.decision.score - a.decision.score)
       .slice(0, Math.max(0, Math.min(4, deps.maxInvestigations ?? 2)));
     for (const { candidate, decision } of evaluated) {
-      const key = candidate.id + ":" + decision.revision;
+      // A revoked/erased generation can later be explicitly renewed. Prior
+      // erased rows keep their idempotency keys for audit, so the new consent
+      // generation must have a distinct digest without restoring old content.
+      const generation = store.latestTombstone(INITIATIVE_CURATED_CONTRACT.sourceId)?.erasedAt ?? "initial";
+      const key = generation + ":" + candidate.id + ":" + decision.revision;
       if (!candidate.sources.every(valid)) { result.skipped++; continue; }
       const created = store.transaction(() => {
         if (store.findByIdempotencyKey(INITIATIVE_CURATED_CONTRACT.sourceId, "decision:" + key)) return false;
@@ -174,7 +178,11 @@ export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<
       for (const { candidate, decision } of evaluated) {
         if (decision.attention !== "ambient" || result.published >= 1 || (deps.countPublished ?? countInitiativeCards)(dayOf(now)) >= 1) continue;
         if (!candidate.sources.every(valid)) continue;
-        const key = candidate.id + ":" + decision.revision;
+        // A revoked/erased generation can later be explicitly renewed. Prior
+      // erased rows keep their idempotency keys for audit, so the new consent
+      // generation must have a distinct digest without restoring old content.
+      const generation = store.latestTombstone(INITIATIVE_CURATED_CONTRACT.sourceId)?.erasedAt ?? "initial";
+      const key = generation + ":" + candidate.id + ":" + decision.revision;
         if (!store.findByIdempotencyKey(INITIATIVE_CURATED_CONTRACT.sourceId, "finding:" + key)) continue;
         const card = initiativeActivity(candidate);
         const previously = (deps.seen ?? initiativeCardRecorded)(card.key!);
