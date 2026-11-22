@@ -90,10 +90,14 @@ assert.equal(valid.ok, true, JSON.stringify(valid));
   const previous = process.env.FLYD_COS_DSL_MODULE;
   const previousCos = process.env.FLYD_COS;
   const previousMode = process.env.FLYD_COS_DECISION_DSL;
+  const previousJev = process.env.FLYD_JEV_ENABLED;
+  const previousKey = process.env.TYPESAFE_API_KEY;
   const store = new IntelligenceEventStore({ path: ":memory:" });
   delete process.env.FLYD_COS_DSL_MODULE;
   delete process.env.FLYD_COS_DECISION_DSL;
   process.env.FLYD_COS = "1";
+  process.env.FLYD_JEV_ENABLED = "true";
+  process.env.TYPESAFE_API_KEY = "scripted-test-only-not-a-real-key";
   try {
     const readiness = await agentRunActivationStatus();
     assert.equal(readiness.enabled, true, JSON.stringify(readiness));
@@ -115,6 +119,10 @@ assert.equal(valid.ok, true, JSON.stringify(valid));
     else process.env.FLYD_COS = previousCos;
     if (previousMode === undefined) delete process.env.FLYD_COS_DECISION_DSL;
     else process.env.FLYD_COS_DECISION_DSL = previousMode;
+    if (previousJev === undefined) delete process.env.FLYD_JEV_ENABLED;
+    else process.env.FLYD_JEV_ENABLED = previousJev;
+    if (previousKey === undefined) delete process.env.TYPESAFE_API_KEY;
+    else process.env.TYPESAFE_API_KEY = previousKey;
   }
 }
 
