@@ -92,6 +92,13 @@ describe("bounded live CoS DSL rollout", () => {
 
   it("defaults to off; cohort selection is deterministic and false for invalid percentages", () => {
     expect(dslMode("unknown")).toBe("off");
+    // George's 2026-11-23 activation: default on only in a compatible Core.
+    expect(dslMode("", "24.22.3")).toBe("on");
+    expect(dslMode("", "24.23.0")).toBe("on");
+    expect(dslMode("", "22.16.0")).toBe("off");
+    expect(dslMode("", "24.22.2")).toBe("off");
+    expect(dslMode("off", "24.22.3")).toBe("off");
+    expect(dslMode("canary", "24.22.3")).toBe("canary");
     expect(selectedForCanary("objective:r1", "0")).toBe(false);
     expect(selectedForCanary("objective:r1", "abc")).toBe(false);
     expect(selectedForCanary("objective:r1", "100")).toBe(true);
