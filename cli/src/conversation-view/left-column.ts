@@ -285,7 +285,9 @@ export const LEFT_SCRIPT = `
     drawActivity();
     setLeft();
   }
-  leftOpenEl.addEventListener("click", function () { chooseLeft(!leftShown()); });
+  // A feedback-only column starts closed even on a wide display. The
+  // button follows actual visibility, not the default wide-screen preference.
+  leftOpenEl.addEventListener("click", function () { chooseLeft(leftEl.hidden); });
   leftToggleEl.addEventListener("click", function () { chooseLeft(!leftIsOpen()); });
   leftHideEl.addEventListener("click", function () { chooseLeft(false); });
   // Heard last, on the window: an Escape that closed something else is not his word to put the column away.
