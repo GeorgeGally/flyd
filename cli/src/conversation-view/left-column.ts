@@ -95,8 +95,17 @@ export const LEFT_SCRIPT = `
   function leftIsOpen() { return leftPref === "on" || (leftPref !== "off" && !!leftWide && leftWide.matches); }
   function leftShown() { return leftIsOpen() || (leftAuto && !!leftWide && leftWide.matches); }
   function leftNeedIds() {
-    var ids = leftCallIds.slice();
-    Array.prototype.forEach.call(leftSemanticEl.children, function (card) { if (card.dataset.semanticId) ids.push(card.dataset.semanticId); });
+    var ids = leftCallIds.filter(function (id) { return id.indexOf("outcome-review:") !== 0; });
+    Array.prototype.forEach.call(leftSemanticEl.children, function (card) {
+      if (card.dataset.semanticId && card.dataset.semanticId.indexOf("outcome-review:") !== 0) ids.push(card.dataset.semanticId);
+    });
+    return ids;
+  }
+  function leftFeedbackIds() {
+    var ids = [];
+    Array.prototype.forEach.call(leftSemanticEl.children, function (card) {
+      if (card.dataset.semanticId && card.dataset.semanticId.indexOf("outcome-review:") === 0) ids.push(card.dataset.semanticId);
+    });
     return ids;
   }
   function setNeeds(ids) {
@@ -105,17 +114,21 @@ export const LEFT_SCRIPT = `
   }
   function setLeft() {
     var ids = leftNeedIds();
+    var feedback = leftFeedbackIds();
     var fresh = ids.filter(function (id) { return leftSeen.indexOf(id) < 0; });
     if (fresh.length) {
       leftSeen = leftSeen.concat(fresh).slice(-300);
       store("flyd-left-seen", JSON.stringify(leftSeen));
       if (leftWide && leftWide.matches) leftAuto = true;
     }
-    var on = ids.length > 0 && leftShown();
+    // Optional feedback is reachable in the header but never opens this
+    // column uninvited. Only a real decision may trigger the auto-open.
+    var on = ids.length > 0 ? leftShown() : feedback.length > 0 && leftPref === "on";
     document.documentElement.setAttribute("data-left", on ? "open" : "off");
     leftEl.hidden = !on;
-    leftOpenEl.hidden = !ids.length;
-    leftOpenEl.textContent = "Needs you" + (ids.length ? " · " + ids.length : "");
+    leftOpenEl.hidden = !ids.length && !feedback.length;
+    leftOpenEl.textContent = ids.length ? "Needs you · " + ids.length : feedback.length ? "Feedback · " + feedback.length : "Needs you";
+    leftEl.querySelector(".left-tab span").textContent = ids.length ? "Needs you" : "Feedback";
     leftOpenEl.setAttribute("aria-pressed", String(on));
     leftToggleEl.setAttribute("aria-checked", String(leftIsOpen()));
   }
@@ -184,7 +197,7 @@ export const LEFT_SCRIPT = `
       line: "",
       detail: activity.detail || activity.summary || "",
       detailWhen: at ? dayOf(at) + ", " + clock(at) : "",
-      dismiss: phase === "finished" || lab,
+      dismiss: phase === "finished" || lab || activity.id.indexOf("outcome-review:") === 0,
       onHide: drawActivity,
       chat: true,
     }, chatOpts({ key: key, kind: visual, title: activity.subject, when: when, line: activity.summary || "", detail: activity.decision && phase === "needs_you" ? activity.decision.question : activity.detail || "", evidence: activity.evidence, detailWhen: at ? dayOf(at) + ", " + clock(at) : "" })));
