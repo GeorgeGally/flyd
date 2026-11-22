@@ -92,6 +92,7 @@ describe("typed measured outcome safety", () => {
     const measured = recordOutcome(store, {
       interventionId: i.interventionId, attribution: "direct_verified",
       metric: { metricName: "latency", baseline: 100, observed: 80, direction: "lower_is_better", evidenceRef: "event:latency" },
+      assessedAt: new Date(Date.parse(i.occurredAt) + 3_600_000),
     });
     expect(materializeEpisodes([i], [measured]).episodes[0]?.metricDelta).toBe(20);
   });
