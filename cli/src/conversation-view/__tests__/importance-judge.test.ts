@@ -42,6 +42,24 @@ describe("ImportanceJudge", () => {
     expect(bodies).toHaveLength(1);
   });
 
+  it("protects actionable decisions and independently reviewed completions without a Jev call", async () => {
+    const { judge, bodies } = jev(0.01);
+    const required: ShowItem = {
+      id: "call:invoice", kind: "call", headline: "Your approval is needed",
+      why: "", decision: { task: "invoice", question: "Approve payment?", choices: ["Approve", "Decline"] },
+    };
+    const completed: ShowItem = {
+      id: "landed:release", kind: "landed", headline: "The requested release merged",
+      why: "", executiveDecisionId: "decision:release",
+    };
+    expect(judge.matters(required)).toBe(true);
+    expect(judge.asked(required)).toBe(true);
+    expect(await judge.request(required, [])).toBe(false);
+    expect(judge.matters(completed)).toBe(true);
+    expect(await judge.request(completed, [])).toBe(false);
+    expect(bodies).toHaveLength(0);
+  });
+
   it("says the screen must change only when an item comes off it", async () => {
     expect(await jev(0.1).judge.request(stale, [])).toBe(true);
     expect(await jev(0.95).judge.request(stale, [])).toBe(false);
