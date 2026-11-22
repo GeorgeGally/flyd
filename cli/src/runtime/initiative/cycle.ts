@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import { validateEnvelope, type ContextEnvelope } from "../../intelligence/context-envelope.js";
@@ -7,8 +7,8 @@ import { latestEdition, type Edition } from "../../council/scout.js";
 import { openAdvisories, type Advisory } from "../../council/advisors.js";
 import { activityRecordPath, recordActivity, type ActivityRecord } from "../../conversation-view/activity.js";
 import { FLYD_DIR } from "../../lib/config.js";
-import { deriveInitiatives, type InitiativeCandidate, type InitiativeSource } from "./candidates.js";
-import { decideInitiative, inspectInitiative, safeInitiativePayload, type InitiativeDecision } from "./policy.js";
+import { deriveInitiatives, initiativeRevision, type InitiativeCandidate, type InitiativeSource } from "./candidates.js";
+import { decideInitiative, inspectInitiative, safeInitiativePayload } from "./policy.js";
 
 /**
  * One synchronous, local, side-effect-bounded run inside the EXISTING agenda
@@ -45,7 +45,29 @@ export interface InitiativeRunResult {
   reasons: string[];
 }
 
-function envDate(now: Date): string { return now.toISOString().slice(0, 10); }
+function dayOf(now: Date): string { return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`; }
+
+/** Reuse Activity’s own record file instead of creating a notification budget store. */
+export function countInitiativeCards(day: string, path = activityRecordPath()): number {
+  try {
+    const seen = new Set<string>();
+    for (const row of readFileSync(path, "utf8").split("\n")) {
+      try {
+        const item = JSON.parse(row) as ActivityRecord;
+        if (item.key?.startsWith("initiative:") && item.at && dayOf(new Date(item.at)) === day) seen.add(item.key);
+      } catch { /* invalid/incomplete rows do not count */ }
+    }
+    return seen.size;
+  } catch { return 0; }
+}
+
+export function initiativeCardRecorded(key: string, path = activityRecordPath()): boolean {
+  try {
+    return readFileSync(path, "utf8").split("\n").some(line => {
+      try { return (JSON.parse(line) as ActivityRecord).key === key; } catch { return false; }
+    });
+  } catch { return false; }
+}
 function permitted(source: InitiativeSource): boolean {
   return source.scope === "public"
     || (source.scope === "local_operational" && /^(?:project:|council:|cos:)/.test(source.id));
@@ -70,7 +92,7 @@ export function initiativeActivity(candidate: InitiativeCandidate): ActivityReco
     "Sources: " + candidate.sources.map(s => s.evidenceRef).join(", "),
   ].join("\n");
   return {
-    key: "initiative:" + candidate.id + ":" + candidate.sources.map(s => s.revision).join("|").slice(0, 55),
+    key: "initiative:" + candidate.id + ":" + initiativeRevision(candidate.sources),
     kind: "noted", state: "done", at: candidate.createdAt, expiresAt: candidate.expiresAt,
     title: candidate.origin === "cos_failure" ? "A possible recurring obstacle" : "A connection worth exploring",
     line: candidate.question.slice(0, 230),
@@ -110,7 +132,7 @@ export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<
       .slice(0, Math.max(0, Math.min(4, deps.maxInvestigations ?? 2)));
     for (const { candidate, decision } of evaluated) {
       const key = candidate.id + ":" + decision.revision;
-      if (!valid(candidate.sources[0]!)) { result.skipped++; continue; }
+      if (!candidate.sources.every(valid)) { result.skipped++; continue; }
       const created = store.transaction(() => {
         if (store.findByIdempotencyKey("initiative.v10", "decision:" + key)) return false;
         const decisionPayload: Record<string, unknown> = {
@@ -141,20 +163,12 @@ export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<
     // shadow never imply a notification or that George saw the idea.
     if (mode === "on") {
       for (const { candidate, decision } of evaluated) {
-        if (decision.attention !== "ambient" || result.published >= 1) continue;
+        if (decision.attention !== "ambient" || result.published >= 1 || countInitiativeCards(dayOf(now)) >= 1) continue;
         if (!candidate.sources.every(valid)) continue;
         const key = candidate.id + ":" + decision.revision;
         if (!store.findByIdempotencyKey("initiative.v10", "finding:" + key)) continue;
         const card = initiativeActivity(candidate);
-        const previously = deps.seen
-          ? deps.seen(card.key!)
-          : (() => {
-              try {
-                if (!existsSync(activityRecordPath())) return false;
-                // Only the existing record writer creates the card; see below.
-                return false;
-              } catch { return false; }
-            })();
+        const previously = (deps.seen ?? initiativeCardRecorded)(card.key!);
         if (previously) continue;
         (deps.record ?? recordActivity)(card);
         result.published++;
