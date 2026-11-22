@@ -8,6 +8,7 @@ import { sendRunMessage } from "../messages.js";
 import { readDomainRun } from "../store.js";
 import { judgeOperationalQuestion, operationalQuestionKey, type OperationalQuestion, type OperationalDisposition } from "./operational-judgment.js";
 import { judgeRecovery, type RecoveryInput, type RecoveryDisposition } from "./recovery.js";
+import { recordDslRollout } from "./decision-workflows/rollout-audit.js";
 import { resolveStrategicQuestion, type StrategicDecision } from "./strategic-judgment.js";
 import { cameBack, isAtWork } from "../run-state.js";
 import { shownLine } from "../report.js";
@@ -406,12 +407,38 @@ function completed(objective: Objective, run: PlannedRun, key: string): void {
  */
 async function failed(objective: Objective, run: PlannedRun, key: string, why: string, detail: string, deps: CosTickDeps, store: IntelligenceEventStore, retryable: boolean): Promise<void> {
   const reason = why && !unfitForHim(why).length ? why : "";
-  const recovery = await (deps.recoveryJudge ?? judgeRecovery)({
+  const recoveryInput: RecoveryInput = {
     objective, run,
     failure: reason || "A team could not finish the work.",
     retryable,
     effectKnownInternal: retryable && !run.ref?.includes(":"),
-  });
+  };
+  const recovery = deps.recoveryJudge
+    ? await deps.recoveryJudge(recoveryInput)
+    : await judgeRecovery(recoveryInput, {
+        store,
+        onDslResult: (mode, candidate, comparison) => {
+          // Observable rollout with zero raw source/model content. Telemetry
+          // must never turn a safe CoS judgment into an error.
+          try { recordDslRollout(store, recoveryInput, mode, candidate, comparison); }
+          catch { /* audit failures cannot authorize an effect */ }
+        },
+        current: () => {
+          const latest = readObjective(objective.id);
+          const currentRun = latest && planOf(latest).find((entry) => entry.key === run.key);
+          return Boolean(latest && currentRun &&
+            (latest.briefRevision ?? 0) === (objective.briefRevision ?? 0) &&
+            currentRun.attempt === run.attempt && currentRun.state === run.state &&
+            ["working", "needs_george"].includes(latest.status));
+        },
+      });
+  // The objective or run may have changed while System-1 was deciding.
+  // Never apply an old decision to a corrected brief.
+  const latest = readObjective(objective.id);
+  const currentRun = latest && planOf(latest).find((candidate) => candidate.key === run.key);
+  if (!latest || !currentRun ||
+      (latest.briefRevision ?? 0) !== (objective.briefRevision ?? 0) ||
+      currentRun.attempt !== run.attempt || currentRun.state !== run.state) return;
   if (recovery.action === "rebrief") {
     changeRun(objective.id, run.key,
       (current) => current.reviewed === key ? null : requeue(current, {

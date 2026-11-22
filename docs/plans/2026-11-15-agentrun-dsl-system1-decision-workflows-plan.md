@@ -2,7 +2,7 @@
 
 **Originally drafted:** 2026-11-15  
 **Revalidated:** 2026-11-16  
-**Status:** P0 isolated DSL interpreter probe and strict choice-only System-1 contract implemented on 2026-11-17; **production integration, Mac verification and P2–P6 remain blocked on the plan's gates**. See [P0 implementation evidence](../benchmarks/agentrun-dsl-p0-2026-11-17.md).  
+**Status (2026-11-22):** Feature-flagged P2–P5 code and P6 inert candidate gate implemented in [PR #337](https://github.com/GeorgeGally/flyd/pull/337). Real Mac Node/runtime verification, representative 100-case provider evaluation, demonstrated product benefit and a live canary **remain open and must pass before production activation**. See [implementation and rollout evidence](../benchmarks/agentrun-dsl-rollout-2026-11-22.md).  
 **Owner:** Flyd / Chief of Staff  
 **Flyd source rechecked:** [GeorgeGally/flyd at `59ee06bc20166e631ee17b6b9553ae5c97aa45dc`](https://github.com/GeorgeGally/flyd/commit/59ee06bc20166e631ee17b6b9553ae5c97aa45dc), 2026-11-15 (original review `aaa804dfa7f84555e201f8f5780772b3086e7c11`).  
 **AgentRun source rechecked:** [Parcha-ai/agentrun at `039beb7f3354851150b5d2855a2c141be6a636aa`](https://github.com/Parcha-ai/agentrun/commit/039beb7f3354851150b5d2855a2c141be6a636aa), 2026-11-15 (original review `908004c0a9d0681571d28341afe963436dfc9471`).  
@@ -17,6 +17,14 @@
 The code for an isolated, pinned Node 24.22.3+ AgentRun v2 interpreter smoke test and strict System-1 response adapter was added in [PR #325](https://github.com/GeorgeGally/flyd/pull/325). The [isolated AgentRun CI workflow](https://github.com/GeorgeGally/flyd/actions/runs/44052427157) passed. Neither CoS routing nor Flyd's Node 22 dependency graph was changed. The adapter has negative controls for wrong predicate IDs/rubrics, unapproved egress, malformed distributions, abort and uncertain provider outcomes. Details and unresolved P0 gate decisions: [docs/benchmarks/agentrun-dsl-p0-2026-11-17.md](../benchmarks/agentrun-dsl-p0-2026-11-17.md).
 
 **Do not mistake this for a P0 product GO.** Real Mac runtime, an observed recurring multi-step workflow, frozen 100-case evaluation and live provider/receipt validation are outstanding. P2–P6 must not be silently activated on the evidence of an isolated scripted success.
+
+## 2026-11-22 implementation update (code complete behind OFF, acceptance pending)
+
+[PR #337](https://github.com/GeorgeGally/flyd/pull/337) adds the source-controlled AgentRun recovery v2 workflow; strict existing Jev/Gemini choice adapter; off/shadow/canary/on selection; canonical redacted decision receipts, atomic sent-request claims and stable replay; CoS objective/attempt rechecking; private one-shot reasoning for low-confidence cases with an independent opt-in; and inert verified-outcome playbook candidate proposals. No second CoS, FirstMate, scheduler, event database, permissions system or user-facing status surface is introduced.
+
+CI now runs the **real pinned AgentRun interpreter** on Node 24.22.3+, plus 100 **scripted safety fixtures** and Flyd Core's existing Node 22 regression suite. Those fixtures are NOT independent decision-quality validation. AgentRun remains outside the Core dependency graph, and no installed Mac runtime has been migrated or verified. The feature is default OFF; a production canary is **blocked** until real live provider/evidence and installed Mac acceptance prove the plan's benefit and safety gates.
+
+The operational runbook, measured and unmeasured evidence, settings and blockers are maintained in [docs/benchmarks/agentrun-dsl-rollout-2026-11-22.md](../benchmarks/agentrun-dsl-rollout-2026-11-22.md).
 
 ## 0. Independent source validation — 16 November 2026
 
