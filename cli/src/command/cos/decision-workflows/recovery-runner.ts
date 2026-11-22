@@ -48,6 +48,20 @@ export function dslMode(
   if (value !== undefined && value.trim() !== "") return "off";
   return supportsAgentRunNode(nodeVersion) ? "on" : "off";
 }
+/**
+ * Check only configuration, never attempt a network call or expose secrets.
+ * Core's live recovery path has no injected provider; without usable model
+ * credentials, we must keep the known-good legacy handler instead of holding
+ * an authorized internal repair after an unsent decision.
+ */
+export function executiveDecisionProviderConfigured(): boolean {
+  const geminiSelected = process.env.FLYD_EXECUTIVE_DECISION_PROVIDER === "gemini";
+  const geminiReady = geminiSelected && Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+  const jevReady = process.env.FLYD_JEV_ENABLED === "true" &&
+    Boolean(process.env.TYPESAFE_API_KEY || process.env.FLYD_JEV_API_KEY || process.env.BEACON_JEV_API_KEY);
+  return geminiReady || jevReady;
+}
+
 export function supportsAgentRunNode(version = process.versions.node): boolean {
   const [major = 0, minor = 0, patch = 0] = version.split(".").map(Number);
   return major > 24 || (major === 24 && (minor > 22 || (minor === 22 && patch >= 3)));
@@ -104,9 +118,12 @@ export async function agentRunActivationStatus(): Promise<{
   if (mode === "off") {
     return { mode, enabled: false, reason: process.env.FLYD_COS !== "1" ? "CoS is disabled" : "legacy recovery selected", nodeVersion: process.versions.node };
   }
+  if (!executiveDecisionProviderConfigured()) {
+    return { mode, enabled: false, reason: "Jev/Gemini decision provider not configured", nodeVersion: process.versions.node };
+  }
   try {
     await loadExecutor();
-    return { mode, enabled: true, reason: "pinned AgentRun runtime verified", nodeVersion: process.versions.node };
+    return { mode, enabled: true, reason: "pinned AgentRun runtime and decision-provider configuration verified", nodeVersion: process.versions.node };
   } catch (error) {
     return { mode, enabled: false, reason: error instanceof Error ? error.message : "AgentRun runtime unavailable", nodeVersion: process.versions.node };
   }
