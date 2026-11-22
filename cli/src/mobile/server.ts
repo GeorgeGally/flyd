@@ -20,7 +20,7 @@ export interface MobileServerOptions {
   /** George's more/less on a story: a local preference write (recordScoutFeedback), not an outward action. False when it is not in today's edition. */
   rateStory?(input: { n: number; url: string; verdict: "more" | "less"; reason?: string }): boolean;
 }
-export interface MobileNews { date: string; items: Array<{ n: number; title: string; url: string; source: string; why: string; kind: string; evidenceUrls?: string[]; evidenceStatus?: string; updatedFrom?: string }> }
+export interface MobileNews { date: string; items: Array<{ n: number; title: string; url: string; source: string; why: string; kind: string; evidenceUrls?: string[]; evidenceStatus?: string; updatedFrom?: string; evidenceSnippets?: string[]; evidenceCheckedAt?: string }> }
 export class HttpError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 function json(res: ServerResponse, status: number, data: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(data));
