@@ -65,6 +65,19 @@ describe("parseImprovement", () => {
     expect(parseImprovement(JSON.stringify({ improvement: { title: "t", outcome: "o", evidence: ["made-up"] } }), evidence)).toBeNull();
     expect(parseImprovement(JSON.stringify({ improvement: null }), evidence)).toBeNull();
   });
+  it("never dispatches a code fix from an uncorroborated aggregate rating cluster", () => {
+    const only = [{ id: "review-cluster:abcd:3", kind: "review" as const, at: NOW.toISOString(), text: "three rated poorly" }];
+    const reply = JSON.stringify({ improvement: {
+      title: "Change every work result", outcome: "Rewrite the result policy",
+      evidence: ["review-cluster:abcd:3"],
+    } });
+    expect(parseImprovement(reply, only)).toBeNull();
+    expect(parseImprovement(JSON.stringify({ improvement: {
+      title: "Add a test", outcome: "Pin the failure with a check",
+      evidence: ["review-cluster:abcd:3", "fix:f1"],
+    } }), [...only, { id: "fix:f1", kind: "fix" as const, at: NOW.toISOString(), text: "concrete failure" }])).not.toBeNull();
+  });
+
   it("keeps only evidence ids it was shown", () => {
     const parsed = parseImprovement(JSON.stringify({ improvement: { title: "t", outcome: "o", why: "w", evidence: ["fix:f1", "bogus"] } }), evidence);
     expect(parsed?.evidence).toEqual(["fix:f1"]);
