@@ -6,7 +6,7 @@ import { createRecoveryDslJudge, PilotJudgmentError, RECOVERY_PREDICATE, recover
 import { RECOVERY_WORKFLOW_POLICY, RECOVERY_WORKFLOW_VERSION, recoveryWorkflow, recoveryWorkflowDigest } from "./recovery-workflow.js";
 import type { DecisionModelOptions } from "../../../cognition/system-one/decision-provider.js";
 import type { PredicateEvaluation } from "../../../cognition/system-one/types.js";
-import type { RecoveryInput } from "../recovery.js";
+import { canRecoverInternally, type RecoveryInput } from "../recovery.js";
 
 const SOURCE = "cos.dsl.recovery";
 export type DslMode = "off" | "shadow" | "canary" | "on";
@@ -101,7 +101,7 @@ function decisionKey(input: RecoveryInput, state: Record<string, unknown>): stri
 }
 
 function approvedCurrent(input: RecoveryInput, options: DslRecoveryOptions): boolean {
-  return Boolean(input.retryable && input.effectKnownInternal && (options.current?.() ?? true));
+  return canRecoverInternally(input) && Boolean(options.current?.() ?? true);
 }
 
 /**
