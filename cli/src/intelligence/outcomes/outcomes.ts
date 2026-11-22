@@ -11,6 +11,17 @@ import { randomUUID } from "node:crypto";
 
 export type AttributionState = "direct_verified" | "observed_impact" | "user_rejected" | "not_helpful" | "unknown";
 
+/** An explicitly measured outcome. Prose and user ratings never supply numbers. */
+export interface MeasuredOutcome {
+  metricName: string;
+  baseline: number;
+  observed: number;
+  /** Whether an increase is beneficial for this declared metric. */
+  direction: "higher_is_better" | "lower_is_better";
+  /** Independently inspectable evidence for the measurement. */
+  evidenceRef: string;
+}
+
 export interface OutcomeAssessment {
   outcomeId: string;
   /** The intervention this outcome belongs to (causal chain anchor). */
@@ -19,6 +30,7 @@ export interface OutcomeAssessment {
   /** User review verdict per the shared review contract (R14). */
   review?: { verdict: "helpful" | "not_helpful" | "unknown"; reason?: string };
   detail?: string;
+  metric?: MeasuredOutcome;
   assessedAt: string;
 }
 
@@ -27,6 +39,7 @@ export interface OutcomeInput {
   attribution: AttributionState;
   review?: { verdict: "helpful" | "not_helpful" | "unknown"; reason?: string };
   detail?: string;
+  metric?: MeasuredOutcome;
   assessedAt?: Date;
 }
 
@@ -40,12 +53,21 @@ export function isConclusive(input: Pick<OutcomeAssessment, "attribution">): boo
 }
 
 export function recordOutcome(store: OutcomeSink, input: OutcomeInput): OutcomeAssessment {
+  if (input.metric) {
+    const m = input.metric;
+    if (!isConclusive(input) || !m.metricName.trim() || !m.evidenceRef.trim()
+      || !Number.isFinite(m.baseline) || !Number.isFinite(m.observed)
+      || (m.direction !== "higher_is_better" && m.direction !== "lower_is_better")) {
+      throw new Error("measured outcome requires verifiable attribution and finite, named evidence");
+    }
+  }
   const assessment: OutcomeAssessment = {
     outcomeId: randomUUID(),
     interventionId: input.interventionId,
     attribution: input.attribution,
     ...(input.review ? { review: input.review } : {}),
     ...(input.detail ? { detail: input.detail } : {}),
+    ...(input.metric ? { metric: input.metric } : {}),
     assessedAt: (input.assessedAt ?? new Date()).toISOString(),
   };
   store.saveOutcome(assessment);
