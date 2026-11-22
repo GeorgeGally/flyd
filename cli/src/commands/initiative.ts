@@ -15,7 +15,7 @@ export function erasePreparedInitiativeCards(path = activityRecordPath()): numbe
     try {
       const key = (JSON.parse(row) as { key?: unknown }).key;
       return typeof key !== "string" || !key.startsWith("initiative:");
-    } catch { return true; }
+    } catch { return !row.includes("initiative:"); }
   });
   if (keep.length === rows.length) return 0;
   const temp = path + "." + randomUUID() + ".tmp";
