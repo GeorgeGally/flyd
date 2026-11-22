@@ -85,10 +85,15 @@ export function materializeEpisodes(
 }
 
 function deriveMetricDelta(intervention: InterventionRecord, outcome: OutcomeAssessment): number | undefined {
-  if (outcome.attribution === "user_rejected" || outcome.attribution === "not_helpful") return -1;
-  if (!outcome.detail) return undefined;
-  const parsed = Number.parseFloat(outcome.detail);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  // A user rejecting an interruption is decisive safety evidence, but is
+  // not a measured numerical improvement. Nor is a free-text detail.
+  if (!isConclusive(outcome)) return undefined;
+  const metric = outcome.metric;
+  if (!metric || metric.metricName !== intervention.metricName || !metric.evidenceRef.trim()
+    || !Number.isFinite(metric.baseline) || !Number.isFinite(metric.observed)) return undefined;
+  const delta = metric.direction === "higher_is_better"
+    ? metric.observed - metric.baseline : metric.baseline - metric.observed;
+  return Number.isFinite(delta) ? delta : undefined;
 }
 
 // ---------------------------------------------------------------------------
