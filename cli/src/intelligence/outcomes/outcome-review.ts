@@ -106,8 +106,12 @@ export function recordExplicitOutcomeReview(
     || !Number.isFinite(createdAt) || at.getTime() < createdAt
     || at.getTime() - createdAt > OUTCOME_REVIEW_WINDOW_MS) return "not_eligible";
 
-  const key = "review:" + input.decisionId + ":" + input.verdict;
-  if (store.findByIdempotencyKey(OUTCOME_REVIEW_SOURCE, key)) return "already_recorded";
+  const prior = store.readByIdempotencyPrefix(OUTCOME_REVIEW_SOURCE, "review:" + input.decisionId + ":");
+  const last = prior.at(-1);
+  if (parseReview(last?.payload?.review)?.verdict === input.verdict) return "already_recorded";
+  // A user can correct either way. Stable revision numbers make same-verdict
+  // retries idempotent while leaving the prior opinion inspectable.
+  const key = "review:" + input.decisionId + ":" + (prior.length + 1);
   const envelope = {
     pathKind: "interface" as const,
     kind: "observation" as const,
