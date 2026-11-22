@@ -2,7 +2,7 @@ import {
   evolveScout, fitness, formatEdition, latestEdition, readSources, readTaste, recordScoutFeedback, runScoutLocked, scoutDir, watchScout,
 } from "../council/scout.js";
 import { discoveryStatus, refreshDiscovery } from "../council/scout-discovery.js";
-import { last30daysHealth, last30daysPath } from "../council/scout-last30days.js";
+import { discoverLast30days, last30daysHealth, last30daysPath } from "../council/scout-last30days.js";
 import { scoutMetricsSummary, scoutResearchHealthSummary } from "../council/scout-metrics.js";
 import { editorialEvaluationSummary, editorialShadowBrief, recordEditorialJudgment } from "../council/scout-eval.js";
 
@@ -52,13 +52,13 @@ export async function runScoutCommand(action = "show", args: string[] = []): Pro
       return;
     }
     case "compare":
-      process.stdout.write(editorialShadowBrief(scoutDir()));
+      process.stdout.write(editorialShadowBrief(scoutDir(), args[0]));
       process.stdout.write(editorialEvaluationSummary(scoutDir()) + "\n");
       return;
     case "judge": {
       const verdict = (args[0] || "").trim();
       if (!["A", "B", "tie"].includes(verdict)) throw new Error("flyd scout judge A | B | tie");
-      process.stdout.write(recordEditorialJudgment(scoutDir(), verdict as "A" | "B" | "tie") + "\n");
+      process.stdout.write(recordEditorialJudgment(scoutDir(), verdict as "A" | "B" | "tie", args[1]) + "\n");
       return;
     }
     case "status": {
@@ -69,13 +69,13 @@ export async function runScoutCommand(action = "show", args: string[] = []): Pro
         scoutResearchHealthSummary(scoutDir()),
         "Last30days engine: " + last30daysPath(),
         "Python: " + health.interpreter + " (" + health.detail + ")",
-        "Discovery: " + discovery.mode + " (" + discovery.cached + " cached nominations)",
-        ...(discovery.lastRun ? ["Last discovery: " + discovery.lastRun.ranAt + " — " + discovery.lastRun.outcome + " — " + discovery.lastRun.domain] : []),
+        "Discovery: " + discovery.mode + " (" + discovery.cached + " nominated, " + discovery.verified + " corroborated)",
+        ...(discovery.lastRun ? ["Last discovery: " + discovery.lastRun.ranAt + " — " + discovery.lastRun.outcome + " via " + discovery.lastRun.engine + " — " + (discovery.lastRun.domain || "global")] : []),
       ].join("\n") + "\n");
       return;
     }
     case "discover": {
-      const run = await refreshDiscovery(scoutDir(), new Date());
+      const run = await refreshDiscovery(scoutDir(), new Date(), discoverLast30days, { force: true });
       process.stdout.write(run ? run.outcome + ": " + run.domain + " (" + run.nominations.length + " nominations)\n" : "Discovery not due or disabled.\n");
       return;
     }
