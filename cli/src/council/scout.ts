@@ -14,6 +14,7 @@ import { providerTrouble, recordScoutRun } from "./scout-run.js";
 import { last30daysPath, researchLast30days } from "./scout-last30days.js";
 import { discoveryCandidates } from "./scout-discovery.js";
 import { prepareScoutCandidates } from "./scout-editorial.js";
+import { verifiedMustKnow } from "./scout-evidence.js";
 import { groupScoutStories, previouslyCovered, noteworthyUpdate } from "./scout-stories.js";
 import { recordScoutMetrics, recordScoutResearchHealth } from "./scout-metrics.js";
 
@@ -671,6 +672,8 @@ export interface ScoutDependencies {
   dir?: string;
   force?: boolean;
   notify?: (title: string, message: string) => Promise<void>;
+  /** Optional injected gate for testable, strictly corroborated must-know pushes. */
+  verifyMustKnow?: (items: EditionItem[]) => Promise<EditionItem[]>;
   /** Records the day's brief with Flyd's activity feed, so its card opens to the whole brief. */
   record?: (edition: Edition) => void;
   redditSpacingMs?: number;
@@ -851,7 +854,8 @@ export async function watchScout(deps: ScoutDependencies): Promise<EditionItem[]
   poolCandidates(fresh, dir, now);
   if (fresh.length === 0) return [];
 
-  const musts = parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "watch"))), fresh, 2).filter((item) => item.kind === "must");
+  const nominatedMusts = parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "watch"))), fresh, 2).filter((item) => item.kind === "must");
+  const musts = await (deps.verifyMustKnow ?? verifiedMustKnow)(nominatedMusts);
   if (musts.length === 0) return [];
   const flashes = readJsonl<EditionItem & { date: string }>(join(dir, "flash.jsonl"));
   const notifiedToday = flashes.filter((flash) => flash.date === today && (flash as { notified?: boolean }).notified).length;
