@@ -117,6 +117,18 @@ export const TODAY_SCRIPT = `
         node.appendChild(evidence);
       }
     }
+    if (Array.isArray(story.evidenceSnippets) && story.evidenceSnippets.length) {
+      var details = el("details", "story-evidence");
+      details.appendChild(el("summary", "", "Why this is supported"));
+      story.evidenceSnippets.slice(0, 3).forEach(function (excerpt) {
+        details.appendChild(el("p", "", excerpt));
+      });
+      if (story.evidenceCheckedAt) {
+        var checked = new Date(story.evidenceCheckedAt);
+        if (!isNaN(checked)) details.appendChild(el("p", "src", "Sources checked " + checked.toLocaleDateString()));
+      }
+      node.appendChild(details);
+    }
     // Talking about this story is his choice, made here: the message box then names it.
     var chat = el("button", "story-chat", "Chat about this");
     chat.type = "button";
