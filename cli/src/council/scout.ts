@@ -68,7 +68,8 @@ export interface EditionItem {
   storyId?: string; evidenceUrls?: string[]; confidence?: "multi-source" | "single-source"; evidenceStatus?: ScoutCandidate["evidenceStatus"];
 }
 export interface Edition { date: string; generatedAt: string; topics: string[]; items: EditionItem[] }
-export type ScoutFeedbackReason = "wrong-topic" | "repeat" | "not-new" | "too-shallow" | "bad-source" | "interesting" | "surprising" | "already-knew";
+export const SCOUT_FEEDBACK_REASONS = ["wrong-topic", "repeat", "not-new", "too-shallow", "bad-source", "interesting", "surprising", "already-knew"] as const;
+export type ScoutFeedbackReason = typeof SCOUT_FEEDBACK_REASONS[number];
 export interface ScoutFeedback { at: string; verdict: "more" | "less"; title: string; topic: string; source: string; sourceId?: string; why: string; reason?: ScoutFeedbackReason }
 
 /** How many picks a daily brief aims for; the model curates within this, a quiet day may be lean. */
