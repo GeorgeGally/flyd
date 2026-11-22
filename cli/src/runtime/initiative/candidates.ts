@@ -29,6 +29,8 @@ export interface InitiativeCandidate {
   hypothesis: string;
   counterQuestion: string;
   sources: InitiativeSource[];
+  /** Bounded source observations; not evidence of the hypothesized effect. */
+  observed: string[];
   createdAt: string;
   expiresAt: string;
   /** Prior estimates, never fabricated measured outcomes. */
@@ -43,6 +45,7 @@ export interface InitiativeCandidate {
 
 const NO_PERSONAL = /(?:\b(?:medical|health|diagnos|pregnan|password|secret|token|ssn|passport|bank account|private message|relationship|family|salary)\b)/i;
 const MIN_WORD = 4;
+const GENERIC_STORY = new Set(["design", "archive", "article", "story", "guide", "examples", "latest", "update", "visual", "creative", "generative"]);
 function words(text: string): string[] {
   return [...new Set(text.toLowerCase().match(/[a-z0-9]{4,}/g) ?? [])].filter((word) =>
     !["with", "from", "that", "this", "your", "have", "will", "about", "these", "work", "project", "what", "next"].includes(word));
@@ -103,25 +106,30 @@ export function deriveInitiatives(input: InitiativeSignals): InitiativeCandidate
   if (input.edition?.date === today && isFresh(input.edition.generatedAt, now, 2)) {
     const focus = workFocusFromProjects(projects);
     for (const project of projects.filter((p) => p.kind === "creative" || p.kind === "product").slice(0, 5)) {
+      const currentTerms = new Set(words([project.name, project.what, project.now, project.next ?? ""].join(" ")));
       const relevant = input.edition.items.map((item) => ({
         item, match: contextScore({ title: item.title, summary: item.why }, focus),
-      })).filter(({ item, match }) =>
+        novel: words(item.title + " " + item.why).filter(w => !currentTerms.has(w) && !GENERIC_STORY.has(w)),
+      })).filter(({ item, match, novel }) =>
         match.score >= 5 && item.url.startsWith("https://")
-        && !NO_PERSONAL.test(item.title)
-        && (words(item.title + " " + item.why).filter(w => words(project.name + " " + project.what).includes(w)).length >= 1)
+        && !NO_PERSONAL.test(item.title + " " + item.why)
+        && novel.length > 0
+        && words(item.title + " " + item.why).some(w => currentTerms.has(w))
       ).sort((a, b) => b.match.score - a.match.score).slice(0, 1);
-      for (const { item } of relevant) {
+      for (const { item, novel } of relevant) {
         const sources = [
           source("project:" + project.id, project.updated, "local_operational", "project:" + project.id),
           source("scout:" + (item.storyId ?? item.url), input.edition.generatedAt, "public", item.url),
         ];
-        const question = "Would " + oneLine(item.title, 70) + " improve " + oneLine(project.name, 60) + "?";
+        const technique = novel.slice(0, 2).join(" ");
+        const question = "Could " + technique + " from " + oneLine(item.title, 64) + " help " + oneLine(project.name, 48) + "?";
         made.push({
           id: initiativeKey("scout", project.id, question),
           origin: "scout", domain: project.kind === "creative" ? "creative" : "product", subject: project.name,
-          question, hypothesis: "This reference may suggest a useful, specific design or implementation experiment.",
-          counterQuestion: "Is the apparent connection superficial or already part of the project's current work?",
-          proposedTest: "Compare the reference's documented technique with the project's stated constraints before proposing a prototype.",
+          question, hypothesis: "This reference may suggest a specific, distinct creative or technical experiment.",
+          counterQuestion: "Is this a genuinely different technique or the same approach under another name?",
+          proposedTest: "Compare the public " + technique + " example with the current " + oneLine(project.name, 55) + " implementation; suggest a small reversible sketch only if the difference is real.",
+          observed: ["Curated project: " + oneLine(project.what + " " + project.now, 200), "Public Scout reference: " + oneLine(item.title + " — " + item.why, 200)],
           sources, createdAt: now.toISOString(),
           expiresAt: new Date(now.getTime() + 36 * 60 * 60_000).toISOString(),
           benefit: 0.6, confidence: 0.55, novelty: 0.8, effort: 0.25, urgency: 0.2,
@@ -144,7 +152,7 @@ export function deriveInitiatives(input: InitiativeSignals): InitiativeCandidate
       question: "What evidence would confirm or disprove this concern: " + oneLine(advisory.text, 130) + "?",
       hypothesis: oneLine(advisory.text), counterQuestion: "Could the supporting observation be stale or misleading?",
       proposedTest: "Verify source claims and identify the smallest low-risk next check; do not treat the advice as a fact.",
-      sources, createdAt: now.toISOString(),
+      sources, observed: ["Council advisory (not independently verified): " + oneLine(advisory.text, 200)], createdAt: now.toISOString(),
       expiresAt: new Date(Math.min(Date.parse(advisory.expires + "T23:59:59"), now.getTime() + 7 * 86_400_000)).toISOString(),
       benefit: advisory.urgency === "high" ? 0.85 : 0.65,
       confidence: advisory.confidence === "high" ? 0.78 : 0.6,
@@ -174,7 +182,8 @@ export function deriveInitiatives(input: InitiativeSignals): InitiativeCandidate
       question, hypothesis: "Two separate CoS objectives encountered possibly related obstacles.",
       counterQuestion: "Are they independent problems that only happen to share words?",
       proposedTest: "Compare both failure receipts, check common causes, and leave CoS's existing objectives untouched.",
-      sources, createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + 3 * 86_400_000).toISOString(),
+      sources, observed: refs.map(e => "Recorded blocked outcome: " + oneLine(String((e.payload?.report as { outcome?: string } | undefined)?.outcome ?? ""), 180)),
+      createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + 3 * 86_400_000).toISOString(),
       benefit: 0.75, confidence: 0.55, novelty: 0.55, effort: 0.2, urgency: 0.6,
     });
   }
