@@ -100,6 +100,25 @@ describe("Chief of Staff tick", () => {
     h.store.close();
   });
 
+  it("persists report intent before notifying, and keeps a claim when notification fails", async () => {
+    const h = harness();
+    const objective = openObjective({ words: "ambiguous request", flydNotes: "", origin: { surface: "chat" } });
+    const deps = {
+      ...h.deps,
+      complete: async () => "{}",
+      say: async () => {
+        expect(cosReports(objective.id, h.store)).toHaveLength(1);
+        expect(readObjective(objective.id)?.pendingReport?.id).toBe(`${objective.id}:${readObjective(objective.id)?.pendingReport?.id.split(":").slice(1).join(":")}`);
+        throw new Error("notification adapter crashed");
+      },
+    };
+    await cosTick(deps);
+    expect(cosReports(objective.id, h.store)).toHaveLength(1);
+    expect(readObjective(objective.id)?.pendingReport).toBeDefined();
+    expect(readObjective(objective.id)?.reportIds).toEqual([]);
+    h.store.close();
+  });
+
   it("turns a refused intake into one blocked report, never a silent failure", async () => {
     const h = harness();
     const objective = openObjective({ words: "do the thing", flydNotes: "", origin: { surface: "chat" } });
