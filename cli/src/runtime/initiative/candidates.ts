@@ -51,7 +51,7 @@ function words(text: string): string[] {
     !["with", "from", "that", "this", "your", "have", "will", "about", "these", "work", "project", "what", "next"].includes(word));
 }
 function oneLine(text: string, limit = 170): string {
-  return text.replace(/\s+/g, " ").trim().slice(0, limit);
+  return text.replace(/[<>\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, limit);
 }
 export function initiativeKey(origin: InitiativeOrigin, subject: string, question: string): string {
   // Normalize paraphrases and punctuation before hashing stable semantic source.
