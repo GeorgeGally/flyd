@@ -10,7 +10,7 @@ FLYD_CODESIGN_KEYCHAIN = $(HOME)/Library/Keychains/flyd-local-signing.keychain-d
 FLYD_CODESIGN_KEYCHAIN_PASSWORD ?= flyd-local-signing
 FLYD_CODESIGN_IDENTITY ?= $(shell /usr/bin/security find-identity -v -p codesigning 2>/dev/null | /usr/bin/awk '/Flyd Local Development/ { print $$2; exit }')
 
-.PHONY: build bundle cli run invoke-installed install clean test-work-intelligence check-foundry-gate
+.PHONY: build bundle agentrun cli run invoke-installed install clean test-work-intelligence check-foundry-gate
 
 build:
 	swift build -c release
@@ -32,9 +32,25 @@ bundle: build
 		codesign --force --deep --sign - "$(APP_DIR)"; \
 	fi
 
+# AgentRun's published DSL requires Node >=24.22.3. Keep it isolated from
+# Flyd Core's Node 22 package graph: the Core resolves this one trusted,
+# exactly-pinned package from experiments/agentrun-dsl/ at runtime.
+# Do not upgrade anyone's Node or touch production data during installation.
+agentrun:
+	@NODE_OK=$(node -p 'const v=process.versions.node.split(".").map(Number); Number(v[0]>24 || v[0]===24 && (v[1]>22 || v[1]===22 && v[2]>=3))' 2>/dev/null || echo false); \
+	if [ "$NODE_OK" = "true" ]; then \
+		echo "Installing/validating pinned AgentRun DSL on Node $(node --version)"; \
+		cd ../experiments/agentrun-dsl && \
+		npm install --package-lock=false --ignore-scripts --no-audit --no-fund && \
+		npm test; \
+	else \
+		echo "AgentRun DSL unavailable on current Node $(node --version 2>/dev/null || echo missing): requires >=24.22.3; legacy CoS recovery will remain active."; \
+		echo "Install/select a compatible Node before make run to enable it (do not force a runtime upgrade)."; \
+	fi
+
 # The terminal `flyd` runs cli/dist, so every install rebuilds it from the
 # current source; dependencies added since the last install come first.
-cli:
+cli: agentrun
 	cd ../cli && { npm ls --silent >/dev/null 2>&1 || npm install --no-audit --no-fund; } && npm run build
 
 install: bundle cli
