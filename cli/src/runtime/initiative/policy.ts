@@ -82,15 +82,12 @@ export function decideInitiative(candidate: InitiativeCandidate, policy: Initiat
  */
 export function inspectInitiative(candidate: InitiativeCandidate): InitiativeFinding {
   const evidenceRefs = [...new Set(candidate.sources.map(s => s.evidenceRef))];
+  const observations = candidate.observed.filter(Boolean).slice(0, 3).map(s => s.slice(0, 200));
   return {
     candidateId: candidate.id, revision: initiativeRevision(candidate.sources),
     status: "hypothesis", verified: false,
     question: candidate.question,
-    whatIsKnown: candidate.origin === "cos_failure"
-      ? "Two separate recorded CoS outcomes appear to share an obstacle."
-      : candidate.origin === "scout"
-        ? "An active project and a previously curated public reference share a relevant topic."
-        : "A previously curated Council advisory identifies a possible issue.",
+    whatIsKnown: observations.join(" | "),
     whatIsNotKnown: candidate.counterQuestion,
     nextCheck: candidate.proposedTest,
     evidenceRefs,
