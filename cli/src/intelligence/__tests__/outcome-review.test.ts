@@ -7,6 +7,7 @@ import { EXECUTIVE_DECISION_VERSION, persistExecutiveDecision, type ExecutiveDec
 import { OUTCOME_REVIEW_SOURCE, outcomeReviewCandidates, outcomeReviews, recordExplicitOutcomeReview } from "../outcomes/outcome-review.js";
 import { summarizeVerifiedLoop, verifiedLoopFromStore } from "../outcomes/verified-loop.js";
 import { verifiedOutcomeReviewObjects } from "../../conversation-view/activity.js";
+import { needsGeorge } from "../../conversation-view/semantic.js";
 
 const AT = new Date("2026-11-22T08:00:00.000Z");
 const ID = "a".repeat(32);
@@ -57,6 +58,7 @@ describe("explicit outcome review", () => {
       actions: [{ kind: "choose", value: "helpful" }, { kind: "choose", value: "not_helpful" }],
     });
     expect(cards[0]?.actions.some((item) => item.kind === "approve")).toBe(false);
+    expect(needsGeorge(cards[0]!)).toBe(false); // User feedback does not masquerade as an urgent decision.
     expect(verifiedOutcomeReviewObjects([{
       decisionId: ID, verification: "verified", at: AT.toISOString(),
       summary: "First Mate internal harness is waiting on a worker",
