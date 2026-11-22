@@ -4,7 +4,7 @@ import { questionFor, predicateThreshold } from "../../cognition/system-one/regi
 import type { PredicateEvaluation } from "../../cognition/system-one/types.js";
 import { judgeRecovery, type RecoveryInput } from "../cos/recovery.js";
 import {
-  dslMode, runRecoveryDsl, selectedForCanary, supportsAgentRunNode, type DslExecutor,
+  dslMode, executiveDecisionProviderConfigured, runRecoveryDsl, selectedForCanary, supportsAgentRunNode, type DslExecutor,
 } from "../cos/decision-workflows/recovery-runner.js";
 import { recoveryWorkflow, recoveryWorkflowDigest } from "../cos/decision-workflows/recovery-workflow.js";
 import { recordDslRollout } from "../cos/decision-workflows/rollout-audit.js";
@@ -72,6 +72,13 @@ const old = {
   FLYD_COS_DSL_SHADOW_CALLS: process.env.FLYD_COS_DSL_SHADOW_CALLS,
   FLYD_COS_DSL_CANARY_PERCENT: process.env.FLYD_COS_DSL_CANARY_PERCENT,
   FLYD_COS_DSL_PRIVATE_REASONING: process.env.FLYD_COS_DSL_PRIVATE_REASONING,
+  FLYD_JEV_ENABLED: process.env.FLYD_JEV_ENABLED,
+  TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY,
+  FLYD_JEV_API_KEY: process.env.FLYD_JEV_API_KEY,
+  BEACON_JEV_API_KEY: process.env.BEACON_JEV_API_KEY,
+  FLYD_EXECUTIVE_DECISION_PROVIDER: process.env.FLYD_EXECUTIVE_DECISION_PROVIDER,
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
 };
 afterEach(() => {
   for (const [key, value] of Object.entries(old)) {
@@ -92,6 +99,13 @@ describe("bounded live CoS DSL rollout", () => {
 
   it("defaults to off; cohort selection is deterministic and false for invalid percentages", () => {
     expect(dslMode("unknown")).toBe("off");
+    // George's 2026-11-23 activation: default on only in a compatible Core.
+    expect(dslMode("", "24.22.3")).toBe("on");
+    expect(dslMode("", "24.23.0")).toBe("on");
+    expect(dslMode("", "22.16.0")).toBe("off");
+    expect(dslMode("", "24.22.2")).toBe("off");
+    expect(dslMode("off", "24.22.3")).toBe("off");
+    expect(dslMode("canary", "24.22.3")).toBe("canary");
     expect(selectedForCanary("objective:r1", "0")).toBe(false);
     expect(selectedForCanary("objective:r1", "abc")).toBe(false);
     expect(selectedForCanary("objective:r1", "100")).toBe(true);
@@ -99,6 +113,23 @@ describe("bounded live CoS DSL rollout", () => {
     expect(supportsAgentRunNode("22.16.0")).toBe(false);
     expect(supportsAgentRunNode("24.22.2")).toBe(false);
     expect(supportsAgentRunNode("24.22.3")).toBe(true);
+  });
+
+  it("never claims AgentRun is usable without a configured executive model", () => {
+    for (const key of [
+      "FLYD_JEV_ENABLED", "TYPESAFE_API_KEY", "FLYD_JEV_API_KEY",
+      "BEACON_JEV_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+      "FLYD_EXECUTIVE_DECISION_PROVIDER",
+    ]) delete process.env[key];
+    expect(executiveDecisionProviderConfigured()).toBe(false);
+    process.env.FLYD_JEV_ENABLED = "true";
+    expect(executiveDecisionProviderConfigured()).toBe(false);
+    process.env.TYPESAFE_API_KEY = "synthetic-test-token";
+    expect(executiveDecisionProviderConfigured()).toBe(true);
+    delete process.env.TYPESAFE_API_KEY;
+    process.env.FLYD_EXECUTIVE_DECISION_PROVIDER = "gemini";
+    process.env.GEMINI_API_KEY = "synthetic-test-token";
+    expect(executiveDecisionProviderConfigured()).toBe(true);
   });
 
   it("writes an idempotent, redacted decision before branching and reuses it after restart", async () => {

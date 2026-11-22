@@ -4,7 +4,7 @@ import { projectJevState } from "../../cognition/system-one/jev.js";
 import type { PredicateEvaluation } from "../../cognition/system-one/types.js";
 import type { Objective, PlannedRun } from "./types.js";
 import type { IntelligenceEventStore } from "../../intelligence/event-store.js";
-import { dslMode, runRecoveryDsl, selectedForCanary, type DslExecutor, type DslOutcome } from "./decision-workflows/recovery-runner.js";
+import { dslMode, executiveDecisionProviderConfigured, runRecoveryDsl, selectedForCanary, type DslExecutor, type DslOutcome } from "./decision-workflows/recovery-runner.js";
 import { resolveStrategicQuestion } from "./strategic-judgment.js";
 import { validateEnvelope, type ContextEnvelope } from "../../intelligence/context-envelope.js";
 import { createHash } from "node:crypto";
@@ -71,7 +71,11 @@ export async function judgeRecovery(input: RecoveryInput, options: RecoveryJudge
   });
   const flag = process.env.FLYD_COS === "1" ? dslMode() : "off";
   const cohort = String(input.objective.id ?? "") + ":" + input.run.key;
-  const selected = flag === "on" || (flag === "canary" && selectedForCanary(cohort));
+  // On compatible Core, AgentRun is the default. If the configured decision
+  // provider is absent, preserve legacy recovery rather than writing a
+  // "started" receipt and converting routine work into a hold.
+  const providerReady = Boolean(options.evaluate) || executiveDecisionProviderConfigured();
+  const selected = providerReady && (flag === "on" || (flag === "canary" && selectedForCanary(cohort)));
   const runCandidate = async (shadow = false): Promise<DslOutcome> => {
     return runRecoveryDsl(input, state, {
       store: shadow ? undefined : options.store,

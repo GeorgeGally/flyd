@@ -3,7 +3,7 @@
 **Date:** 2026-11-22  
 **PR:** [#337](https://github.com/GeorgeGally/flyd/pull/337)  
 **Plan:** [2026-11-15 AgentRun DSL + System-1 plan](../plans/2026-11-15-agentrun-dsl-system1-decision-workflows-plan.md)  
-**Status:** Feature-flagged implementation with CI tests; **live installed-Mac acceptance, real-provider calibration, representative latency/cost comparison and automatic promotion remain unproven**.
+**Status (updated 2026-11-23):** George requested activation. The **compatible-Node Core defaults to active AgentRun recovery** for eligible CoS runs, and `make install` provisions the pinned package in an isolated directory. An incompatible Core remains on legacy recovery. This repository activation is **not proof the installed Mac has been rebuilt or is running Node 24**; live-provider calibration, real-workload quality and rollout acceptance remain unproven.
 
 ## Delivered in this revision
 
@@ -13,26 +13,40 @@
 - **P3 authority:** CoS's existing `canRecoverInternally` floor still vetoes outward and unconfirmed effects before invoking DSL. The source and decision are rechecked against the current objective revision and per-run attempt count. Output is a recommendation; CoS continues to own dispatch, verification, idempotency and reporting.
 - **P3 private reasoning:** If and only if a model is inconclusive rather than explicitly requesting an evidence hold, `FLYD_COS_DSL_PRIVATE_REASONING=1` may invoke Flyd's existing private strategic resolver **once per objective revision/run attempt**. A canonical pre-call marker prevents repeat requests after a crash. This never escalates to George automatically; a returned tactic still has to pass CoS's internal-only admission and revision checks.
 - **P4:** 100 reproducible **synthetic** negative-control episodes in `experiments/agentrun-dsl/rollout-eval.ts`. These check control flow, strict gate thresholds, malformed/unknown provider responses, protected work, attempt caps, stale objectives and unwanted extra provider calls under the **real pinned interpreter**. They are explicitly **not** an independent labeled task-success holdout or representative runtime/cost benchmark.
-- **P5:** `off / shadow / canary / on` modes and an immediate rollback to the legacy CoS path. Pinned upstream `@parcha/agentrun-dsl@0.1.0-beta.43` is loaded **only** on Node >=24.22.3 with exact package metadata verification. Production Core still declares Node >=22 and does not install AgentRun. No second server or background worker is introduced.
+- **P5:** `off / shadow / canary / on` modes and immediate rollback to legacy. After George's 2026-11-23 instruction, compatible Node >=24.22.3 Core defaults to `on` when CoS is enabled. The Mac installer installs and tests pinned `@parcha/agentrun-dsl@0.1.0-beta.43` under the isolated `experiments/agentrun-dsl` directory (not inside Core's Node 22 dependency graph). Core loads that exact version; incompatible Node and missing packages fail to the legacy path. No second server or background worker is introduced.
 - **P6 (candidate-only):** `proposeRecoveryPlaybooks` can return **inert review candidates** from at least three distinct, independently measured positive recovery episodes and rejects negative, unmeasured and mismatched-policy evidence. It does not write policies, create executable workflows, broaden grants or self-promote. Existing PolicyRegistry/replay/learning must still approve any future revision.
 
 ## Correct run and feature flags
 
-The feature is **OFF by default** even when `FLYD_COS=1`.
+**Now enabled by default** when `FLYD_COS=1`, Core runs Node **24.22.3+**, and the pinned package is resolvable. The Mac install step provisions the package automatically only when the selected Node meets this requirement; on Node 22 the legacy handler remains unchanged. To observe the actual outcome, restart Core and inspect its `[Flyd Core] CoS AgentRun recovery: ACTIVE|LEGACY` startup log.
 
 | Setting | Meaning |
 | --- | --- |
 | `FLYD_COS=1` | Existing CoS must be active |
-| `FLYD_COS_DECISION_DSL=off` | Default. Identical current CoS recovery |
+| `FLYD_COS_DECISION_DSL=off` | Explicit immediate rollback to legacy CoS recovery |
 | `FLYD_COS_DECISION_DSL=shadow` | Existing CoS alone owns the decision; no shadow model call unless explicitly budgeted |
 | `FLYD_COS_DSL_SHADOW_CALLS=1` | Opts into an additional shadow model judgment and categorical comparison |
 | `FLYD_COS_DECISION_DSL=canary` | Uses the DSL only in a deterministic, allowed objective/run cohort |
 | `FLYD_COS_DSL_CANARY_PERCENT=5` | Example configured 5% cohort; default 0%, so no production selection |
-| `FLYD_COS_DECISION_DSL=on` | Eligible, read-only internal CoS recovery uses DSL; **do not enable before the gates below pass** |
+| `FLYD_COS_DECISION_DSL=on` | Now the default on a compatible Node when no explicit mode is set. Existing scoped authority and protected-effect vetoes still apply |
 | `FLYD_COS_DSL_PRIVATE_REASONING=1` | Opt-in bounded one-shot private reasoning only after low-confidence System-1; off by default |
 | `FLYD_COS_DSL_MODULE=file:///absolute/path/to/.../dist/index.js` | Optional administrator-supplied exact package import location. If unset, resolve the installed `@parcha/agentrun-dsl` ESM package. In both cases package metadata must match `0.1.0-beta.43` |
 
 When the runtime is incompatible, missing or cannot be imported, DSL is unavailable before any model call and CoS falls back to its existing handler. When an invocation **may already have been sent**, the DSL **holds**, never retries through the legacy handler. No flag implies permission to perform an outward effect.
+
+### Installation and runtime verification (2026-11-23)
+
+From the actual Flyd source checkout on the Mac:
+
+```sh
+cd mac-adapter
+make run
+# Observe the Core's log after restart:
+# [Flyd Core] CoS AgentRun recovery: ACTIVE (mode=on, Node=24.22.3+ ...)
+# If LEGACY, select/install compatible Node >=24.22.3 and re-run make run.
+```
+
+The Swift app starts Core through a login shell, so the **Core's Node** can differ from the interactive terminal's Node. `make run` installs and verifies the pinned interpreter only when the terminal's selected Node is compatible; it never upgrades Node, changes secrets, or modifies firstmate. An app that adopts an already-running older Core must be restarted before this can be counted as active. To roll back without changing the repository: set `FLYD_COS_DECISION_DSL=off` in the Core process environment and restart Core. Activation alone is **not** verification of improved real-world decisions.
 
 ### Reproducible tests
 
@@ -67,7 +81,7 @@ GitHub Actions [AgentRun DSL feasibility](../../.github/workflows/agentrun-dsl-p
 5. **Canary outcome:** Verify a real completed internal objective, no added George interruption, cost/latency budget, and immediate `FLYD_COS_DECISION_DSL=off` rollback. A passed benchmark alone is not an activated policy.
 6. **Learning promotion:** Only after the above, feed positive, independently verified episodes into the existing PolicyRegistry with a predeclared metric and frozen train/holdout. Candidate evidence never promotes itself.
 
-**Rollout decision:** Code is deployable behind **off** but **not automatically production-enabled**. These gates remain product correctness requirements, not optional paperwork.
+**Rollout decision:** George explicitly authorized turning on the bounded recovery workflow. Repository activation is now **on by default on compatible Core**, with `off` immediately restoring the legacy handler. The installed Mac cannot be declared active until its Core Node/package status and logged readiness are checked; the independent live-outcome gates remain open.
 
 ## Safety invariants
 

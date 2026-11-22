@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { validateEnvelope, type ContextEnvelope } from "../../../intelligence/context-envelope.js";
 import type { IntelligenceEventStore } from "../../../intelligence/event-store.js";
 import { predicateThreshold, questionFingerprint } from "../../../cognition/system-one/registry.js";
@@ -35,9 +35,33 @@ export interface DslRecoveryOptions {
   current?: () => boolean;
 }
 
-export function dslMode(value = process.env.FLYD_COS_DECISION_DSL): DslMode {
-  return value === "on" || value === "shadow" || value === "canary" ? value : "off";
+/**
+ * Requested by George on 2026-11-23: enable bounded AgentRun recovery when
+ * Core actually supports it. Explicit off/shadow/canary/on always wins.
+ * An incompatible Node 22 Core stays on its known-good legacy path.
+ */
+export function dslMode(
+  value = process.env.FLYD_COS_DECISION_DSL,
+  nodeVersion = process.versions.node,
+): DslMode {
+  if (value === "off" || value === "on" || value === "shadow" || value === "canary") return value;
+  if (value !== undefined && value.trim() !== "") return "off";
+  return supportsAgentRunNode(nodeVersion) ? "on" : "off";
 }
+/**
+ * Check only configuration, never attempt a network call or expose secrets.
+ * Core's live recovery path has no injected provider; without usable model
+ * credentials, we must keep the known-good legacy handler instead of holding
+ * an authorized internal repair after an unsent decision.
+ */
+export function executiveDecisionProviderConfigured(): boolean {
+  const geminiSelected = process.env.FLYD_EXECUTIVE_DECISION_PROVIDER === "gemini";
+  const geminiReady = geminiSelected && Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+  const jevReady = process.env.FLYD_JEV_ENABLED === "true" &&
+    Boolean(process.env.TYPESAFE_API_KEY || process.env.FLYD_JEV_API_KEY || process.env.BEACON_JEV_API_KEY);
+  return geminiReady || jevReady;
+}
+
 export function supportsAgentRunNode(version = process.versions.node): boolean {
   const [major = 0, minor = 0, patch = 0] = version.split(".").map(Number);
   return major > 24 || (major === 24 && (minor > 22 || (minor === 22 && patch >= 3)));
@@ -54,11 +78,24 @@ export function selectedForCanary(key: string, percentage = process.env.FLYD_COS
 
 async function loadExecutor(): Promise<DslExecutor> {
   if (!supportsAgentRunNode()) throw new Error("Node 24.22.3 or later required");
-  // The package is intentionally not a Node 22 Core dependency. An installed
-  // compatible Core may use the exact package in the runtime's own node_modules;
-  // the test host can point this at its pinned, isolated installation.
-  const moduleId: string = process.env.FLYD_COS_DSL_MODULE || "@parcha/agentrun-dsl";
-  const url = import.meta.resolve(moduleId);
+  // Flyd's Node 22 Core dependencies stay unchanged. On supported Node,
+  // make install provisions the exact package under the isolated experiment.
+  // The same path works from src/ (tsx) and dist/ (compiled global CLI).
+  const bundled = new URL(
+    "../../../../../experiments/agentrun-dsl/node_modules/@parcha/agentrun-dsl/dist/index.js",
+    import.meta.url,
+  );
+  let url: string;
+  if (process.env.FLYD_COS_DSL_MODULE) {
+    // An explicit operator override is never silently replaced.
+    url = import.meta.resolve(process.env.FLYD_COS_DSL_MODULE);
+  } else {
+    try { url = import.meta.resolve("@parcha/agentrun-dsl"); }
+    catch {
+      if (!existsSync(bundled)) throw new Error("pinned AgentRun DSL not installed; run make install");
+      url = bundled.href;
+    }
+  }
   const packageMeta = JSON.parse(readFileSync(new URL("../package.json", url), "utf8")) as { name?: string; version?: string };
   if (packageMeta.name !== "@parcha/agentrun-dsl" || packageMeta.version !== RECOVERY_DSL_PACKAGE_VERSION) {
     throw new Error("AgentRun DSL version does not match frozen workflow");
@@ -68,6 +105,28 @@ async function loadExecutor(): Promise<DslExecutor> {
     throw new Error("Invalid pinned AgentRun DSL module");
   }
   return imported as DslExecutor;
+}
+
+/** Startup diagnostics never include private state, receipts or credentials. */
+export async function agentRunActivationStatus(): Promise<{
+  mode: DslMode;
+  enabled: boolean;
+  reason: string;
+  nodeVersion: string;
+}> {
+  const mode = process.env.FLYD_COS === "1" ? dslMode() : "off";
+  if (mode === "off") {
+    return { mode, enabled: false, reason: process.env.FLYD_COS !== "1" ? "CoS is disabled" : "legacy recovery selected", nodeVersion: process.versions.node };
+  }
+  if (!executiveDecisionProviderConfigured()) {
+    return { mode, enabled: false, reason: "Jev/Gemini decision provider not configured", nodeVersion: process.versions.node };
+  }
+  try {
+    await loadExecutor();
+    return { mode, enabled: true, reason: "pinned AgentRun runtime and decision-provider configuration verified", nodeVersion: process.versions.node };
+  } catch (error) {
+    return { mode, enabled: false, reason: error instanceof Error ? error.message : "AgentRun runtime unavailable", nodeVersion: process.versions.node };
+  }
 }
 
 function event(

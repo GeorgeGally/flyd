@@ -1876,6 +1876,19 @@ export async function startServer(port = 4815, host = "127.0.0.1", options: { so
     server.listen(port, host, async () => {
       serverInstance = server;
       console.log(`[Flyd Core] Server listening on http://${host}:${port}`);
+      // Report the actual Core Node/package gate, not an optimistic config
+      // flag. The Mac may adopt an older Core until it is rebuilt/restarted.
+      if (process.env.FLYD_COS === "1") {
+        try {
+          const { agentRunActivationStatus } = await import("./command/cos/decision-workflows/recovery-runner.js");
+          const dsl = await agentRunActivationStatus();
+          console.log("[Flyd Core] CoS AgentRun recovery: " +
+            (dsl.enabled ? "ACTIVE" : "LEGACY") +
+            " (mode=" + dsl.mode + ", Node=" + dsl.nodeVersion + ", " + dsl.reason + ")");
+        } catch {
+          console.warn("[Flyd Core] CoS AgentRun recovery unavailable; retaining legacy handler");
+        }
+      }
       void import("./connectors/whatsapp.js").then(m => m.startPairedWhatsApp()).catch(() => console.log("[Flyd Core] WhatsApp unavailable; check flyd whatsapp status"));
 
       try {

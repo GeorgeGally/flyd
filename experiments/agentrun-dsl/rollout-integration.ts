@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { runWorkflow, validateWorkflow } from "@parcha/agentrun-dsl";
 import { IntelligenceEventStore } from "../../cli/src/intelligence/event-store.js";
-import { runRecoveryDsl } from "../../cli/src/command/cos/decision-workflows/recovery-runner.js";
+import { agentRunActivationStatus, runRecoveryDsl } from "../../cli/src/command/cos/decision-workflows/recovery-runner.js";
 import { recoveryWorkflow } from "../../cli/src/command/cos/decision-workflows/recovery-workflow.js";
 import type { RecoveryInput } from "../../cli/src/command/cos/recovery.js";
 import type { PredicateEvaluation } from "../../cli/src/cognition/system-one/types.js";
@@ -84,22 +84,45 @@ assert.equal(valid.ok, true, JSON.stringify(valid));
   if (result.kind === "decided") assert.equal(result.action, "hold");
 }
 
-// Test production loader: resolve the exact pinned package from the experiment
-// installation without adding it to Flyd Core's Node 22 dependency graph.
+// Exercise the same default Core setup as make install: the pinned dependency
+// lives in experiments/agentrun-dsl/, not Flyd Core's Node 22 node_modules.
 {
   const previous = process.env.FLYD_COS_DSL_MODULE;
+  const previousCos = process.env.FLYD_COS;
+  const previousMode = process.env.FLYD_COS_DECISION_DSL;
+  const previousJev = process.env.FLYD_JEV_ENABLED;
+  const previousKey = process.env.TYPESAFE_API_KEY;
   const store = new IntelligenceEventStore({ path: ":memory:" });
-  process.env.FLYD_COS_DSL_MODULE = import.meta.resolve("@parcha/agentrun-dsl");
+  delete process.env.FLYD_COS_DSL_MODULE;
+  delete process.env.FLYD_COS_DECISION_DSL;
+  process.env.FLYD_COS = "1";
+  process.env.FLYD_JEV_ENABLED = "true";
+  process.env.TYPESAFE_API_KEY = "scripted-test-only-not-a-real-key";
   try {
+    const readiness = await agentRunActivationStatus();
+    assert.equal(readiness.enabled, true, JSON.stringify(readiness));
+    assert.equal(readiness.mode, "on");
     const result = await runRecoveryDsl(input, state, {
       store, evaluate: async () => answer(),
     });
     assert.equal(result.kind, "decided", JSON.stringify(result));
     if (result.kind === "decided") assert.equal(result.action, "rebrief");
+
+    // An explicit user kill switch must defeat the default-on selection.
+    process.env.FLYD_COS_DECISION_DSL = "off";
+    assert.equal((await agentRunActivationStatus()).enabled, false);
   } finally {
     store.close();
     if (previous === undefined) delete process.env.FLYD_COS_DSL_MODULE;
     else process.env.FLYD_COS_DSL_MODULE = previous;
+    if (previousCos === undefined) delete process.env.FLYD_COS;
+    else process.env.FLYD_COS = previousCos;
+    if (previousMode === undefined) delete process.env.FLYD_COS_DECISION_DSL;
+    else process.env.FLYD_COS_DECISION_DSL = previousMode;
+    if (previousJev === undefined) delete process.env.FLYD_JEV_ENABLED;
+    else process.env.FLYD_JEV_ENABLED = previousJev;
+    if (previousKey === undefined) delete process.env.TYPESAFE_API_KEY;
+    else process.env.TYPESAFE_API_KEY = previousKey;
   }
 }
 
