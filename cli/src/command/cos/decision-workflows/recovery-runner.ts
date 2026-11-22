@@ -135,7 +135,9 @@ export async function runRecoveryDsl(
     const p = existing.payload;
     if (p?.workflow === recoveryWorkflowDigest() && p.question === questionFingerprint(RECOVERY_PREDICATE)
       && (p.action === "hold" || p.action === "rebrief") && approvedCurrent(input, options)) {
-      return { kind: "decided", action: p.action, reason: "reused version-bound CoS recovery decision", replayed: true };
+      return { kind: "decided", action: p.action,
+        reason: p.reason === "low_confidence" || p.reason === "evidence_hold" || p.reason === "grounded_recovery"
+          ? p.reason : "replayed_validated_decision", replayed: true };
     }
     return { kind: "hold", reason: "decision version or authority changed" };
   }
@@ -147,6 +149,7 @@ export async function runRecoveryDsl(
   let started = false;
   let recorded = false;
   let answeredAction: "rebrief" | "hold" | null = null;
+  let answeredReason: "low_confidence" | "evidence_hold" | "grounded_recovery" | null = null;
   const judge = createRecoveryDslJudge({ evaluate: options.evaluate, model: options.model });
   try {
     const result = await runtime.runWorkflow(workflow, {
@@ -201,11 +204,17 @@ export async function runRecoveryDsl(
           type: "choice", choice: a.choice, confidence: a.confidence,
           probabilities: a.probabilities,
         });
+        const p = a.probabilities[a.choice];
+        const gate = predicateThreshold(RECOVERY_PREDICATE);
+        answeredReason = typeof p !== "number" || p < gate || a.confidence < gate
+          ? "low_confidence"
+          : a.choice === "hold_for_evidence" ? "evidence_hold" : "grounded_recovery";
         if (store) {
           event(store, input.objective.id ?? input.run.key, requestKey, "answered", {
             workflow: recoveryWorkflowDigest(), question: questionFingerprint(RECOVERY_PREDICATE),
             decisionId: receipt.id, stateHash: receipt.state_sha256,
-            action: answeredAction, threshold: predicateThreshold(RECOVERY_PREDICATE),
+            action: answeredAction, reason: answeredReason,
+            threshold: predicateThreshold(RECOVERY_PREDICATE),
             model: receipt.model ?? null, costUSD: receipt.cost_usd ?? null,
           });
         }
@@ -219,7 +228,8 @@ export async function runRecoveryDsl(
         action !== answeredAction || (action !== "hold" && action !== "rebrief")) {
       return { kind: "hold", reason: "unverified or stale DSL disposition" };
     }
-    return { kind: "decided", action, reason: "versioned read-only CoS recovery judgment", replayed: false };
+    return { kind: "decided", action,
+      reason: answeredReason ?? "replayed_validated_decision", replayed: false };
   } catch (error) {
     const reason = error instanceof PilotJudgmentError ? error.kind : started
       ? "decision interrupted or failed" : "internal source check failed";
