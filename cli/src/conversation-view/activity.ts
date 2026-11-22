@@ -6,7 +6,9 @@ import { labsDir } from "../command/design-mate.js";
 import { commandDir, listDomainRuns } from "../command/store.js";
 import type { DomainRun } from "../command/types.js";
 import { FLYD_DIR } from "../lib/config.js";
-import { SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
+import { INITIATIVE_CURATED_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
+import { initiativeSourcesCurrent, currentInitiativeEvidence, type CurrentInitiativeEvidence } from "../runtime/initiative/source-validity.js";
+import type { InitiativeSource } from "../runtime/initiative/candidates.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { outcomeReviewCandidates, type OutcomeReviewCandidate } from "../intelligence/outcomes/outcome-review.js";
 import { sourceLabel } from "../lib/source-label.js";
@@ -212,6 +214,10 @@ export interface ActivityRecord {
   /** The actual stories behind a news card, each with its own link and the kind it was picked as, shown only when he opens it. */
   stories?: Array<Omit<ActivityStory, "mark"> & { kind?: string }>;
   state?: "now" | "done";
+  /** Full provenance; a new initiative is hidden if any parent changes or loses consent. */
+  sourceRefs?: InitiativeSource[];
+  /** Optional longer line for inspectable findings, still subject to plain-word checks. */
+  detail?: string;
   at?: string;
   /** Ambient content stops being relevant after this time; a card is not a week-long alert. */
   expiresAt?: string;
@@ -246,6 +252,19 @@ export function visibleCareRecords(
     if (!policy.careEnabled) return false;
     if (key.startsWith("care:meeting:") && !policy.meetingEnabled) return false;
     return true;
+  });
+}
+
+/** Additional per-read revocation gate for self-started initiative cards. */
+export function visibleInitiativeRecords(
+  records: unknown[],
+  policy: { enabled: boolean; current: (sources: InitiativeSource[]) => boolean },
+): unknown[] {
+  return records.filter(raw => {
+    const rec = raw as Partial<ActivityRecord> | null;
+    if (!rec || typeof rec.key !== "string" || !rec.key.startsWith("initiative:")) return true;
+    if (!policy.enabled) return false;
+    return Array.isArray(rec.sourceRefs) && policy.current(rec.sourceRefs);
   });
 }
 
@@ -467,7 +486,9 @@ export function activityFromRecords(records: unknown[], now: number): { now: Act
     const stories = recordStories(record.stories);
     if (Array.isArray(record.stories) && record.stories.length && localDay(new Date(record.at)) !== localDay(new Date(now))) continue;
     const line = plainLine(record.line);
-    const detail = stories.length ? undefined : detailBehind(record.line, line);
+    const detail = record.detail
+      ? detailBehind(record.detail, line)
+      : stories.length ? undefined : detailBehind(record.line, line);
     const item: ActivityItem = { id: `record:${key}`, kind: record.kind, title: record.title.trim(), ...(line ? { line } : {}), ...(detail ? { detail } : {}), ...(stories.length ? { stories } : {}), at: record.at };
     if (record.state === "now") {
       if (now - Date.parse(record.at) <= NOW_MAX_AGE_MS) live.push(item);
@@ -732,19 +753,28 @@ export class ActivityReader {
     const day = localDay(new Date(now));
     const scout = join(this.dir, "scout");
     const editionFile = oneJson(join(scout, "edition-latest.json"));
+    let initiativeEvidence: CurrentInitiativeEvidence | undefined;
+    const careRecords = visibleCareRecords(jsonLines(activityRecordPath(this.dir), 300), {
+      careEnabled: process.env.FLYD_PROACTIVE_CARE !== "0",
+      meetingEnabled: process.env.FLYD_PROACTIVE_CARE !== "0"
+        && process.env.FLYD_PERSONAL_BRIEFING !== "0"
+        && new SourceContractRegistry({ path: join(this.dir, "intelligence", "source-consents.json") })
+          .status("calendar.meeting-prep") === "enabled",
+    });
     const inputs: ActivityInputs = {
       log: lines(join(this.dir, "logs", "agenda.log"), 600),
       jobs: this.jobs(),
-      // Re-evaluate consent on every refresh, so disabled/revoked private
-      // preparation disappears without requiring a restart. Do not register
-      // or implicitly enable a source just to read its visibility state.
-      records: visibleCareRecords(jsonLines(activityRecordPath(this.dir), 300), {
-        careEnabled: process.env.FLYD_PROACTIVE_CARE !== "0",
-        meetingEnabled: process.env.FLYD_PROACTIVE_CARE !== "0"
-          && process.env.FLYD_PERSONAL_BRIEFING !== "0"
-          && new SourceContractRegistry({
-            path: join(this.dir, "intelligence", "source-consents.json"),
-          }).status("calendar.meeting-prep") === "enabled",
+      // Re-evaluate every parent source before showing an idea, even if it
+      // was prepared on a prior tick. A revised/revoked parent hides it.
+      records: visibleInitiativeRecords(careRecords, {
+        enabled: process.env.FLYD_INITIATIVE !== "0" && process.env.FLYD_INITIATIVE !== "off"
+          && process.env.FLYD_INITIATIVE !== "shadow"
+          && new SourceContractRegistry({ path: join(this.dir, "intelligence", "source-consents.json") })
+            .status(INITIATIVE_CURATED_CONTRACT.sourceId) === "enabled",
+        current: (sources) => {
+          initiativeEvidence ??= currentInitiativeEvidence(this.dir);
+          return initiativeSourcesCurrent(sources, initiativeEvidence);
+        },
       }),
       news: {
         edition: editionStories(editionFile, day),

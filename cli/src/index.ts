@@ -231,6 +231,15 @@ program
   });
 
 program
+  .command("initiative")
+  .description("Opt-in local self-initiated intelligence: status | enable | disable | pause | revoke | renew | run")
+  .argument("[action]", "status, enable, disable, pause, revoke, renew, run")
+  .action(async (action?: string) => {
+    const { runInitiativeCommand } = await import("./commands/initiative.js");
+    await runInitiativeCommand(action);
+  });
+
+program
   .command("profile")
   .description("Show George's editable profile (USER.md); `flyd profile edit` opens it, `flyd profile bootstrap` drafts it from memory")
   .argument("[action]", "edit or bootstrap")

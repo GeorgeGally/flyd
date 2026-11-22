@@ -147,6 +147,22 @@ export const OUTCOME_REVIEW_LEARNING_CONTRACT: SourceContract = {
   enabledByDefault: false,
 };
 
+/** Independent initiative is a separate local LEARN purpose. It is not
+ * authorization to read additional accounts or transmit private context.
+ * Explicit source consent is required before creating derived hypotheses.
+ */
+export const INITIATIVE_CURATED_CONTRACT: SourceContract = {
+  sourceId: "initiative.curated",
+  displayName: "Local initiative from already-curated work",
+  sensitivity: "medium",
+  scopes: ["initiative.curated"],
+  retentionClass: "local_default",
+  retentionDays: 30,
+  egressDestinations: [],
+  purpose: "Find and privately record evidence-backed opportunities across the already-curated project, Scout, Council and CoS records. No extra sensing, external model egress or automatic external actions.",
+  enabledByDefault: false,
+};
+
 export const EXPERIENCE_RUNTIME_CONTRACT: SourceContract = {
   sourceId: "experience.runtime",
   displayName: "Runtime experience traces",
