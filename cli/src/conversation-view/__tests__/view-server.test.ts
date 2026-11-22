@@ -13,6 +13,9 @@ import type { ConversationMessage, Exchange } from "../types.js";
 import { QuestionGone } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import { ActivityReader } from "../activity.js";
+import { IntelligenceEventStore } from "../../intelligence/event-store.js";
+import { EXECUTIVE_DECISION_VERSION, persistExecutiveDecision } from "../../intelligence/executive/decision-step.js";
+import { outcomeReviews, OUTCOME_REVIEW_SOURCE } from "../../intelligence/outcomes/outcome-review.js";
 import { readDomainRun, saveDomainRun } from "../../command/store.js";
 import { artefactAsk } from "../replies.js";
 import { ArtefactFeed } from "../artefact.js";
@@ -2003,6 +2006,57 @@ describe("ConversationViewServer", () => {
       else process.env.FLYD_SCOUT_DIR = previous;
       rmSync(scout, { recursive: true, force: true });
     }
+  });
+
+  it("accepts only explicit, authenticated usefulness reviews for verified results", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-view-outcome-review-"));
+    const local = join(dir, "local-intelligence");
+    mkdirSync(local, { recursive: true });
+    writeFileSync(join(dir, "s1.jsonl"), [captain("hello"), assistantText("Hi.")].join("\n") + "\n");
+    const dbPath = join(local, "intelligence.sqlite");
+    const id = "b".repeat(32);
+    const now = new Date();
+    let evidence = new IntelligenceEventStore({ path: dbPath });
+    expect(persistExecutiveDecision(evidence, {
+      schema: EXECUTIVE_DECISION_VERSION, decisionId: id, sourceId: "task",
+      sourceEventId: "release-verified", disposition: "handle_internally",
+      reason: "Independently confirmed", summary: "The requested release has landed.",
+      evidenceRefs: ["task:release"], verification: { status: "verified", evidenceRefs: ["github-merge:confirmed"] },
+      show: true, notify: false, createdAt: now.toISOString(),
+    })).not.toBeNull();
+    evidence.close();
+
+    const activity = new ActivityReader({ dir: local });
+    server = new ConversationViewServer(
+      new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate" }),
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, activity,
+    );
+    const port = await server.listen(0);
+    viewToken = JSON.parse((await get(port, "/api/token")).body).token;
+    activity.refresh();
+    expect(activity.current().reviews?.some((item) => item.id === "outcome-review:" + id)).toBe(true);
+
+    const url = "/api/outcome-review";
+    const body = JSON.stringify({ decisionId: id, verdict: "not_helpful" });
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    expect((await post(port, body, { "content-type": "application/json" }, url)).status).toBe(403);
+    expect((await post(port, body, { ...headers, origin: "https://attacker.example" }, url)).status).toBe(403);
+    expect((await post(port, "{", headers, url)).status).toBe(400);
+    expect((await post(port, JSON.stringify({ decisionId: id, verdict: "approve" }), headers, url)).status).toBe(400);
+    expect((await post(port, JSON.stringify({ decisionId: "a".repeat(32), verdict: "helpful" }), headers, url)).status).toBe(404);
+
+    const accepted = await post(port, body, headers, url);
+    expect(accepted.status).toBe(200);
+    expect(JSON.parse(accepted.body)).toEqual({ status: "recorded" });
+    expect(JSON.parse((await post(port, body, headers, url)).body)).toEqual({ status: "already_recorded" });
+
+    evidence = new IntelligenceEventStore({ path: dbPath });
+    expect(evidence.readSource(OUTCOME_REVIEW_SOURCE)).toHaveLength(1);
+    expect(outcomeReviews(evidence).get(id)?.verdict).toBe("not_helpful");
+    evidence.close();
+    activity.refresh();
+    expect(activity.current().reviews?.some((item) => item.id === "outcome-review:" + id)).toBe(false);
   });
 
   it("lists no slash commands for a read-only conversation", async () => {
