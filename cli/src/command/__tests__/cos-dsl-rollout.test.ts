@@ -4,7 +4,7 @@ import { questionFor, predicateThreshold } from "../../cognition/system-one/regi
 import type { PredicateEvaluation } from "../../cognition/system-one/types.js";
 import { judgeRecovery, type RecoveryInput } from "../cos/recovery.js";
 import {
-  dslMode, executiveDecisionProviderConfigured, runRecoveryDsl, selectedForCanary, supportsAgentRunNode, type DslExecutor,
+  agentRunNodeUpgradeRequired, dslMode, executiveDecisionProviderConfigured, runRecoveryDsl, selectedForCanary, supportsAgentRunNode, type DslExecutor,
 } from "../cos/decision-workflows/recovery-runner.js";
 import { recoveryWorkflow, recoveryWorkflowDigest } from "../cos/decision-workflows/recovery-workflow.js";
 import { recordDslRollout } from "../cos/decision-workflows/rollout-audit.js";
@@ -113,6 +113,17 @@ describe("bounded live CoS DSL rollout", () => {
     expect(supportsAgentRunNode("22.16.0")).toBe(false);
     expect(supportsAgentRunNode("24.22.2")).toBe(false);
     expect(supportsAgentRunNode("24.22.3")).toBe(true);
+  });
+
+  it("requires an update only for a requested DSL on an incompatible serving Core", () => {
+    expect(agentRunNodeUpgradeRequired("22.16.0", "1", undefined)).toBe(true);
+    expect(agentRunNodeUpgradeRequired("24.22.2", "1", "on")).toBe(true);
+    expect(agentRunNodeUpgradeRequired("24.22.3", "1", "on")).toBe(false);
+    expect(agentRunNodeUpgradeRequired("24.23.0", "1", "canary")).toBe(false);
+    expect(agentRunNodeUpgradeRequired("22.16.0", "0", undefined)).toBe(false);
+    expect(agentRunNodeUpgradeRequired("22.16.0", "1", "off")).toBe(false);
+    expect(agentRunNodeUpgradeRequired("22.16.0", "1", "unexpected")).toBe(false);
+    expect(agentRunNodeUpgradeRequired("22.16.0", "1", "shadow")).toBe(true);
   });
 
   it("never claims AgentRun is usable without a configured executive model", () => {

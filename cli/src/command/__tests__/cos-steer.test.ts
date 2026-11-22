@@ -7,7 +7,7 @@ import { handOffLiveTask } from "../../runtime/live-task-intake.js";
 import { planTurn } from "../../runtime/turn-plan.js";
 import { listObjectives, mutateObjective, openObjective, readObjective } from "../cos/objectives.js";
 import type { Dispatch } from "../cos/dispatch.js";
-import { tellWork, workStatus } from "../cos/steer.js";
+import { flushPendingCorrections, tellWork, workStatus } from "../cos/steer.js";
 import { cosTick } from "../cos/tick.js";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import type { sendRunMessage } from "../messages.js";
@@ -99,6 +99,44 @@ describe("tell_work", () => {
     };
     await cosTick({ dispatch: refuse, send, say: async (made) => { said.push(made); }, store: new IntelligenceEventStore({ path: join(home, "intelligence.sqlite") }) });
     expect([readObjective(pricing)?.status, said]).toEqual(["cancelled", []]);
+  });
+});
+
+
+describe("durable correction delivery", () => {
+  it("persists the revision before sending and retries failed sends without losing intent", async () => {
+    const id = underWay("Fix the cap5 footer", "coding");
+    let attempts = 0;
+    const send = (async ({ run }: { run: DomainRun }) => {
+      attempts += 1;
+      const current = readObjective(id)!;
+      expect(current.briefRevision).toBe(1);
+      expect(current.pendingCorrections).toEqual([{ revision: 1, runId: run.id, text: "make it blue" }]);
+      return { delivered: attempts > 1, run };
+    }) as typeof sendRunMessage;
+    expect(await tellWork({ message: "make it blue", objectiveId: id }, send)).toEqual({
+      delivered: false, objectiveId: id, reason: "delivery_failed",
+    });
+    expect(readObjective(id)?.pendingCorrections).toHaveLength(1);
+    expect(await flushPendingCorrections(id, send)).toBe(true);
+    expect(readObjective(id)?.pendingCorrections).toEqual([]);
+    expect(attempts).toBe(2);
+  });
+
+  it("replays accepted corrections after a simulated restart via the scheduler", async () => {
+    const id = underWay("Fix the cap5 footer", "coding");
+    const failure = (async ({ run }: { run: DomainRun }) => ({ delivered: false, run })) as typeof sendRunMessage;
+    await tellWork({ message: "change spacing", objectiveId: id }, failure);
+    const delivered: string[] = [];
+    const recovered = (async ({ run, body }: { run: DomainRun; body: string }) => {
+      delivered.push(body);
+      return { delivered: true, run };
+    }) as typeof sendRunMessage;
+    const store = new IntelligenceEventStore({ path: join(home, "intelligence.sqlite") });
+    await cosTick({ send: recovered, dispatch: async () => ({ unknown: "not dispatched" }), store });
+    expect(delivered).toEqual(["change spacing"]);
+    expect(readObjective(id)?.pendingCorrections).toEqual([]);
+    store.close();
   });
 });
 

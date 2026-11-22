@@ -48,6 +48,14 @@ make run
 
 The Swift app starts Core through a login shell, so the **Core's Node** can differ from the interactive terminal's Node. `make run` installs and verifies the pinned interpreter only when the terminal's selected Node is compatible; it never upgrades Node, changes secrets, or modifies firstmate. An app that adopts an already-running older Core must be restarted before this can be counted as active. To roll back without changing the repository: set `FLYD_COS_DECISION_DSL=off` in the Core process environment and restart Core. Activation alone is **not** verification of improved real-world decisions.
 
+### Native Node compatibility prompt (2026-11-23)
+
+On launch or reconnect, the Mac adapter queries the authenticated Core `GET /runtime/agentrun/status` endpoint. This reports **the serving Core process's** Node version (rather than the user's Terminal version). When CoS has opted into AgentRun and Node is below **24.22.3**, Flyd shows a native prompt **once per incompatible version** with `Update Node…` or `Not now`. It records dismissal locally and keeps **Update Node for AgentRun…** in the status menu until the Core is compatible.
+
+`Update Node…` opens the official <https://nodejs.org/en/download> guide. **It does not run curl, Homebrew, nvm or installers**, alter PATH, restart Core, or affect an in-flight job. Once the user updates their chosen Node and restarts Flyd, the prompt disappears if the serving Core is compatible; a later regression can prompt again. Explicit `FLYD_COS_DECISION_DSL=off` or `FLYD_COS=0` suppresses the prompt.
+
+The app cannot infer the Node version of an already-adopted old Core that lacks the diagnostic endpoint; in that case it gives no speculative alert. Rebuilding and restarting the native app/Core remains necessary before this new native functionality appears. The warning is **about Node compatibility only**—provider authorization, interpreter installation and real-world performance still have their own gates.
+
 ### Reproducible tests
 
 ```sh

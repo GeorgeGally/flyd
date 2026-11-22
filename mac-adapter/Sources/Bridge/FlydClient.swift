@@ -589,6 +589,12 @@ final class FlydClient {
         return await healthCheck()
     }
 
+    /// The authenticated local Core reports its *own* Node, not the shell
+    /// chosen by a CLI launched from Finder or Terminal.
+    func agentRunRuntimeStatus() async -> NodeRuntimeDiagnostic? {
+        await get("/runtime/agentrun/status")
+    }
+
     func voiceStatus() async -> VoiceStatusResponse? {
         guard let url = URL(string: "\(baseURL)/voice/status") else { return nil }
 

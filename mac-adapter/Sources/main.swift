@@ -88,6 +88,8 @@ let voiceConversationId = UUID().uuidString
 var voiceTranscriptionTimeout: DispatchWorkItem?
 var voiceHoldMonitor: Timer?
 var cachedVoiceStatus: FlydClient.VoiceStatusResponse?
+var cachedNodeRuntimeDiagnostic: NodeRuntimeDiagnostic?
+var presentingNodeRuntimeUpdate = false
 var coreHealthWatch = CoreHealthWatch()
 var setupWindow: NSWindow?
 var coreLaunched = false
@@ -108,6 +110,9 @@ statusItem.onInvoke = {
 }
 statusItem.onOpenSetup = {
     showPermissionsWindow()
+}
+statusItem.onOpenNodeUpdate = {
+    showNodeRuntimeUpdatePrompt(force: true)
 }
 statusItem.onRestartFlyd = {
     restartFlyd()
@@ -300,19 +305,72 @@ func checkCoreHealth() {
         case .clear(let generation):
             print("[Flyd] Flyd Core not running — pass-through disabled. Invocations will log locally.")
             await MainActor.run {
-                if coreHealthWatch.isCurrent(generation) { cachedVoiceStatus = nil }
+                if coreHealthWatch.isCurrent(generation) {
+                    cachedVoiceStatus = nil
+                    cachedNodeRuntimeDiagnostic = nil
+                    statusItem.setNodeUpgradeAvailable(false)
+                }
             }
         case .fetch(let generation):
             print("[Flyd] Connected to Flyd Core")
             let voiceStatus = await flydClient.voiceStatus()
+            // The runtime status comes from the serving Core. The GUI's shell
+            // PATH may differ, especially when the app adopts a preexisting Core.
+            let nodeStatus = await flydClient.agentRunRuntimeStatus()
             await MainActor.run {
                 guard coreHealthWatch.isCurrent(generation) else { return }
                 cachedVoiceStatus = voiceStatus
+                receiveNodeRuntimeDiagnostic(nodeStatus)
                 if let voiceStatus, !voiceStatus.ok {
                     print("[Flyd] Voice setup unavailable: \(voiceStatus.message ?? "unknown")")
                 }
             }
         }
+    }
+}
+
+/// A single actionable prompt for this incompatible Core Node version.
+func receiveNodeRuntimeDiagnostic(_ diagnostic: NodeRuntimeDiagnostic?) {
+    cachedNodeRuntimeDiagnostic = diagnostic
+    let updateNeeded = diagnostic?.nodeUpgradeRequired == true
+    statusItem.setNodeUpgradeAvailable(updateNeeded)
+    guard let diagnostic else { return }
+    if !updateNeeded {
+        // An upgrade succeeded. If the runtime later regresses, tell him again.
+        UserDefaults.standard.removeObject(forKey: NodeRuntimeUpdatePolicy.dismissalKey)
+        return
+    }
+    guard flydStarted,
+          NodeRuntimeUpdatePolicy.shouldPresent(
+              diagnostic,
+              lastNoticeID: UserDefaults.standard.string(forKey: NodeRuntimeUpdatePolicy.dismissalKey)
+          ) else { return }
+    showNodeRuntimeUpdatePrompt()
+}
+
+func showNodeRuntimeUpdatePrompt(force: Bool = false) {
+    guard !presentingNodeRuntimeUpdate,
+          let diagnostic = cachedNodeRuntimeDiagnostic,
+          let id = NodeRuntimeUpdatePolicy.noticeID(for: diagnostic) else { return }
+    if !force && !NodeRuntimeUpdatePolicy.shouldPresent(
+        diagnostic,
+        lastNoticeID: UserDefaults.standard.string(forKey: NodeRuntimeUpdatePolicy.dismissalKey)
+    ) { return }
+
+    presentingNodeRuntimeUpdate = true
+    let alert = NSAlert()
+    alert.alertStyle = .informational
+    alert.messageText = "Update Node for AgentRun?"
+    alert.informativeText = NodeRuntimeUpdatePolicy.message(for: diagnostic)
+    alert.addButton(withTitle: "Update Node…")
+    alert.addButton(withTitle: "Not now")
+    NSApplication.shared.activate(ignoringOtherApps: true)
+    let choice = alert.runModal()
+    // The menu action remains available even after "Not now".
+    UserDefaults.standard.set(id, forKey: NodeRuntimeUpdatePolicy.dismissalKey)
+    presentingNodeRuntimeUpdate = false
+    if choice == .alertFirstButtonReturn {
+        _ = NSWorkspace.shared.open(NodeRuntimeUpdatePolicy.downloadURL)
     }
 }
 

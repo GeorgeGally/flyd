@@ -1435,6 +1435,18 @@ export async function startServer(port = 4815, host = "127.0.0.1", options: { so
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
         handleDelegationCompletions(req, res);
         break;
+      case "/runtime/agentrun/status": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "GET") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        // Trusted loopback adapter only; report the real serving Core process,
+        // never the terminal's Node or credentials. An adopted old Core lacks
+        // this route and will not trigger a speculative update prompt.
+        void import("./command/cos/decision-workflows/recovery-runner.js")
+          .then((module) => module.agentRunActivationStatus())
+          .then((status) => sendJson(res, 200, status))
+          .catch(() => sendJson(res, 503, { error: "AgentRun diagnostics unavailable" }));
+        break;
+      }
       case "/health":
         handleHealth(req, res);
         break;

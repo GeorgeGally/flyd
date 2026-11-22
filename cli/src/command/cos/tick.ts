@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { validateEnvelope } from "../../intelligence/context-envelope.js";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
@@ -16,6 +17,7 @@ import type { DomainRun } from "../types.js";
 import { dispatchBrief, type Dispatch, type Dispatched, type SentBrief } from "./dispatch.js";
 import { intakeObjective, readRun, type Complete } from "./intake.js";
 import { cosEnabled, listObjectives, mutateObjective, readObjective } from "./objectives.js";
+import { flushPendingCorrections } from "./steer.js";
 import { awaitsDecision, backTo, isActive, isGone, isValid, maxActive, planFromBrief, planOf, planRequestId, releasable, requeue, sinks } from "./plan.js";
 import { WAIT_ANSWERS, type Adaptation, type CosReport, type CosReportKind, type Objective, type PlannedRun, type RunBrief, type WaitKind } from "./types.js";
 
@@ -108,16 +110,38 @@ function workOf(objective: Objective): string {
 async function report(objective: Objective, made: CosReport, deps: CosTickDeps, store: IntelligenceEventStore, tell: () => Promise<unknown>, status: Objective["status"], wait?: { kind: WaitKind; question?: string }): Promise<void> {
   if (objective.reportIds.includes(made.id)) return;
   const options = made.options?.length ? made.options : wait ? [...WAIT_ANSWERS[wait.kind]] : [];
-  await tell();
-  recordCosReport(made, store, deps.now?.());
+  // A durable claim prevents concurrent schedulers from sending the same report.
+  // The claim expires after process loss; retrying uses the same delivery key,
+  // which the existing delivery ledger must deduplicate.
+  const token = randomUUID();
+  const now = deps.now?.() ?? new Date();
+  let acquired = false;
   mutateObjective(objective.id, (current) => {
-    if (!current) return null;
+    if (!current || current.reportIds.includes(made.id)) return null;
+    const pending = current.pendingReport;
+    if (pending && pending.id === made.id && now.getTime() - Date.parse(pending.at) < CLAIM_LEASE_MS) return null;
+    acquired = true;
+    return { ...current, pendingReport: { id: made.id, token, at: now.toISOString() } };
+  });
+  if (!acquired) return;
+  // Record the report before any external delivery, so a crash cannot erase
+  // the fact that this outcome was selected.
+  recordCosReport(made, store, now);
+  try {
+    await tell();
+  } catch (error) {
+    // Keep the durable claim until its lease expires; then the same keyed
+    // delivery is retried. Never mark a failed send as reported.
+    throw error;
+  }
+  mutateObjective(objective.id, (current) => {
+    if (!current || current.pendingReport?.token !== token) return null;
     const { waitingOn: _waiting, snooze: _snooze, ...rest } = current;
     const waiting = status === "needs_george" && wait
       ? { waitingOn: { reportId: made.id, kind: wait.kind, question: wait.question ?? made.outcome, ...(options.length ? { options } : {}), at: new Date().toISOString() } }
       : status === "needs_george" ? { ...(current.waitingOn ? { waitingOn: current.waitingOn } : {}), ...(current.snooze ? { snooze: current.snooze } : {}) } : {};
     return {
-      ...rest, ...waiting, status: current.status === "cancelled" ? current.status : status,
+      ...rest, ...waiting, pendingReport: undefined, status: current.status === "cancelled" ? current.status : status,
       reportIds: current.reportIds.includes(made.id) ? current.reportIds : [...current.reportIds, made.id],
     };
   });
@@ -858,7 +882,11 @@ export async function cosTick(deps: CosTickDeps = {}): Promise<void> {
       try {
         if (objective.status === "intake") await intake(objective, deps, store, now);
         const current = readObjective(objective.id);
-        if (current && (current.status === "working" || current.status === "needs_george")) await advance(current.id, deps, store, now);
+        if (current && (current.status === "working" || current.status === "needs_george")) {
+          // Accepted steering is durable; replay it before observing executor results.
+          if (!(await flushPendingCorrections(current.id, deps.send ?? sendRunMessage))) continue;
+          await advance(current.id, deps, store, now);
+        }
       } catch {
         // One objective's failure never stops the others; it is tried again next tick.
       }
