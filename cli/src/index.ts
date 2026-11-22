@@ -106,10 +106,9 @@ program
   .description("Inspect recorded interventions and independent outcome evidence (read-only)")
   .argument("[action]", "outcomes")
   .option("--json", "machine-readable counts without private source text")
-  .action((action: string | undefined, options: { json?: boolean }) => {
+  .action(async (action: string | undefined, options: { json?: boolean }) => {
     if (action && action !== "outcomes") throw new Error("flyd intelligence outcomes [--json]");
     // No mutation, notification or model request. Missing verification stays unknown.
-    void (async () => {
       const [{ IntelligenceEventStore }, { verifiedLoopFromStore, summarizeVerifiedLoop }] = await Promise.all([
         import("./intelligence/event-store.js"), import("./intelligence/outcomes/verified-loop.js"),
       ]);
@@ -135,7 +134,6 @@ program
       } finally {
         store.close();
       }
-    })().catch((error) => { console.error(error); process.exitCode = 1; });
   });
 
 program
