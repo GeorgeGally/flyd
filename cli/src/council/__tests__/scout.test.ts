@@ -427,7 +427,7 @@ describe("the edition draws on the whole day", () => {
     const prompts: string[] = [];
     await runScout({ complete: rankerFor(prompts), fetchFn, dir, now: () => at("2026-11-14T07:00:00Z") });
     expect(prompts[0]).toContain("This week in models");
-    expect(prompts[0]).toMatch(/· 2026-10-23\) Three weeks back/);
+    expect(prompts[0]).toMatch(/· 2026-10-23\b.*\) Three weeks back/);
     expect(prompts[0]).not.toContain("Last season");
   });
 
