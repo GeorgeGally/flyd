@@ -133,6 +133,35 @@ describe("bounded live CoS DSL rollout", () => {
     } finally { store.close(); }
   });
 
+  it("never reuses a prior decision after provider policy or source consent changes", async () => {
+    const store = new IntelligenceEventStore({ path: ":memory:" });
+    const state = {
+      source_state: "coding", summary: "test", question: "safe recovery",
+      options: ["rebrief", "hold"], goal_context: "test",
+    };
+    let calls = 0;
+    try {
+      const initial = await runRecoveryDsl(input, state, {
+        store, executor: adapter, model: { provider: "jev", model: "jev-1.13.0" },
+        evaluate: async () => { calls++; return evaluation(); },
+      });
+      expect(initial.kind).toBe("decided");
+      const changed = await runRecoveryDsl(input, state, {
+        store, executor: adapter, model: { provider: "gemini", model: "gemini-decision-1" },
+        evaluate: async () => { calls++; return evaluation(); },
+      });
+      expect(changed.kind).toBe("decided");
+      expect(calls).toBe(2); // separate version-bound requests, never stale replay
+      store.eraseSource("domain-run:" + input.run.ref);
+      const revoked = await runRecoveryDsl(input, state, {
+        store, executor: adapter, model: { provider: "jev", model: "jev-1.13.0" },
+        evaluate: async () => { calls++; return evaluation(); },
+      });
+      expect(revoked.kind).toBe("hold");
+      expect(calls).toBe(2);
+    } finally { store.close(); }
+  });
+
   it("records an uncertain provider request once and never asks a second time", async () => {
     const store = new IntelligenceEventStore({ path: ":memory:" });
     let calls = 0;
