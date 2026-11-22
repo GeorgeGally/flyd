@@ -253,7 +253,8 @@ async function run(script: string, args: string[], runner: Last30daysRunner, tim
 }
 
 export async function researchLast30days(topic: string, options: { script?: string; runner?: Last30daysRunner; timeoutMs?: number } = {}): Promise<Last30daysResearch> {
-  const stdout = await run(options.script ?? last30daysPath(), ["--emit=json", "--days", "30", "--search", "reddit,hackernews,youtube", topic], options.runner ?? defaultRunner, options.timeoutMs ?? 240_000);
+  const args = ["--emit=json", "--days", "30", "--search", "reddit,hackernews,youtube", ...(process.env.FLYD_LAST30DAYS_VERIFY_FRESHNESS === "1" ? ["--verify-freshness"] : []), topic];
+  const stdout = await run(options.script ?? last30daysPath(), args, options.runner ?? defaultRunner, options.timeoutMs ?? 240_000);
   return parseLast30daysAgent(stdout);
 }
 
