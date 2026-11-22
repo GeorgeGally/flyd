@@ -120,16 +120,16 @@ describe("Flyd v10 source-grounded curiosity", () => {
     const tmp = dir(); const db = store(tmp);
     try {
       const deps = { now: () => now, store: db, projects: () => [project],
-        edition: () => edition, advisories: () => [advisory], mode: "shadow" as const };
+        edition: () => edition, advisories: () => [advisory], mode: "shadow" as const, consented: () => true };
       const first = await runInitiativeCycle(deps);
       expect(first.generated).toBeGreaterThanOrEqual(2);
       expect(first.investigated).toBeGreaterThanOrEqual(1);
       expect(first.published).toBe(0);
-      const initial = db.readSource("initiative.v10");
+      const initial = db.readSource("initiative.curated");
       expect(initial.some(e => e.kind === "proposed_action")).toBe(true);
       expect(initial.some(e => e.kind === "verified_outcome")).toBe(false);
       await runInitiativeCycle(deps);
-      expect(db.readSource("initiative.v10").length).toBe(initial.length);
+      expect(db.readSource("initiative.curated").length).toBe(initial.length);
     } finally { db.close(); }
   });
 
@@ -138,7 +138,7 @@ describe("Flyd v10 source-grounded curiosity", () => {
     const seen = new Set<string>(); const cards: ActivityRecord[] = [];
     try {
       const deps = { now: () => now, store: db, projects: () => [project], edition: () => edition,
-        advisories: () => [advisory], mode: "on" as const,
+        advisories: () => [advisory], mode: "on" as const, consented: () => true,
         seen: (key: string) => seen.has(key), countPublished: () => cards.length,
         record: (card: ActivityRecord) => { cards.push(card); seen.add(card.key!); },
       };
