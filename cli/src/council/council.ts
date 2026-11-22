@@ -1,8 +1,10 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import type { NotificationOutcome } from "../runtime/agenda.js";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { readUserProfile } from "../lib/user-profile.js";
-import { runAdvisors, type Advisory } from "./advisors.js";
+import { runAdvisors, updateAdvisoryStatus, type Advisory } from "./advisors.js";
 import { readJournalSince, recentJournal } from "./journal.js";
 import { collectNewCaptures, readLibrarianState, runLibrarian, tasteCurationDue, type LibrarianRunResult } from "./librarian.js";
 import { localDay, memoryPromptText } from "./memory-store.js";
@@ -68,12 +70,14 @@ export interface CouncilPassResult {
 
 export interface CouncilDependencies {
   complete(prompt: string): Promise<string>;
-  notify?: (title: string, message: string) => Promise<void>;
+  /** A void-returning notification attempt is never proof of delivery. */
+  notify?: (title: string, message: string) => Promise<NotificationOutcome>;
   now?: () => Date;
   force?: boolean;
 }
 
-interface NotifyState { day: string; count: number }
+/** Count attempted candidates, not people notified. */
+interface NotifyState { day: string; count: number; attempts?: Record<string, NotificationOutcome | "attempted"> }
 
 function notifyStatePath(): string {
   return join(process.env.FLYD_COUNCIL_DIR?.trim() || join(FLYD_DIR, "council"), "notify-state.json");
@@ -82,10 +86,20 @@ function notifyStatePath(): string {
 function readNotifyState(today: string): NotifyState {
   try {
     const state = JSON.parse(readFileSync(notifyStatePath(), "utf8")) as NotifyState;
-    return state.day === today ? state : { day: today, count: 0 };
+    return state.day === today && Number.isSafeInteger(state.count) && state.count >= 0
+      ? { ...state, attempts: state.attempts ?? {} }
+      : { day: today, count: 0, attempts: {} };
   } catch {
-    return { day: today, count: 0 };
+    return { day: today, count: 0, attempts: {} };
   }
+}
+
+function saveNotifyState(state: NotifyState): void {
+  const path = notifyStatePath();
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const temp = path + "." + process.pid + "." + randomUUID().slice(0, 8) + ".tmp";
+  writeFileSync(temp, JSON.stringify(state), { encoding: "utf8", mode: 0o600 });
+  renameSync(temp, path);
 }
 
 /** His taste rules as plain lines, for judging how he will react; empty when none or unreadable. */
@@ -126,13 +140,20 @@ export async function runCouncilPass(deps: CouncilDependencies): Promise<Council
     const state = readNotifyState(today);
     for (const advisory of advisories.filter((item) => item.urgency === "high")) {
       if (state.count >= URGENT_NOTIFICATIONS_PER_DAY || !deps.notify) break;
-      await deps.notify("Flyd", advisory.text).catch(() => undefined);
+      // Claim before the outward effect: a crash cannot ring the same
+      // advisory twice on the next background pass.
+      if (state.attempts?.[advisory.id]) continue;
+      state.attempts ??= {};
+      state.attempts[advisory.id] = "attempted";
       state.count += 1;
-      notified.push(advisory);
-    }
-    if (notified.length) {
-      mkdirSync(dirname(notifyStatePath()), { recursive: true, mode: 0o700 });
-      writeFileSync(notifyStatePath(), JSON.stringify(state), { encoding: "utf8", mode: 0o600 });
+      saveNotifyState(state);
+      const outcome = await deps.notify("Flyd", advisory.text).catch(() => "undelivered" as const);
+      state.attempts[advisory.id] = outcome;
+      saveNotifyState(state);
+      if (outcome === "shown") {
+        notified.push(advisory);
+        updateAdvisoryStatus(advisory.id, "shown", now);
+      }
     }
     return { librarian, advisories, notified };
   } finally {
@@ -144,7 +165,7 @@ export async function runCouncilPass(deps: CouncilDependencies): Promise<Council
 export function runCouncilInBackground(options: { force?: boolean } = {}): void {
   if (process.env.VITEST || process.env.FLYD_COUNCIL === "0") return;
   void (async () => {
-    const [{ query }, { notifyMac }] = await Promise.all([import("../lib/llm.js"), import("../runtime/agenda.js")]);
-    await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac, force: options.force });
+    const [{ query }, { notifyMacOutcome }] = await Promise.all([import("../lib/llm.js"), import("../runtime/agenda.js")]);
+    await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMacOutcome, force: options.force });
   })().catch(() => undefined);
 }

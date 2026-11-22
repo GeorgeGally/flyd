@@ -1486,7 +1486,10 @@ export async function respondToConversation(
     await record(connection, toolCalls, final, "succeeded");
 
     if (raisedAdvisory && !dependencies.readOnly) {
-      void import("../council/advisors.js").then(({ updateAdvisoryStatus }) => updateAdvisoryStatus(raisedAdvisory, "shown")).catch(() => undefined);
+      // Selected for a prompt is not shown. Only the emitted answer can
+      // establish that the advice reached the conversation surface.
+      void import("../council/advisors.js").then(({ confirmVisibleAdvisory }) =>
+        confirmVisibleAdvisory(raisedAdvisory, final)).catch(() => undefined);
     }
     return final;
   } catch (error) {

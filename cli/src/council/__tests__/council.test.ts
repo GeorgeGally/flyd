@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CognitiveCurator } from "../../cognition/curator/curator.js";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
-import { advisoriesPath, openAdvisories, parseAdvisories, pruneAdvisories, readAdvisories, runAdvisors, sameIdea, updateAdvisoryStatus, type Advisory, adviceHeadline, advisorPrompt } from "../advisors.js";
+import { advisoriesPath, confirmVisibleAdvisory, openAdvisories, parseAdvisories, pruneAdvisories, readAdvisories, runAdvisors, sameIdea, updateAdvisoryStatus, type Advisory, adviceHeadline, advisorPrompt } from "../advisors.js";
 import { appendJournalTurn, readJournalSince } from "../journal.js";
 import { collectNewCaptures, parseLibrarianProposal, readLibrarianState, runLibrarian } from "../librarian.js";
 import { applyMemoryOps, entryId, readMemoryEntries } from "../memory-store.js";
@@ -378,7 +378,7 @@ describe("council pass", () => {
 
   it("runs the Librarian then both advisors, and notifies urgent advisories within the daily cap", async () => {
     appendJournalTurn({ user: "cleanx launch is 3 October, store review not submitted yet", assistant: "ok", at: at("2026-09-27T09:00:00Z") });
-    const notify = vi.fn(async () => {});
+    const notify = vi.fn(async () => "shown" as const);
     const complete = vi.fn(async (prompt: string) => {
       if (prompt.startsWith("You are Flyd's Librarian")) {
         return JSON.stringify({ memory_ops: [{ op: "add", section: "Commitments", text: "CleanX launch on 3 October 2026", tier: "perishable" }], observations: ["Store review not submitted"] });
@@ -392,7 +392,66 @@ describe("council pass", () => {
     expect(result.librarian?.turns).toBe(1);
     expect(result.advisories.map((advisory) => advisory.advisor)).toEqual(["critic"]);
     expect(notify).toHaveBeenCalledWith("Flyd", "Submit CleanX for store review today or 3 Oct slips");
+    expect(result.notified).toHaveLength(1);
+    expect(readAdvisories().find((item) => item.id === result.notified[0]?.id)?.status).toBe("shown");
     expect(await runCouncilPass({ complete, notify, now: () => at("2026-09-27T10:05:00Z") })).toMatchObject({ skipped: "not_due" });
+  });
+});
+
+describe("advisory presentation receipts", () => {
+  it("preserves a selected-but-omitted note, consuming only a verified visible excerpt", () => {
+    const now = new Date("2026-11-22T09:00:00Z");
+    const advisory: Advisory = {
+      id: "note-1", advisor: "critic", text: "Submit the CleanX app for store review before Friday",
+      whyNow: "deadline", evidence: ["j:1"], confidence: "high", urgency: "normal",
+      topics: ["cleanx"], createdAt: now.toISOString(), expires: "2026-11-25", status: "open",
+    };
+    mkdirSync(join(home, "council"), { recursive: true });
+    writeFileSync(advisoriesPath(), JSON.stringify(advisory) + "\n");
+    expect(confirmVisibleAdvisory("note-1", "Your launch is coming soon.")).toBeNull();
+    expect(readAdvisories()[0]?.status).toBe("open");
+    expect(confirmVisibleAdvisory("note-1", "Submit the CleanX app for store review before Friday.", now)?.status).toBe("shown");
+    expect(readAdvisories()[0]?.shownAt).toBe(now.toISOString());
+    expect(confirmVisibleAdvisory("note-1", advisory.text)).toBeNull(); // no duplicate receipt
+  });
+});
+
+describe("council notification receipts", () => {
+  const complete = async (prompt: string) => {
+    if (prompt.startsWith("You are Flyd's Librarian")) {
+      return JSON.stringify({ memory_ops: [], observations: ["CleanX review remains outstanding"] });
+    }
+    if (prompt.includes("George's Critic")) {
+      return JSON.stringify({ critic: [{
+        text: "Submit CleanX for review before Friday", why_now: "launch",
+        evidence: ["j:1"], urgency: "high", topics: ["cleanx"], expires: "2026-10-03",
+      }], strategist: [] });
+    }
+    return "{}";
+  };
+
+  it.each(["undelivered", "kept", "repeat"] as const)(
+    "keeps %s attempts separate from shown and does not replay them on restart", async (outcome) => {
+      appendJournalTurn({ user: "CleanX launch is Friday and review is urgent", assistant: "noted", at: at("2026-09-27T09:00:00Z") });
+      const notify = vi.fn(async () => outcome);
+      const first = await runCouncilPass({ complete, notify, force: true, now: () => at("2026-09-27T10:00:00Z") });
+      expect(first.notified).toEqual([]);
+      const state = JSON.parse(readFileSync(join(home, "council", "notify-state.json"), "utf8"));
+      expect(state.count).toBe(1);
+      expect(Object.values(state.attempts)).toContain(outcome);
+      expect(first.advisories[0]?.status).toBe("open");
+      await runCouncilPass({ complete, notify, force: true, now: () => at("2026-09-27T10:05:00Z") });
+      expect(notify).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("persists a thrown Mac notification as undelivered rather than seen", async () => {
+    appendJournalTurn({ user: "CleanX needs urgent store review", assistant: "noted", at: at("2026-09-27T09:00:00Z") });
+    const notify = vi.fn(async (): Promise<"shown"> => { throw new Error("Mac not listening"); });
+    const result = await runCouncilPass({ complete, notify, force: true, now: () => at("2026-09-27T10:00:00Z") });
+    expect(result.notified).toEqual([]);
+    const state = JSON.parse(readFileSync(join(home, "council", "notify-state.json"), "utf8"));
+    expect(Object.values(state.attempts)).toContain("undelivered");
   });
 });
 

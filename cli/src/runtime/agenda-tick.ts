@@ -62,7 +62,7 @@ export async function runTickJobs(jobs: TickJob[], options: TickOptions = {}): P
 
 /** The real tick's jobs, in order. */
 export async function defaultTickJobs(options: { now?: () => Date; backoffPath?: string } = {}): Promise<TickJob[]> {
-  const [{ query }, { notifyMac }] = await Promise.all([import("../lib/llm.js"), import("./agenda.js")]);
+  const [{ query }, { notifyMac, notifyMacOutcome }] = await Promise.all([import("../lib/llm.js"), import("./agenda.js")]);
   const guard = { ...(options.now ? { now: options.now } : {}), ...(options.backoffPath ? { path: options.backoffPath } : {}) };
   const complete = guardModelCall((prompt: string) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), guard);
   const prose = guardModelCall((prompt: string) => query(prompt), guard);
@@ -102,7 +102,7 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       run: async () => {
         if (process.env.FLYD_COUNCIL === "0") return;
         const { runCouncilPass } = await import("../council/council.js");
-        const council = await runCouncilPass({ complete, notify: notifyMac });
+        const council = await runCouncilPass({ complete, notify: notifyMacOutcome });
         if (council.skipped) return;
         return `${council.librarian?.turns ?? 0} turns, ${council.librarian?.captures ?? 0} captures, ${council.advisories.length} advisories`;
       },

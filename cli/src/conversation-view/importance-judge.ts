@@ -4,6 +4,15 @@ import type { ShowItem } from "./show.js";
 
 const KEEP = 200;
 
+/** Never let optional relevance scoring suppress a source-confirmed
+ * decision or an executive-reviewed landed result. */
+export function protectedFromImportance(item: ShowItem): boolean {
+  return item.kind === "call"
+    || !!item.decision
+    || !!item.questionIdentity
+    || (item.kind === "landed" && !!item.executiveDecisionId);
+}
+
 /**
  * Flyd's judgment on what reaches his screen: one Jev question
  * (`matters_to_george`) per item, with what he has said lately. An item judged
@@ -23,12 +32,13 @@ export class ImportanceJudge {
 
   /** False only when Jev said, confidently, that it is not his. */
   matters(item: ShowItem): boolean | undefined {
+    if (protectedFromImportance(item)) return true;
     return this.judged.get(this.key(item)) ?? undefined;
   }
 
   /** Already asked, settled or not: asking again would only redraw his screen for nothing. */
   asked(item: ShowItem): boolean {
-    return this.judged.has(this.key(item));
+    return protectedFromImportance(item) || this.judged.has(this.key(item));
   }
 
   pending(item: ShowItem): boolean {
@@ -37,6 +47,7 @@ export class ImportanceJudge {
 
   /** Resolves true when the answer changes what he sees (a clear no), so only then is the screen redrawn. */
   async request(item: ShowItem, recentWords: string[]): Promise<boolean> {
+    if (protectedFromImportance(item)) return false;
     const key = this.key(item);
     if (this.judged.has(key) || this.asking.has(key)) return false;
     this.asking.add(key);

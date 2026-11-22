@@ -883,10 +883,15 @@ export async function resolve(
   try {
     const resolution = await resolveManifest(manifest, model, apiKey, baseURL, router, conversationTurns, trace);
     void recordResolutionReceipt({ ...receipt, path: trace.path, resolution, memory: trace.memory, ...turnReceipt() }, persistOptions);
-    // A backstage note the answer was handed counts as raised, as in chat.
+    // Only explanation content returned to the answer panel may consume
+    // advice. Model selection, an internal rationale or a native edit cannot.
     const raised = trace.turn?.raisedAdvisory;
-    if (raised && trace.path === "model" && resolutionAnswerText(resolution).trim()) {
-      void import("./council/advisors.js").then(({ updateAdvisoryStatus }) => updateAdvisoryStatus(raised, "shown")).catch(() => undefined);
+    const displayed = resolution.mode === "requires_augment"
+      ? (resolution.augmentations ?? []).filter((item) => item.kind === "explanation").map((item) => item.content ?? "").join("\n\n")
+      : "";
+    if (raised && trace.path === "model" && displayed.trim()) {
+      void import("./council/advisors.js").then(({ confirmVisibleAdvisory }) =>
+        confirmVisibleAdvisory(raised, displayed)).catch(() => undefined);
     }
     return resolution;
   } catch (error) {

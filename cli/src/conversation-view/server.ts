@@ -37,7 +37,7 @@ import { QuestionGone, type ConversationMessage, type ConversationSnapshot, type
 import { HELD_READING, type AnswerInterpreter } from "./interpret.js";
 import type { ArtefactJudge } from "./artefact-judge.js";
 import type { SemanticJudge } from "./semantic-judge.js";
-import type { ImportanceJudge } from "./importance-judge.js";
+import { protectedFromImportance, type ImportanceJudge } from "./importance-judge.js";
 import { activityObjectsFromShow, artifactObjectsFromShow, decisionObjectsFromShow, composeSemanticSnapshot, needsGeorge, semanticEvents, semanticFocus, semanticObjectsFromShow, type SemanticObject } from "./semantic.js";
 import { fillScreen } from "./screen/patterns.js";
 import { inFlydsVoice } from "./flyd-voice.js";
@@ -684,14 +684,14 @@ export class SnapshotDiffer {
         // Redraw only when the answer takes something off his screen; a yes or an unsure changes nothing.
         void importance.request(item, his).then((changed) => { if (changed) this.summaries?.onSummary?.(); });
       }
-      const kept = show.items.filter((item) => importance.matters(item) !== false);
+      const kept = show.items.filter((item) => protectedFromImportance(item) || importance.matters(item) !== false);
       let trimmed = kept.length !== show.items.length;
       if (trimmed) {
         show.items = kept.length || !known ? kept : [{ id: "clear", kind: "clear", headline: "Nothing needs you right now.", why: "I'll flag it when something does" }];
       }
       // A call Flyd is sure is not his leaves the sheet too, and "N need you" counts only what the sheet can open.
       if (show.calls) {
-        const calls = show.calls.filter((call) => importance.matters(call) !== false);
+        const calls = show.calls.filter((call) => protectedFromImportance(call) || importance.matters(call) !== false);
         if (calls.length !== show.calls.length) {
           trimmed = true;
           show.counts = { ...show.counts, call: calls.length };
