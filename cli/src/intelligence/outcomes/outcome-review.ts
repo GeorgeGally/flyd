@@ -111,7 +111,14 @@ export function recordExplicitOutcomeReview(
   if (parseReview(last?.payload?.review)?.verdict === input.verdict) return "already_recorded";
   // A user can correct either way. Stable revision numbers make same-verdict
   // retries idempotent while leaving the prior opinion inspectable.
-  const key = "review:" + input.decisionId + ":" + (prior.length + 1);
+  // Erasure keeps non-readable idempotency tombstones. If the source was
+  // explicitly renewed, do not collide with an earlier erased revision and
+  // silently report success without creating a readable review.
+  let revision = prior.length + 1;
+  while (store.findByIdempotencyKey(OUTCOME_REVIEW_SOURCE, "review:" + input.decisionId + ":" + revision)) {
+    revision += 1;
+  }
+  const key = "review:" + input.decisionId + ":" + revision;
   const envelope = {
     pathKind: "interface" as const,
     kind: "observation" as const,
