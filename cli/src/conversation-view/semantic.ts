@@ -528,6 +528,9 @@ export function semanticFocus(objects: readonly SemanticObject[]): SemanticObjec
  * watch that changed, or finished work waiting for his look.
  */
 export function needsGeorge(object: SemanticObject): boolean {
+  // Explicit ratings are useful, but optional. They must never inflate
+  // the urgent decisions count or interrupt an active conversation.
+  if (object.id.startsWith("outcome-review:")) return false;
   if (object.kind === "decision") return true;
   // A paused worker is waiting on its own clock, not on him.
   if (object.lifecycle === "interrupted" && object.status !== "paused") return true;
