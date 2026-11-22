@@ -138,6 +138,28 @@ export function deriveInitiatives(input: InitiativeSignals): InitiativeCandidate
     }
   }
 
+  // A recorded near-term deadline and a project explicitly marked waiting
+  // can form a specific independent question without Calendar, email, or
+  // inferring a missing commitment. One source = private investigation only.
+  for (const project of projects.filter(p => p.status === "waiting" && p.due && p.next)) {
+    const at = Date.parse(project.due! + "T00:00:00");
+    const delta = Math.floor((at - now.getTime()) / 86_400_000);
+    if (!Number.isFinite(at) || delta < -3 || delta > 14 || NO_PERSONAL.test(project.next ?? "")) continue;
+    const question = "Does " + oneLine(project.name, 55) + " have what it needs for " + oneLine(project.next!, 75) + " before " + project.due + "?";
+    const sources = [source("project:" + project.id, project.updated, "local_operational", "project:" + project.id)];
+    made.push({
+      id: initiativeKey("project", project.id, question), origin: "project",
+      domain: project.kind === "venture" ? "venture" : project.kind === "client" ? "client" : "work",
+      subject: project.name, question,
+      hypothesis: "The next recorded step may be blocked before an explicitly dated milestone.",
+      counterQuestion: "Is the waiting state still accurate, or has the dependency already cleared?",
+      proposedTest: "Check current objective and dependency evidence; only report a risk if the recorded waiting state is still confirmed.",
+      observed: ["Project status: waiting", "Recorded next step: " + oneLine(project.next!, 170), "Recorded due date: " + project.due],
+      sources, createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + 2 * 86_400_000).toISOString(),
+      benefit: 0.72, confidence: 0.8, novelty: 0.2, effort: 0.15, urgency: 0.75,
+    });
+  }
+
   // Council already has evidence-backed, dated critical thinking. Only a
   // question about improving evidence is made here; Council still owns
   // advisory display, so this never creates a second notification.
