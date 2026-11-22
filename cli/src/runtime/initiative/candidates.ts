@@ -92,7 +92,9 @@ export function deriveInitiatives(input: InitiativeSignals): InitiativeCandidate
   const today = localDay(now);
   const made: InitiativeCandidate[] = [];
   const projects = input.projects.filter((p) => p.status !== "done" && p.status !== "paused"
-    && isFresh(p.updated + "T23:59:59", now, 45)
+    && Number.isFinite(Date.parse(p.updated + "T00:00:00"))
+    && Date.parse(p.updated + "T00:00:00") <= now.getTime() + 86_400_000
+    && Date.parse(p.updated + "T00:00:00") >= now.getTime() - 45 * 86_400_000
     && !NO_PERSONAL.test([p.name, p.what, p.now].join(" ")));
 
   // Creative synthesis: one already-curated public Scout reference contrasted
