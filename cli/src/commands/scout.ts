@@ -37,7 +37,10 @@ export async function runScoutCommand(action = "show", args: string[] = []): Pro
     }
     case "more":
     case "less": {
-      const item = recordScoutFeedback(args[0] ?? "", action);
+      const reason = args[1];
+      if (reason && !["wrong-topic", "repeat", "not-new", "too-shallow", "bad-source", "interesting", "surprising", "already-knew"].includes(reason))
+        throw new Error("Unknown reason: " + reason);
+      const item = recordScoutFeedback(args[0] ?? "", action, scoutDir(), new Date(), reason as "wrong-topic" | "repeat" | "not-new" | "too-shallow" | "bad-source" | "interesting" | "surprising" | "already-knew" | undefined);
       process.stdout.write(item ? `${action === "more" ? "More" : "Less"} like "${item.title}".\n` : `Nothing to rate for ${args[0] ?? ""} (an item number, story link or source id).\n`);
       return;
     }
