@@ -136,9 +136,18 @@ export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<
     });
     result.generated = candidates.length;
     // Shared deterministic value-of-information budget, no model calls.
-    const evaluated = candidates.map((candidate) => ({ candidate, decision: decideInitiative(candidate, { allowed: valid, mode }) }))
-      .sort((a, b) => b.decision.score - a.decision.score)
-      .slice(0, Math.max(0, Math.min(4, deps.maxInvestigations ?? 2)));
+    const ranked = candidates.map((candidate) => ({ candidate, decision: decideInitiative(candidate, { allowed: valid, mode }) }))
+      .sort((a, b) => b.decision.score - a.decision.score);
+    const budget = Math.max(0, Math.min(4, deps.maxInvestigations ?? 2));
+    const evaluated = ranked.slice(0, budget);
+    // High-priority operational concerns should not crowd out every possible
+    // creative connection. Reserve one of the SAME bounded slots (not extra
+    // calls or another queue) for a source-grounded Scout hypothesis.
+    if (budget >= 2 && !evaluated.some(row => row.candidate.origin === "scout")) {
+      const novel = ranked.find(row => row.candidate.origin === "scout"
+        && row.decision.disposition === "investigate");
+      if (novel) evaluated[evaluated.length - 1] = novel;
+    }
     for (const { candidate, decision } of evaluated) {
       // A revoked/erased generation can later be explicitly renewed. Prior
       // erased rows keep their idempotency keys for audit, so the new consent
