@@ -92,7 +92,15 @@ function event(
   store.append(envelope);
 }
 
-function decisionKey(input: RecoveryInput, state: Record<string, unknown>): string {
+function providerBinding(options: DslRecoveryOptions): string {
+  const provider = options.model?.provider ?? (process.env.FLYD_EXECUTIVE_DECISION_PROVIDER === "gemini" ? "gemini" : "jev");
+  const model = options.model?.model ?? (provider === "gemini"
+    ? "gemini-decision-1"
+    : process.env.FLYD_JEV_MODEL ?? process.env.BEACON_JEV_MODEL ?? "jev-latest");
+  return provider + ":" + model;
+}
+
+function decisionKey(input: RecoveryInput, state: Record<string, unknown>, options: DslRecoveryOptions): string {
   return createHash("sha256").update(JSON.stringify({
     id: input.objective.id,
     rev: input.objective.briefRevision ?? 0,
@@ -103,11 +111,15 @@ function decisionKey(input: RecoveryInput, state: Record<string, unknown>): stri
     state,
     digest: recoveryWorkflowDigest(),
     question: questionFingerprint(RECOVERY_PREDICATE),
+    provider: providerBinding(options),
   })).digest("hex");
 }
 
 function approvedCurrent(input: RecoveryInput, options: DslRecoveryOptions): boolean {
-  return canRecoverInternally(input) && Boolean(options.current?.() ?? true);
+  if (!canRecoverInternally(input) || !(options.current?.() ?? true)) return false;
+  // Revoked evidence must invalidate even an already answered cached decision.
+  const refs = [input.run.ref, ...(input.run.prior ?? [])].filter((ref): ref is string => Boolean(ref));
+  return !refs.some((ref) => options.store?.isRevoked(ref) || options.store?.isRevoked("domain-run:" + ref));
 }
 
 /**
@@ -128,13 +140,14 @@ export async function runRecoveryDsl(
   const workflow = recoveryWorkflow();
   const check = runtime.validateWorkflow(workflow);
   if (!check.ok) return { kind: "hold", reason: "trusted recovery workflow failed validation" };
-  const requestKey = decisionKey(input, state);
+  const requestKey = decisionKey(input, state, options);
   const store = options.store;
   const existing = store?.findByIdempotencyKey(SOURCE, requestKey + ":answered");
   if (existing) {
     const p = existing.payload;
     if (p?.workflow === recoveryWorkflowDigest() && p.question === questionFingerprint(RECOVERY_PREDICATE)
-      && (p.action === "hold" || p.action === "rebrief") && approvedCurrent(input, options)) {
+      && p.providerBinding === providerBinding(options) &&
+      (p.action === "hold" || p.action === "rebrief") && approvedCurrent(input, options)) {
       return { kind: "decided", action: p.action,
         reason: p.reason === "low_confidence" || p.reason === "evidence_hold" || p.reason === "grounded_recovery"
           ? p.reason : "replayed_validated_decision", replayed: true };
@@ -179,7 +192,8 @@ export async function runRecoveryDsl(
                 store.findByIdempotencyKey(SOURCE, requestKey + ":answered")) return false;
             event(store, input.objective.id ?? input.run.key, requestKey, "started", {
               workflow: recoveryWorkflowDigest(), question: questionFingerprint(RECOVERY_PREDICATE),
-              threshold: predicateThreshold(RECOVERY_PREDICATE), attempt: input.run.attempt,
+              threshold: predicateThreshold(RECOVERY_PREDICATE),
+              providerBinding: providerBinding(options), attempt: input.run.attempt,
             });
             return true;
           });
@@ -215,6 +229,7 @@ export async function runRecoveryDsl(
             decisionId: receipt.id, stateHash: receipt.state_sha256,
             action: answeredAction, reason: answeredReason,
             threshold: predicateThreshold(RECOVERY_PREDICATE),
+            providerBinding: providerBinding(options),
             model: receipt.model ?? null, costUSD: receipt.cost_usd ?? null,
           });
         }
