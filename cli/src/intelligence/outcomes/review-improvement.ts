@@ -54,7 +54,7 @@ export function negativeOutcomeReviewPatterns(
       id: "review-cluster:" + signature + ":" + milestone,
       kind: "review",
       at: group.dates.sort().at(-1)!,
-      text: "At least " + milestone + " distinct, independently verified results from the same workflow and policy were explicitly rated not helpful. This concerns usefulness, not proof that execution failed. Investigate whether the results served the user's goal; prefer a measurable test before any proposed change. No policy may be activated from this evidence alone.",
+      text: "At least " + milestone + " distinct, independently verified results from the same workflow and policy were explicitly rated not helpful. This concerns usefulness, not proof that execution failed. Investigate whether the results served the user's goal; prefer a measurable test before any proposed change. An improvement remains human-gated; no policy may be activated from this evidence alone.",
     });
   }
   return patterns.sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id));
