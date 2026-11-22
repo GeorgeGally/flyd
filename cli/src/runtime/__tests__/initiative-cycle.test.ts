@@ -23,8 +23,8 @@ const project: Project = {
 const edition: Edition = {
   date: "2026-11-23", generatedAt: now.toISOString(), topics: ["creative code"],
   items: [
-    { n: 1, title: "Generative Typography design archive", url: "https://design.example.org/typography",
-      source: "Creative Archive", topic: "design", why: "Experimental generative typography visuals", kind: "relevant" },
+    { n: 1, title: "Particle array Generative Typography experiments", url: "https://design.example.org/typography",
+      source: "Creative Archive", topic: "design", why: "Particle arrays create experimental generative typography effects", kind: "relevant" },
     { n: 2, title: "Generic travel article", url: "https://news.example.org/travel",
       source: "News", topic: "travel", why: "Travel destination", kind: "relevant" },
   ],
@@ -88,7 +88,7 @@ describe("Flyd v10 source-grounded curiosity", () => {
     expect(decision.disposition).toBe("investigate");
     const finding = inspectInitiative(candidate);
     expect(finding.verified).toBe(false);
-    expect(finding.whatIsNotKnown).toContain("superficial");
+    expect(finding.whatIsNotKnown).toContain("genuinely different");
     const payload = safeInitiativePayload(candidate, finding);
     expect(payload.verified).toBe(false);
     expect(payload).not.toHaveProperty("authorityGrantId");
