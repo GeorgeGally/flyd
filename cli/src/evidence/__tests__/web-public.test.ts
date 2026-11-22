@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { PublicPageReaderAdapter, extractPublicPage } from "../adapters/web-public.js";
 import { createDefaultEvidenceRegistry } from "../default-registry.js";
+import { EvidenceEngine } from "../evidence-engine.js";
 
 const PAGE = '<!doctype html><html><head><title>New visual synthesis engine</title>' +
   '<meta name="description" content="A new visual synthesis engine is available.">' +
@@ -62,4 +63,23 @@ describe("credential-free web evidence fallback", () => {
     const inspection = await registry.inspect("web", "read");
     expect(inspection.adapter?.id).toBe("web:public-html");
   });
+  it("falls back when Jina probe succeeds but Jina read itself fails", async () => {
+    const fn = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const uri = String(input);
+      if (uri.includes("r.jina.ai/")) {
+        return String(init?.body).includes("example.org/official-release")
+          ? new Response("failed", { status: 503 })
+          : new Response(null, { status: 200 });
+      }
+      return new Response(PAGE, { status: 200, headers: { "content-type": "text/html" } });
+    });
+    const registry = createDefaultEvidenceRegistry({ env: { JINA_API_KEY: "fake" }, fetchFn: fn });
+    const engine = new EvidenceEngine(registry, () => new Date("2026-11-22T12:00:00Z"));
+    const bundle = await engine.research("visual synthesis", "quick", {
+      locators: ["https://example.org/official-release"], includeSearch: false,
+    });
+    expect(bundle.evidence.map((item) => item.backend)).toContain("web:public-html");
+    expect(bundle.gaps.filter((gap) => gap.code === "search_failed")).toEqual([]);
+  });
+
 });
