@@ -340,6 +340,10 @@ export function parseImprovement(text: string, evidence: Evidence[]): Improvemen
     const outcome = String(raw.outcome ?? "").replace(/\s+/g, " ").trim();
     // An improvement with no real evidence behind it is a guess, not a fix.
     if (!title || !outcome || cited.length === 0) return null;
+    // A coarse cluster of ratings from one source/policy may concern unrelated
+    // tasks. It prompts investigation but cannot, by itself, justify a code
+    // change or a repair branch. Corroborating concrete evidence is required.
+    if (cited.every((id) => id.startsWith("review-cluster:"))) return null;
     const failureClass = FAILURE_CLASSES.find((value) => value === raw.failure_class);
     const layer = FIX_LAYERS.find((value) => value === raw.layer);
     const doneWhen = normalizeCriteria(raw.done_when ?? []);
