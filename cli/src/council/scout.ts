@@ -67,7 +67,7 @@ export type ItemKind = "must" | "relevant" | "rabbit_hole";
 export interface EditionItem {
   n: number; title: string; url: string; source: string; sourceId?: string; topic: string; why: string; kind: ItemKind | "wildcard";
   media?: MediaKind; figure?: string; quote?: string; attribution?: string; mediaUrl?: string;
-  storyId?: string; evidenceUrls?: string[]; confidence?: "multi-source" | "single-source"; evidenceStatus?: ScoutCandidate["evidenceStatus"]; updatedFrom?: string;
+  storyId?: string; evidenceUrls?: string[]; confidence?: "multi-source" | "single-source"; evidenceStatus?: ScoutCandidate["evidenceStatus"]; updatedFrom?: string; evidenceSnippets?: string[]; evidenceCheckedAt?: string;
 }
 export interface Edition { date: string; generatedAt: string; topics: string[]; items: EditionItem[] }
 export const SCOUT_FEEDBACK_REASONS = ["wrong-topic", "repeat", "not-new", "too-shallow", "bad-source", "interesting", "surprising", "already-knew"] as const;
@@ -479,6 +479,8 @@ export function parsePicks(text: string, candidates: ScoutCandidate[], max = BRI
       ...(candidate.evidenceUrls?.length ? { evidenceUrls: candidate.evidenceUrls } : {}),
       ...(candidate.evidenceStatus ? { evidenceStatus: candidate.evidenceStatus } : {}),
       ...(candidate.updatedFrom ? { updatedFrom: candidate.updatedFrom } : {}),
+      ...(candidate.evidenceSnippets?.length ? { evidenceSnippets: candidate.evidenceSnippets.slice(0, 3) } : {}),
+      ...(candidate.evidenceCheckedAt ? { evidenceCheckedAt: candidate.evidenceCheckedAt } : {}),
       ...(candidate.evidenceStatus === "corroborated" ? { confidence: "multi-source" as const } : {}),
     });
     if (items.length >= max) break;
@@ -818,11 +820,13 @@ export function editionActivityRecord(edition: Edition): ActivityRecord {
     kind: "news",
     title: "Put together today's news",
     line: `${edition.items.length} ${edition.items.length === 1 ? "story" : "stories"} from your sources.`,
-    stories: edition.items.map(({ title, url, why, source, kind, media, figure, quote, attribution, storyId, evidenceUrls, confidence, evidenceStatus, updatedFrom }) => ({
+    stories: edition.items.map(({ title, url, why, source, kind, media, figure, quote, attribution, storyId, evidenceUrls, confidence, evidenceStatus, updatedFrom, evidenceSnippets, evidenceCheckedAt }) => ({
       title, url, kind, ...(why ? { gist: why } : {}), ...(source ? { source } : {}),
       ...(storyId ? { storyId } : {}), ...(evidenceUrls?.length ? { evidenceUrls } : {}), ...(confidence ? { confidence } : {}),
       ...(evidenceStatus ? { evidenceStatus } : {}),
       ...(updatedFrom ? { updatedFrom } : {}),
+      ...(evidenceSnippets?.length ? { evidenceSnippets } : {}),
+      ...(evidenceCheckedAt ? { evidenceCheckedAt } : {}),
       ...(media && media !== "article" ? { media } : {}),
       ...(figure ? { figure } : {}),
       ...(quote ? { quote } : {}),
