@@ -55,16 +55,18 @@ export function materializeEpisodes(
   let unknownCount = 0;
 
   for (const intervention of interventions) {
-    const candidates = byIntervention.get(intervention.interventionId) ?? [];
-    // Positive evidence requires conclusive attribution; an explicit user
-    // rejection is decisive NEGATIVE evidence and also matures the episode.
-    const decisive = candidates.find(
-      (o) =>
-        isConclusive(o) ||
-        o.attribution === "not_helpful" ||
-        o.attribution === "user_rejected",
-    );
-    if (decisive && Date.parse(decisive.assessedAt) - Date.parse(intervention.occurredAt) <= OUTCOME_MATURITY_WINDOW_MS) {
+    const candidates = (byIntervention.get(intervention.interventionId) ?? [])
+      .filter((outcome) => {
+        const elapsed = Date.parse(outcome.assessedAt) - Date.parse(intervention.occurredAt);
+        return Number.isFinite(elapsed) && elapsed >= 0 && elapsed <= OUTCOME_MATURITY_WINDOW_MS;
+      })
+      .sort((a, b) => Date.parse(b.assessedAt) - Date.parse(a.assessedAt));
+    // A subsequent rejection must veto an earlier success; an unmeasured
+    // positive receipt cannot displace a later independently measured result.
+    const decisive = candidates.find((o) => o.attribution === "not_helpful" || o.attribution === "user_rejected")
+      ?? candidates.find((o) => isConclusive(o) && deriveMetricDelta(intervention, o) !== undefined)
+      ?? candidates.find((o) => isConclusive(o));
+    if (decisive) {
       episodes.push({
         episodeId: `ep-${intervention.interventionId}`,
         intervention,
