@@ -37,14 +37,14 @@ bundle: build
 # exactly-pinned package from experiments/agentrun-dsl/ at runtime.
 # Do not upgrade anyone's Node or touch production data during installation.
 agentrun:
-	@NODE_OK=$(node -p 'const v=process.versions.node.split(".").map(Number); Number(v[0]>24 || v[0]===24 && (v[1]>22 || v[1]===22 && v[2]>=3))' 2>/dev/null || echo false); \
-	if [ "$NODE_OK" = "true" ]; then \
-		echo "Installing/validating pinned AgentRun DSL on Node $(node --version)"; \
+	@NODE_OK=$$(node -p 'const v=process.versions.node.split(".").map(Number); Number(v[0]>24 || v[0]===24 && (v[1]>22 || v[1]===22 && v[2]>=3))' 2>/dev/null || echo false); \
+	if [ "$$NODE_OK" = "1" ]; then \
+		echo "Installing/validating pinned AgentRun DSL on Node $$(node --version)"; \
 		cd ../experiments/agentrun-dsl && \
 		npm install --package-lock=false --ignore-scripts --no-audit --no-fund && \
 		npm test; \
 	else \
-		echo "AgentRun DSL unavailable on current Node $(node --version 2>/dev/null || echo missing): requires >=24.22.3; legacy CoS recovery will remain active."; \
+		echo "AgentRun DSL unavailable on current Node $$(node --version 2>/dev/null || echo missing): requires >=24.22.3; legacy CoS recovery will remain active."; \
 		echo "Install/select a compatible Node before make run to enable it (do not force a runtime upgrade)."; \
 	fi
 
