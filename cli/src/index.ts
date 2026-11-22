@@ -127,6 +127,7 @@ program
             "Confirmed notification deliveries: " + summary.delivered,
             "Unconfirmed delivery attempts: " + summary.pendingDelivery,
             "Impact still unknown: " + summary.unknownImpact,
+            "Explicit useful / not useful ratings: " + summary.helpfulReviews + " / " + summary.notHelpfulReviews,
             "Effect verification coverage: " + summary.verificationCoverage.known + "/" + summary.verificationCoverage.eligible,
             "Delivery is not proof of effect or personal impact.",
           ].join("\n") + "\n");

@@ -33,6 +33,11 @@ export const LEFT_STYLE = `
 .left-card { background: var(--tint); }
 .left-semantic .card-line { margin-top: 0; font-size: 17px; }
 .left-card.is-open { background: color-mix(in srgb, var(--tint) 52%, var(--faint)); }
+.outcome-rating { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0 0; }
+.outcome-rating button { border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--fg); padding: 8px 10px; font: 500 12px/1.3 var(--sans); cursor: pointer; }
+.outcome-rating button:hover { border-color: var(--accent); }
+.outcome-rating button:disabled { opacity: .45; cursor: default; }
+.outcome-rating .outcome-rating-error { margin: 0; font: 12px/1.5 var(--sans); color: var(--muted); }
 
 
 /* Open, the column takes its width off the chat, which narrows to fit and otherwise stays centred between the two columns; it never sits under it. */
@@ -76,6 +81,9 @@ export const LEFT_SCRIPT = `
   var leftWide = window.matchMedia ? window.matchMedia("(min-width: ${LEFT_INLINE_MIN}px)") : null;
   var leftPref = store("flyd-left");
   var leftPanel = null;
+  // Only hide a review locally after the server confirmed it was recorded.
+  // The source event remains authoritative on the next activity refresh.
+  var outcomeReviewsSaved = {};
   var leftCallIds = [];
   var leftSeen = [];
   try { leftSeen = JSON.parse(store("flyd-left-seen") || "[]"); } catch (_) {}
@@ -87,8 +95,17 @@ export const LEFT_SCRIPT = `
   function leftIsOpen() { return leftPref === "on" || (leftPref !== "off" && !!leftWide && leftWide.matches); }
   function leftShown() { return leftIsOpen() || (leftAuto && !!leftWide && leftWide.matches); }
   function leftNeedIds() {
-    var ids = leftCallIds.slice();
-    Array.prototype.forEach.call(leftSemanticEl.children, function (card) { if (card.dataset.semanticId) ids.push(card.dataset.semanticId); });
+    var ids = leftCallIds.filter(function (id) { return id.indexOf("outcome-review:") !== 0; });
+    Array.prototype.forEach.call(leftSemanticEl.children, function (card) {
+      if (card.dataset.semanticId && card.dataset.semanticId.indexOf("outcome-review:") !== 0) ids.push(card.dataset.semanticId);
+    });
+    return ids;
+  }
+  function leftFeedbackIds() {
+    var ids = [];
+    Array.prototype.forEach.call(leftSemanticEl.children, function (card) {
+      if (card.dataset.semanticId && card.dataset.semanticId.indexOf("outcome-review:") === 0) ids.push(card.dataset.semanticId);
+    });
     return ids;
   }
   function setNeeds(ids) {
@@ -97,17 +114,21 @@ export const LEFT_SCRIPT = `
   }
   function setLeft() {
     var ids = leftNeedIds();
+    var feedback = leftFeedbackIds();
     var fresh = ids.filter(function (id) { return leftSeen.indexOf(id) < 0; });
     if (fresh.length) {
       leftSeen = leftSeen.concat(fresh).slice(-300);
       store("flyd-left-seen", JSON.stringify(leftSeen));
       if (leftWide && leftWide.matches) leftAuto = true;
     }
-    var on = ids.length > 0 && leftShown();
+    // Optional feedback is reachable in the header but never opens this
+    // column uninvited. Only a real decision may trigger the auto-open.
+    var on = ids.length > 0 ? leftShown() : feedback.length > 0 && leftPref === "on";
     document.documentElement.setAttribute("data-left", on ? "open" : "off");
     leftEl.hidden = !on;
-    leftOpenEl.hidden = !ids.length;
-    leftOpenEl.textContent = "Needs you" + (ids.length ? " · " + ids.length : "");
+    leftOpenEl.hidden = !ids.length && !feedback.length;
+    leftOpenEl.textContent = ids.length ? "Needs you · " + ids.length : feedback.length ? "Feedback · " + feedback.length : "Needs you";
+    leftEl.querySelector(".left-tab span").textContent = ids.length ? "Needs you" : "Feedback";
     leftOpenEl.setAttribute("aria-pressed", String(on));
     leftToggleEl.setAttribute("aria-checked", String(leftIsOpen()));
   }
@@ -176,7 +197,7 @@ export const LEFT_SCRIPT = `
       line: "",
       detail: activity.detail || activity.summary || "",
       detailWhen: at ? dayOf(at) + ", " + clock(at) : "",
-      dismiss: phase === "finished" || lab,
+      dismiss: phase === "finished" || lab || activity.id.indexOf("outcome-review:") === 0,
       onHide: drawActivity,
       chat: true,
     }, chatOpts({ key: key, kind: visual, title: activity.subject, when: when, line: activity.summary || "", detail: activity.decision && phase === "needs_you" ? activity.decision.question : activity.detail || "", evidence: activity.evidence, detailWhen: at ? dayOf(at) + ", " + clock(at) : "" })));
@@ -198,13 +219,59 @@ export const LEFT_SCRIPT = `
       });
       card.appendChild(thumb);
     }
+    // An explicit rating is feedback on usefulness, not approval to act.
+    // Only source-verified executive results provide these controls.
+    var reviewId = /^outcome-review:([a-f0-9]{32})$/.exec(activity.id || "");
+    if (reviewId) {
+      var buttons = (activity.actions || []).filter(function (action) {
+        return action.kind === "choose" && (action.value === "helpful" || action.value === "not_helpful");
+      });
+      if (buttons.length === 2) {
+        var controls = el("div", "outcome-rating");
+        var error = el("p", "outcome-rating-error");
+        error.hidden = true;
+        buttons.forEach(function (action) {
+          var button = el("button", "", action.label);
+          button.type = "button";
+          button.addEventListener("click", function (event) {
+            event.stopPropagation();
+            if (!VIEW_TOKEN) return;
+            controls.querySelectorAll("button").forEach(function (one) { one.disabled = true; });
+            error.hidden = true;
+            tokenFetch("/api/outcome-review", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ decisionId: reviewId[1], verdict: action.value }),
+            }, true)
+              .then(function (response) {
+                if (!response.ok) throw new Error("Review not saved");
+                return response.json();
+              })
+              .then(function (result) {
+                if (result.status !== "recorded" && result.status !== "already_recorded") throw new Error("Review not saved");
+                outcomeReviewsSaved[activity.id] = true;
+                drawActivity();
+                setLeft();
+              })
+              .catch(function () {
+                error.textContent = "Couldn't save that review. Try again.";
+                error.hidden = false;
+                controls.querySelectorAll("button").forEach(function (one) { one.disabled = false; });
+              });
+          });
+          controls.appendChild(button);
+        });
+        controls.appendChild(error);
+        card.appendChild(controls);
+      }
+    }
     card.dataset.semanticId = activity.id;
     card.dataset.phase = phase;
     return card;
   }
   function drawSemanticActivities(activities) {
     activities = (activities || []).filter(function (activity) {
-      return !cardGone(activity.id + "|semantic|" + (activity.activity && activity.activity.phase || "working"));
+      return !outcomeReviewsSaved[activity.id] && !cardGone(activity.id + "|semantic|" + (activity.activity && activity.activity.phase || "working"));
     });
     leftSemanticSection.hidden = !activities.length;
     patch(leftSemanticEl, activities.map(leftSemanticActivityCard));
@@ -218,7 +285,9 @@ export const LEFT_SCRIPT = `
     drawActivity();
     setLeft();
   }
-  leftOpenEl.addEventListener("click", function () { chooseLeft(!leftShown()); });
+  // A feedback-only column starts closed even on a wide display. The
+  // button follows actual visibility, not the default wide-screen preference.
+  leftOpenEl.addEventListener("click", function () { chooseLeft(leftEl.hidden); });
   leftToggleEl.addEventListener("click", function () { chooseLeft(!leftIsOpen()); });
   leftHideEl.addEventListener("click", function () { chooseLeft(false); });
   // Heard last, on the window: an Escape that closed something else is not his word to put the column away.

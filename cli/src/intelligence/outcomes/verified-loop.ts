@@ -1,4 +1,5 @@
 import type { StoredEvent, IntelligenceEventStore } from "../event-store.js";
+import { OUTCOME_REVIEW_SOURCE } from "./outcome-review.js";
 
 /**
  * Read-only diagnostic projection over the existing canonical event spine.
@@ -22,7 +23,7 @@ export interface VerifiedLoopItem {
   effect: EffectVerification;
   delivery: DeliveryVerification;
   impact: "unknown";
-  usefulness: "unknown";
+  usefulness: "helpful" | "not_helpful" | "unknown";
 }
 
 export interface VerifiedLoopSummary {
@@ -34,6 +35,8 @@ export interface VerifiedLoopSummary {
   delivered: number;
   pendingDelivery: number;
   unknownImpact: number;
+  helpfulReviews: number;
+  notHelpfulReviews: number;
   /** Explicitly do not call this a successful task completion rate. */
   verificationCoverage: { known: number; eligible: number };
 }
@@ -103,6 +106,16 @@ export function projectVerifiedLoop(events: StoredEvent[]): VerifiedLoopItem[] {
       impact: "unknown", usefulness: "unknown",
     });
   }
+  // The user's verdict is a separate dimension. It never changes effect
+  // verification, measured impact, or source authority.
+  for (const event of sourceEvents(events, OUTCOME_REVIEW_SOURCE)) {
+    const review = object(event.payload?.review);
+    if (!review || typeof review.decisionId !== "string") continue;
+    if (review.verdict !== "helpful" && review.verdict !== "not_helpful") continue;
+    const id = "executive:" + review.decisionId;
+    const original = byId.get(id);
+    if (original) byId.set(id, { ...original, usefulness: review.verdict });
+  }
   return [...byId.values()].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id));
 }
 
@@ -111,6 +124,7 @@ export function verifiedLoopFromStore(store: IntelligenceEventStore): VerifiedLo
     ...store.readSource("cos.report"),
     ...store.readSource("executive.cycle"),
     ...store.readSource("flyd.delivered"),
+    ...store.readSource(OUTCOME_REVIEW_SOURCE),
   ]);
 }
 
@@ -127,6 +141,8 @@ export function summarizeVerifiedLoop(items: VerifiedLoopItem[]): VerifiedLoopSu
     delivered: items.filter((item) => item.delivery === "shown" || item.delivery === "briefed").length,
     pendingDelivery: items.filter((item) => item.delivery === "pending" || item.delivery === "undelivered").length,
     unknownImpact: items.length,
+    helpfulReviews: items.filter((item) => item.usefulness === "helpful").length,
+    notHelpfulReviews: items.filter((item) => item.usefulness === "not_helpful").length,
     verificationCoverage: { known: verifiedEffects + failedEffects, eligible: eligible.length },
   };
 }

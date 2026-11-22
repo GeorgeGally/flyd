@@ -7,6 +7,8 @@ import { commandDir, listDomainRuns } from "../command/store.js";
 import type { DomainRun } from "../command/types.js";
 import { FLYD_DIR } from "../lib/config.js";
 import { SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
+import { IntelligenceEventStore } from "../intelligence/event-store.js";
+import { outcomeReviewCandidates, type OutcomeReviewCandidate } from "../intelligence/outcomes/outcome-review.js";
 import { sourceLabel } from "../lib/source-label.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { railImageSrc } from "./rail.js";
@@ -416,6 +418,32 @@ export function monitorsFromActivityRecords(records: unknown[]): SemanticObject[
   return monitorObjectsFromSources(sources);
 }
 
+/**
+ * One quiet, bounded request for feedback on an independently verified result.
+ * It is NOT a new task, and cannot authorize an action. All wording passes
+ * the same presentation guard as existing activity cards.
+ */
+export function verifiedOutcomeReviewObjects(candidates: readonly OutcomeReviewCandidate[]): SemanticObject[] {
+  return candidates.flatMap((candidate): SemanticObject[] => {
+    const subject = plainLine(candidate.summary);
+    if (!subject || leaks(subject)) return [];
+    const id = "outcome-review:" + candidate.decisionId;
+    return [{
+      id, kind: "activity", lifecycle: "active",
+      subject: subject.slice(0, LINE_LIMIT),
+      summary: "The result was independently checked. Was it useful?",
+      evidence: candidate.url ? [{ kind: "web", ref: candidate.url, label: "View result" }] : [],
+      actions: [
+        { id: id + ":helpful", kind: "choose", label: "Helpful", value: "helpful" },
+        { id: id + ":not_helpful", kind: "choose", label: "Not helpful", value: "not_helpful" },
+      ],
+      source: { showItemId: id },
+      activity: { phase: "ready" },
+      createdAt: candidate.at, updatedAt: candidate.at,
+    }];
+  });
+}
+
 /** Records, newest word per key: the one-offs as written, the keyed ones as they last stood. */
 export function activityFromRecords(records: unknown[], now: number): { now: ActivityItem[]; done: ActivityItem[] } {
   const latest = new Map<string, ActivityRecord & { at: string }>();
@@ -728,8 +756,23 @@ export class ActivityReader {
       run: readScoutRun(scout),
       log: inputs.log,
     }, now);
-    const panel = { ...applyStoryMedia(composeActivity(inputs, now), this.dir), news };
-    const upkeep = { ...applyStoryMedia(composeActivity({ ...inputs, upkeep: true }, now), this.dir), news };
+    // A verified effect is eligible for one explicit usefulness review.
+    // Read the canonical spine only when it already exists: no new memory
+    // source or database is created merely to render the page.
+    let reviewCards: SemanticObject[] = [];
+    const intelligencePath = join(this.dir, "intelligence.sqlite");
+    if (existsSync(intelligencePath)) {
+      let store: IntelligenceEventStore | undefined;
+      try {
+        store = new IntelligenceEventStore({ path: intelligencePath });
+        reviewCards = verifiedOutcomeReviewObjects(outcomeReviewCandidates(store, new Date(now)));
+      } catch { /* A broken local store never hides other activity. */ }
+      finally { store?.close(); }
+    }
+    const shown = applyStoryMedia(composeActivity(inputs, now), this.dir);
+    const shownUpkeep = applyStoryMedia(composeActivity({ ...inputs, upkeep: true }, now), this.dir);
+    const panel = { ...shown, reviews: [...(shown.reviews ?? []), ...reviewCards], news };
+    const upkeep = { ...shownUpkeep, reviews: [...(shownUpkeep.reviews ?? []), ...reviewCards], news };
     const onStored = () => {
       if (this.refresh()) for (const each of this.listeners) each();
     };
