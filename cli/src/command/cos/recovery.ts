@@ -95,6 +95,11 @@ export async function judgeRecovery(input: RecoveryInput, options: RecoveryJudge
     options.model,
     familyEgress("executive"),
   ).catch(() => undefined);
+  if (flag === "shadow" && process.env.FLYD_COS_DSL_SHADOW_CALLS === "1") {
+    // The incumbent always owns the result; the shadow has no execution path.
+    const candidate = await runCandidate(true);
+    options.onDslResult?.("shadow", candidate);
+  }
   const answer = judged?.answers.cos_recovery_tactic;
   if (judged?.ok && answer?.confidence !== undefined && answer.confidence >= 0.8 && answer.probability >= 0.8) {
     if (answer.choice === "hold_for_evidence") {
@@ -104,12 +109,5 @@ export async function judgeRecovery(input: RecoveryInput, options: RecoveryJudge
   const reason = repeated
     ? "A prior attempt failed the same way; choose a fundamentally different internal approach, diagnose the recurring cause, and verify it."
     : "Use the failure evidence to select a different internal approach, then verify against done_when.";
-  const legacy: RecoveryDisposition = { action: "rebrief", reason, ...(judged ? { evidence: judged } : {}) };
-  if (flag === "shadow" && process.env.FLYD_COS_DSL_SHADOW_CALLS === "1") {
-    // Shadow calls are opt-in, budgeted separately, return no effects, and
-    // never change the incumbent CoS decision or ask George to decide.
-    const candidate = await runCandidate(true);
-    options.onDslResult?.("shadow", candidate);
-  }
-  return legacy;
+  return { action: "rebrief", reason, ...(judged ? { evidence: judged } : {}) };
 }
