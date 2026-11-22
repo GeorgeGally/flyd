@@ -38,6 +38,8 @@ jobs:
           node -e 'const v=process.versions.node.split(".").map(Number); if(v[0]!==24 || v[1]<22 || v[1]===22&&v[2]<3) process.exit(1)'
           npm install --package-lock=false --ignore-scripts --no-audit --no-fund
           npm ls @parcha/agentrun-dsl --depth=0
+      - name: Verify Mac installer provisions the pinned DSL on supported Node
+        run: make -C mac-adapter agentrun
       - name: Exercise real AgentRun v2 interpreter with scripted decisions
         working-directory: experiments/agentrun-dsl
         run: npm test
