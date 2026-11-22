@@ -118,7 +118,7 @@ export function deriveInitiatives(input: InitiativeSignals): InitiativeCandidate
         const question = "Would " + oneLine(item.title, 70) + " improve " + oneLine(project.name, 60) + "?";
         made.push({
           id: initiativeKey("scout", project.id, question),
-          origin: "scout", domain: project.kind, subject: project.name,
+          origin: "scout", domain: project.kind === "creative" ? "creative" : "product", subject: project.name,
           question, hypothesis: "This reference may suggest a useful, specific design or implementation experiment.",
           counterQuestion: "Is the apparent connection superficial or already part of the project's current work?",
           proposedTest: "Compare the reference's documented technique with the project's stated constraints before proposing a prototype.",
