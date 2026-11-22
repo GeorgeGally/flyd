@@ -81,12 +81,10 @@ async function correct(objective: Objective, message: string, team: DomainId | u
   if (gone) {
     return { delivered: false, objectiveId: objective.id, reason: "not_steerable", ask: `“${short(gone.outcome, 40)}” has already gone ahead, so I can't change it. Want it done again with this?` };
   }
-  // Under way: the team gets it first, and nothing changes when it can't be passed on.
+  // Persist intent and the new revision before contacting an executor. A crash after
+  // acceptance must never leave the executor ahead of the canonical objective.
   const active = steerable(target);
-  if (active) {
-    const outcome = await send({ run: active, kind: "correction", body: message }).catch(() => ({ delivered: false }));
-    if (!outcome.delivered) return { delivered: false, objectiveId: objective.id, reason: "delivery_failed" };
-  } else if (target.ref?.startsWith("crew:") || target.state === "unknown") {
+  if (!active && (target.ref?.startsWith("crew:") || target.state === "unknown")) {
     return { delivered: false, objectiveId: objective.id, reason: "not_steerable" };
   }
   const downstream: DomainRun[] = [];
@@ -112,12 +110,35 @@ async function correct(objective: Objective, message: string, team: DomainId | u
       ...current, plan: runs, briefRevision: revision, status: resumed ? "working" : current.status,
       ...(resumed ? { waitingOn: undefined, snooze: undefined } : {}), progressAt: new Date().toISOString(),
       corrections: [...(current.corrections ?? []), { revision, run: target.key, text: message, at: new Date().toISOString() }],
+      pendingCorrections: [...(current.pendingCorrections ?? []), ...[active, ...downstream].filter((run): run is DomainRun => run !== null).map((run) => ({ revision, runId: run.id, text: message }))],
     };
   });
   if (!saved) return { delivered: false, objectiveId: objective.id, reason: "not_steerable" };
-  // Downstream work under way hears it too; its result is still redone from the corrected work it waits on.
-  for (const run of downstream) await send({ run, kind: "correction", body: message }).catch(() => undefined);
-  return { delivered: true, objectiveId: objective.id };
+  // Deliver from the durable outbox; failed sends remain pending for the next tick.
+  const delivered = await flushPendingCorrections(objective.id, send);
+  return { delivered, objectiveId: objective.id, ...(!delivered ? { reason: "delivery_failed" as const } : {}) };
+}
+
+/**
+ * Retry accepted corrections from the objective's durable outbox. sendRunMessage
+ * deduplicates messages by run/kind/body; a crash after send but before ack is safe.
+ */
+export async function flushPendingCorrections(id: string, send: typeof sendRunMessage = sendRunMessage): Promise<boolean> {
+  const objective = readObjective(id);
+  if (!objective?.pendingCorrections?.length) return true;
+  let allDelivered = true;
+  for (const pending of objective.pendingCorrections) {
+    const run = readDomainRun(pending.runId);
+    if (!run) { allDelivered = false; continue; }
+    const outcome = await send({ run, kind: "correction", body: pending.text }).catch(() => ({ delivered: false }));
+    if (!outcome.delivered) { allDelivered = false; continue; }
+    mutateObjective(id, (current) => current && ({
+      ...current,
+      pendingCorrections: (current.pendingCorrections ?? []).filter((item) =>
+        !(item.revision === pending.revision && item.runId === pending.runId && item.text === pending.text)),
+    }));
+  }
+  return allDelivered;
 }
 
 async function cancel(objective: Objective, message: string, send: typeof sendRunMessage): Promise<SteerOutcome> {
