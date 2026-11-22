@@ -1,11 +1,23 @@
 # Flyd v10 — Self-Initiated Intelligence: From Curiosity to Verified Progress
 
 **Date:** 23 November 2026
-**Status:** REVIEWED AND REVISED IMPLEMENTATION PLAN — **not implemented**; adversarial evaluation and corrections in §9
+**Status:** REVIEWED v10 PLAN — **R1 initial local initiative vertical slice implemented, tested and merged** (PR #341, `996d48bc26f57eacf7a85bfc67bdf60529d0730e`). Full P2–P6 (provider-supported investigation, authorized CoS initiative, adaptive outcome learning, installed Mac pilot) **not complete**; adversarial evaluation and corrections in §9.
 **Reviewed repository:** `GeorgeGally/flyd` main at `4f8e2cdf90585f7ea5387a5061eaa510bd9e0fc8` (GitHub source inspection)
 **Product authority:** `docs/product/flyd-personal-intelligence-prd.md` (sole authority)
 **Related validated plan:** `docs/plans/2026-11-16-beyond-turn-taking-participation-plan.md`, especially U1/U2/U5, which covers presentation participation and should not be rebuilt.
 **Verification limits:** Remote source review, no Mac runtime, actual personal data, installed app, model traffic, budget usage, test execution or provider benchmark verified for v10. This document authorizes no new source access or external effects.
+
+## Implementation record — 23 November 2026
+
+**First vertical slice shipped to main:** [PR #341](https://github.com/GeorgeGally/flyd/pull/341), commit `996d48bc26f57eacf7a85bfc67bdf60529d0730e`.
+
+- `cli/src/runtime/initiative/{candidates,policy,cycle,source-validity}.ts`: local, grounded candidate formation from project status, public Scout references, Council advisories and recurring CoS blocked reports; question/counter-hypothesis; deterministic scored next check; two investigations per tick with a protected creative-serendipity slot.
+- Uses **existing** `agenda-tick.ts` and canonical `IntelligenceEventStore` with source-revision idempotency and fresh post-erasure consent generations. No worker dispatch, new scheduler, notification, provider call or automatic external effect.
+- Source contract `initiative.curated` is **disabled by default**. `flyd initiative status|enable|disable|pause|revoke|renew|run` offers explicit consent and erasure. Existing Activity cards recheck consent and current evidence on every refresh and are capped at one per day.
+- **Verified in GitHub Actions:** [run 45069140621](https://github.com/GeorgeGally/flyd/actions/runs/45069140621), all six jobs successful: Core typecheck, tests and build; macOS adapter; evidence; planning; routing-learning; dependency audit. Tests include no-consent/no-read, stale evidence, revoked source, repeated CoS events, idempotency, consent renewal after erasure, venture risk, creative novelty and budgeted serendipity. **No installed Mac or real-user pilot performed.**
+- **Correct epistemic boundary:** a local comparison of already-curated evidence yields an *unverified hypothesis/proposed next check*, not a confirmed fact or research-backed result.
+
+**Open gates:** Deep investigative research that retrieves new evidence, cross-purpose consent/egress enforcement for richer sources, standing-authorized CoS follow-through, outcome-based initiative learning, 120-case holdout comparison against Council/legacy curiosity, installed Mac/live provider validation. As evaluated below, do not silently activate additional sources or autonomous side effects to bypass these gates. See [R1 feature contract](../product/flyd-self-initiated-intelligence.md).
 
 ## 0. The outcome (start here)
 
