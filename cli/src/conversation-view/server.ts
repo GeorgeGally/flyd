@@ -19,6 +19,8 @@ import { dirname, extname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { projectFirstmateWork, readWorkMedia, workCanvasEnabled, type WorkCanvasProjection } from "./work-canvas.js";
 import { FLYD_DIR } from "../lib/config.js";
+import { IntelligenceEventStore } from "../intelligence/event-store.js";
+import { recordExplicitOutcomeReview } from "../intelligence/outcomes/outcome-review.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { answerHtml } from "./answer-form.js";
 import { renderCaptainMarkdown, renderMarkdown } from "./markdown.js";
@@ -1091,6 +1093,10 @@ export class ConversationViewServer {
     }
     if (req.method === "POST" && url.pathname === "/api/taste") {
       await this.editTaste(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/outcome-review") {
+      await this.outcomeReview(req, res);
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/scout-feedback") {
@@ -2363,6 +2369,52 @@ export class ConversationViewServer {
       follower.close();
     };
     req.on("close", stop);
+  }
+
+  /**
+   * One explicit usefulness rating for a previously verified result.
+   * This only writes an observation to the local canonical spine; it can
+   * neither run work nor trigger automatic policy promotion.
+   */
+  private async outcomeReview(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const origin = req.headers.origin;
+    if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port))
+      || !sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "forbidden" });
+      return;
+    }
+    let decisionId: unknown;
+    let verdict: unknown;
+    try {
+      const raw = JSON.parse(await readBody(req, 1024)) as unknown;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("invalid");
+      decisionId = (raw as Record<string, unknown>).decisionId;
+      verdict = (raw as Record<string, unknown>).verdict;
+    } catch {
+      sendJson(res, 400, { error: "expected a result identifier and usefulness rating" });
+      return;
+    }
+    if (typeof decisionId !== "string" || !/^[a-f0-9]{32}$/.test(decisionId)
+      || (verdict !== "helpful" && verdict !== "not_helpful")) {
+      sendJson(res, 400, { error: "invalid review" });
+      return;
+    }
+    // An empty app must not create a new intelligence DB just for a click.
+    const dbPath = join(FLYD_DIR, "intelligence.sqlite");
+    if (!existsSync(dbPath)) {
+      sendJson(res, 404, { error: "verified result not found" });
+      return;
+    }
+    let store: IntelligenceEventStore | undefined;
+    try {
+      store = new IntelligenceEventStore({ path: dbPath });
+      const outcome = recordExplicitOutcomeReview(store, { decisionId, verdict });
+      sendJson(res, outcome === "not_eligible" ? 404 : 200, { status: outcome });
+    } catch {
+      sendJson(res, 503, { error: "Unable to save review locally" });
+    } finally {
+      store?.close();
+    }
   }
 
   /** George's create, rename or close. Writes the project list and wakes open streams. */
