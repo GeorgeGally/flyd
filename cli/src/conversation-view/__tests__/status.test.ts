@@ -179,6 +179,18 @@ describe("a decision already answered or done never rings the island", () => {
 });
 
 describe("IslandRung", () => {
+  it("rings a new provider incident with unchanged words, but never re-rings an ongoing incident after its delivery window", async () => {
+    const { IslandRung } = await import("../status.js");
+    let now = 1_000_000;
+    const rung = new IslandRung(null, 500, () => now);
+    const first = { id: "jev:one", text: "Jev's credit is exhausted." };
+    expect(rung.onceNotice(first, first.id)).toEqual(first);
+    now += 61_000;
+    expect(rung.onceNotice(first, first.id)).toBeUndefined();
+    const next = { ...first, id: "jev:two" };
+    expect(rung.onceNotice(next, next.id)).toEqual(next);
+  });
+
   it("rings an item once, even when it drops out and comes back or trades places, and remembers across restarts", async () => {
     const { mkdtempSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");

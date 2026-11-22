@@ -24,6 +24,7 @@ import { CardNotes } from "../card-notes.js";
 import { ComposerPredictions } from "../composer-predictions.js";
 import { plainNote } from "../rail.js";
 import { ComposerDrafts } from "../drafts.js";
+import { evaluatePredicates } from "../../cognition/system-one/jev.js";
 import { ReplySummarizer } from "../summaries.js";
 import { ArtefactJudge } from "../artefact-judge.js";
 import { MAX_CHARS } from "../for-george.js";
@@ -1931,6 +1932,55 @@ describe("ConversationViewServer", () => {
     const stream = await get(port, "/api/stream");
     const update = JSON.parse(stream.body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
     expect(update.rail.notices).toEqual([expect.objectContaining({ kind: "idle", text: "flyd: Claude is waiting for your input" })]);
+  });
+
+  it("shows one durable Jev credit warning in the column and island, then removes it after recovery", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-jev-warning-view-"));
+    const previous = process.env.FLYD_DIR;
+    process.env.FLYD_DIR = join(dir, "provider-health");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const evaluate = (status: number) => evaluatePredicates({}, [{ id: "form", instructions: "Which form?" }], {
+      apiKey: "test", fetchFn: async () => new Response(JSON.stringify(status === 200
+        ? { answers: { form: { noul: 0.95 } } }
+        : { error: { code: "insufficient_credits" } }), { status }),
+    });
+    const update = async (port: number) => {
+      const stream = await get(port, "/api/stream");
+      return JSON.parse(stream.body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    };
+    const island = (port: number) => new Promise<any>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: "/api/status", headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          body += chunk;
+          if (!body.includes("event: status\ndata: ")) return;
+          req.destroy();
+          resolve(JSON.parse(body.split("event: status\ndata: ")[1]!.split("\n")[0]!));
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    try {
+      await evaluate(402);
+      const port = await start();
+      const first = (await update(port)).rail.notices;
+      expect(first).toEqual([expect.objectContaining({ kind: "attention", text: expect.stringContaining("quota or credit is exhausted") })]);
+      expect((await island(port)).notice).toEqual({ id: first[0].id, text: first[0].text });
+      await evaluate(402);
+      expect((await update(port)).rail.notices).toEqual(first);
+      // Parallel/reconnecting clients share the existing one-minute delivery
+      // window, but they see the same incident ID, never a new alert per call.
+      expect((await island(port)).notice?.id).toBe(first[0].id);
+      await evaluate(200);
+      expect((await update(port)).rail.notices ?? []).toEqual([]);
+      await evaluate(402);
+      expect((await island(port)).notice.id).not.toBe(first[0].id);
+    } finally {
+      warning.mockRestore();
+      if (previous === undefined) delete process.env.FLYD_DIR; else process.env.FLYD_DIR = previous;
+    }
   });
 
   it("ships a Notification hook that forwards to Flyd and never fails the hook, even with Flyd down", async () => {

@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import type { ContextEnvelope } from "../../intelligence/context-envelope.js";
 import { EgressPolicyGateway } from "../../intelligence/egress-policy-gateway.js";
+import { recordJevHealth } from "./health.js";
 import type {
+  JevFailureKind,
   JevOptions,
   PredicateAnswer,
   PredicateEgress,
@@ -165,6 +167,31 @@ export async function evaluatePredicates(
   options: JevOptions = {},
   egress?: PredicateEgress,
 ): Promise<PredicateEvaluation> {
+  const evaluation = await evaluate(state, questions, options, egress);
+  if (options.reportHealth !== false) recordJevHealth(evaluation);
+  return evaluation;
+}
+
+async function httpFailureKind(response: Response): Promise<JevFailureKind> {
+  // Error bodies are used only to distinguish billing/quota from a temporary
+  // rate limit. Never persist or log them: providers can echo private input.
+  const detail = (typeof response.text === "function"
+    ? await response.text().catch(() => "")
+    : JSON.stringify(await response.json().catch(() => null)) ?? "").slice(0, 4000);
+  if ([400, 402, 403, 429].includes(response.status)
+    && /insufficient[_ -]?(?:credits?|balance|funds|quota)|out of credits?|credit balance|(?:quota|credits?) (?:exceeded|exhausted)|(?:quota|credit)[_-]exceeded/i.test(detail)) return "credits_exhausted";
+  if (response.status === 402) return "billing";
+  if (response.status === 401 || response.status === 403) return "authentication";
+  if (response.status === 429) return "rate_limited";
+  return "provider_unavailable";
+}
+
+async function evaluate(
+  state: Record<string, unknown>,
+  questions: PredicateQuestion[],
+  options: JevOptions = {},
+  egress?: PredicateEgress,
+): Promise<PredicateEvaluation> {
   const opts = envOptions(options);
   const started = Date.now();
   const projection = boundedState(state);
@@ -175,6 +202,7 @@ export async function evaluatePredicates(
       ok: false, evaluator: "none", model: opts.model, rubricVersion: opts.rubricVersion,
       projectionHash, answers: {}, evaluatedAt: new Date().toISOString(), latencyMs: Date.now() - started,
       error: !explicitlyEnabled ? "jev_not_enabled" : !opts.apiKey ? "jev_not_configured" : "no_questions",
+      ...(explicitlyEnabled && !opts.apiKey && questions.length ? { failureKind: "not_configured" as const } : {}),
     };
   }
 
@@ -211,6 +239,7 @@ export async function evaluatePredicates(
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+  let receivedResponse = false;
   try {
     const response = await opts.fetchFn!(opts.endpoint, {
       method: "POST",
@@ -218,7 +247,12 @@ export async function evaluatePredicates(
       body: JSON.stringify({ model: opts.model, state: receipt.outboundPayload, questions: questionMap }),
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error(`jev_http_${response.status}`);
+    receivedResponse = true;
+    if (!response.ok) return failed(`jev_http_${response.status}`, {
+      egressReceiptId: receipt.receiptId,
+      httpStatus: response.status,
+      failureKind: await httpFailureKind(response),
+    });
     const body = await response.json() as {
       model?: string;
       answers?: Record<string, RawJevAnswer>;
@@ -243,10 +277,14 @@ export async function evaluatePredicates(
       evaluatedAt: new Date().toISOString(),
       latencyMs: Date.now() - started,
       egressReceiptId: receipt.receiptId,
+      ...(Object.keys(answers).length === 0 ? { error: "jev_missing_answers", failureKind: "invalid_response" as const } : {}),
       ...(usage ? { usage, costUSD: (usage.inputTokens * JEV_INPUT_USD_PER_MILLION_TOKENS) / 1_000_000 } : {}),
     };
   } catch (error) {
-    return failed(error instanceof Error ? error.message : String(error), { egressReceiptId: receipt.receiptId });
+    return failed(error instanceof Error ? error.message : String(error), {
+      egressReceiptId: receipt.receiptId,
+      failureKind: controller.signal.aborted ? "timeout" : receivedResponse ? "invalid_response" : "network",
+    });
   } finally {
     clearTimeout(timer);
   }

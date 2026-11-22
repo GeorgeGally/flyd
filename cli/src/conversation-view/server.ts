@@ -42,6 +42,7 @@ import type { SemanticJudge } from "./semantic-judge.js";
 import { protectedFromImportance, type ImportanceJudge } from "./importance-judge.js";
 import { activityObjectsFromShow, artifactObjectsFromShow, decisionObjectsFromShow, composeSemanticSnapshot, needsGeorge, semanticEvents, semanticFocus, semanticObjectsFromShow, type SemanticObject } from "./semantic.js";
 import { fillScreen } from "./screen/patterns.js";
+import { jevHealthNotice } from "../cognition/system-one/health.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { answerLead, deliver, reportFromReply } from "../runtime/delivery.js";
@@ -1544,6 +1545,8 @@ export class ConversationViewServer {
       at: notice.last,
       ...(notice.count > 1 ? { count: notice.count } : {}),
     }));
+    const jev = jevHealthNotice();
+    if (jev) notices.push(jev);
     return {
       ...rail,
       ...(this.memory ? { memory: composeMemory(this.memory.current(), snapshot.messages, projects) } : {}),
@@ -2331,7 +2334,9 @@ export class ConversationViewServer {
       if (!latest) return;
       const current = this.islandRung.once(islandStatusOf(statusOf(latest), this.feed.current().fleet, this.placedNeeds(latest)));
       const found = this.notices.ringing();
-      const ringing = found ? this.islandRung.onceNotice({ id: found.id, text: noticeLine(found) }) : undefined;
+      const jev = jevHealthNotice();
+      const ringing = (found ? this.islandRung.onceNotice({ id: found.id, text: noticeLine(found) }) : undefined)
+        ?? (jev ? this.islandRung.onceNotice({ id: jev.id, text: jev.text }, jev.id) : undefined);
       const status = JSON.stringify({ session: session.id, ...current, ...(ringing ? { notice: ringing } : {}) });
       if (status === sent) return;
       sent = status;
@@ -2736,10 +2741,18 @@ export class ConversationViewServer {
     // Core reads this before announcing work he started here: an open window shows the reply itself.
     const presence = randomUUID();
     markWindowOpen(presence, session.id);
+    let jevNotice = JSON.stringify(jevHealthNotice());
     const heartbeat = setInterval(() => {
       res.write(": keep-alive\n\n");
       emitStaff();
       markWindowOpen(presence, session.id);
+      // Core and the view may be different processes. Reuse this heartbeat to
+      // pick up credit failures/recovery even when no conversation has changed.
+      const currentJevNotice = JSON.stringify(jevHealthNotice());
+      if (currentJevNotice !== jevNotice) {
+        jevNotice = currentJevNotice;
+        if (!closed && latest) emitUpdate(latest);
+      }
     }, HEARTBEAT_MS);
     heartbeat.unref?.();
     // On the live session (not one he chose): another session taking the lock ends this stream, and the page

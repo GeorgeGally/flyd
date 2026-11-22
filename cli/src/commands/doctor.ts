@@ -5,6 +5,7 @@ import {
 import { chatModelChain } from "../lib/config.js";
 import { probeChatModel, type ModelProbe } from "../lib/llm.js";
 import { formatModelSetup, modelSetup } from "../lib/model-setup.js";
+import { jevRuntimeStatus } from "../cognition/system-one/health.js";
 
 async function probeChatModels(): Promise<ModelProbe[]> {
   let chain: string[];
@@ -33,9 +34,10 @@ export function formatChatModelReport(probes: ModelProbe[]): string {
 
 export async function runDoctor(options: { json?: boolean } = {}): Promise<void> {
   const [report, chatModels, models] = await Promise.all([buildEvidenceDoctorReport(), probeChatModels(), modelSetup()]);
+  const jev = jevRuntimeStatus();
   if (options.json) {
-    process.stdout.write(`${JSON.stringify({ ...report, chatModels, models }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ ...report, chatModels, models, jev }, null, 2)}\n`);
     return;
   }
-  process.stdout.write(`${formatModelSetup(models)}\n\n${formatChatModelReport(chatModels)}\n\n${formatEvidenceDoctorReport(report)}\n`);
+  process.stdout.write(`${formatModelSetup(models)}\n\n${formatChatModelReport(chatModels)}\n\nJev\n  ${jev.message}${jev.health ? ` (last checked ${jev.health.checkedAt})` : ""}\n\n${formatEvidenceDoctorReport(report)}\n`);
 }

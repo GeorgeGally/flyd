@@ -2,6 +2,7 @@
 
 Date: 2026-10-20
 Status: proposed
+Architecture follow-up: [2026-11-23 intent and Jev audit](2026-11-23-generative-ui-intent-and-jev-audit.md) supersedes this document as the generative-UI continuation point. This historical plan deliberately omitted the communication-intent stage and did not complete George's requirement.
 Goal: When a question has a shape, Flyd answers in that shape — a diagnosis reads as expected / observed / cause / evidence / next, not as one paragraph — without building a UI language, a widget catalogue, or a second renderer.
 
 ## Grounding and scope
