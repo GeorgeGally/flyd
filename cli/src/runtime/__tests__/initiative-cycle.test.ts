@@ -150,6 +150,27 @@ describe("Flyd v10 source-grounded curiosity", () => {
     } finally { db.close(); }
   });
 
+  it("never restores erased proposals, but permits fresh reasoning after explicit consent renewal", async () => {
+    const tmp = dir(); const db = store(tmp);
+    try {
+      const deps = { now: () => now, store: db, projects: () => [project],
+        edition: () => edition, advisories: () => [advisory],
+        mode: "shadow" as const, consented: () => true };
+      await runInitiativeCycle(deps);
+      const original = db.readSource("initiative.curated");
+      expect(original.length).toBeGreaterThanOrEqual(2);
+      const erased = db.eraseSource("initiative.curated");
+      expect(erased.tombstone.eventCount).toBe(original.length);
+      expect(db.readSource("initiative.curated").every(e => e.erased && !e.payload)).toBe(true);
+      db.renewSource("initiative.curated");
+      const fresh = await runInitiativeCycle(deps);
+      expect(fresh.investigated).toBeGreaterThanOrEqual(1);
+      const events = db.readSource("initiative.curated");
+      expect(events.some(e => !e.erased && !!e.payload)).toBe(true);
+      expect(events.filter(e => e.erased)).toHaveLength(original.length);
+    } finally { db.close(); }
+  });
+
   it("publishes no more than one quiet card, without requiring a new task or notification", async () => {
     const tmp = dir(); const db = store(tmp);
     const seen = new Set<string>(); const cards: ActivityRecord[] = [];
