@@ -97,6 +97,40 @@ describe("typed measured outcome safety", () => {
   });
 });
 
+describe("episode outcome precedence", () => {
+  it("a later rejection vetoes an earlier measured success", () => {
+    const i = intervention({ occurredAt: "2026-11-21T00:00:00Z" });
+    const store = new MemoryOutcomeStore();
+    recordOutcome(store, {
+      interventionId: i.interventionId, attribution: "observed_impact",
+      metric: { metricName: i.metricName, baseline: 0, observed: 0.3, direction: "higher_is_better", evidenceRef: "event:success" },
+      assessedAt: new Date("2026-11-21T01:00:00Z"),
+    });
+    recordOutcome(store, {
+      interventionId: i.interventionId, attribution: "user_rejected",
+      assessedAt: new Date("2026-11-21T02:00:00Z"),
+    });
+    const item = materializeEpisodes([i], store.outcomes).episodes[0]!;
+    expect(item.outcome?.attribution).toBe("user_rejected");
+    expect(item.metricDelta).toBeUndefined();
+  });
+
+  it("does not let negative-time or late receipts mature an episode", () => {
+    const i = intervention({ occurredAt: "2026-11-21T00:00:00Z" });
+    const store = new MemoryOutcomeStore();
+    for (const at of ["2026-11-20T23:59:00Z", "2026-12-01T00:00:00Z"]) {
+      recordOutcome(store, {
+        interventionId: i.interventionId, attribution: "direct_verified",
+        metric: { metricName: i.metricName, baseline: 0, observed: 0.5, direction: "higher_is_better", evidenceRef: "event:stale" },
+        assessedAt: new Date(at),
+      });
+    }
+    const result = materializeEpisodes([i], store.outcomes);
+    expect(result.unknownCount).toBe(1);
+    expect(result.episodes[0]?.matured).toBe(false);
+  });
+});
+
 describe("episode replay + policy promotion", () => {
   function buildEpisodes(count: number, attribution: "observed_impact" | "unknown" | "user_rejected") {
     const store = new MemoryOutcomeStore();
