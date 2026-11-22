@@ -95,6 +95,8 @@ export const TODAY_SCRIPT = `
     var quoted = story.media === "quote" && story.quote ? frontText(story.quote).toLowerCase() : "";
     if (said && said !== frontText(story.title).toLowerCase() && said !== quoted) node.appendChild(el("p", "", story.gist));
     // Where it came from, quietly after the story: never a label over the headline.
+    if (story.updatedFrom) node.appendChild(el("p", "src", "Update · " + story.updatedFrom));
+    if (story.evidenceStatus === "corroborated") node.appendChild(el("p", "src", "Independently corroborated"));
     if (story.source) node.appendChild(el("p", "src", story.source));
     // Preserve independent reading paths without presenting source count as proof.
     if (Array.isArray(story.evidenceUrls)) {
