@@ -157,7 +157,7 @@ export class EvidenceEngine {
       // Reuse the registered public web reader when the first backend fails.
       const primary = inspection.adapter;
       const alternatives = capability === "web"
-        ? this.registry.adaptersFor(capability).filter((adapter) => adapter.id !== primary?.id && Boolean(adapter.read))
+        ? this.registry.adaptersFor(capability).filter((adapter) => adapter.id !== primary?.id && adapter.priority > (primary?.priority ?? -1) && Boolean(adapter.read))
         : [];
       const readers = [...(primary?.read ? [primary] : []), ...alternatives];
       if (readers.length === 0) {
