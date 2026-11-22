@@ -16,6 +16,7 @@ import type { DomainRun } from "../types.js";
 import { dispatchBrief, type Dispatch, type Dispatched, type SentBrief } from "./dispatch.js";
 import { intakeObjective, readRun, type Complete } from "./intake.js";
 import { cosEnabled, listObjectives, mutateObjective, readObjective } from "./objectives.js";
+import { flushPendingCorrections } from "./steer.js";
 import { awaitsDecision, backTo, isActive, isGone, isValid, maxActive, planFromBrief, planOf, planRequestId, releasable, requeue, sinks } from "./plan.js";
 import { WAIT_ANSWERS, type Adaptation, type CosReport, type CosReportKind, type Objective, type PlannedRun, type RunBrief, type WaitKind } from "./types.js";
 
@@ -858,7 +859,11 @@ export async function cosTick(deps: CosTickDeps = {}): Promise<void> {
       try {
         if (objective.status === "intake") await intake(objective, deps, store, now);
         const current = readObjective(objective.id);
-        if (current && (current.status === "working" || current.status === "needs_george")) await advance(current.id, deps, store, now);
+        if (current && (current.status === "working" || current.status === "needs_george")) {
+          // Accepted steering is durable; replay it before observing executor results.
+          if (!(await flushPendingCorrections(current.id, deps.send ?? sendRunMessage))) continue;
+          await advance(current.id, deps, store, now);
+        }
       } catch {
         // One objective's failure never stops the others; it is tried again next tick.
       }
