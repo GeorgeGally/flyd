@@ -8,6 +8,8 @@ final class StatusItem {
     private var auditWindow: NSWindow?
     var onInvoke: (() -> Void)?
     var onOpenSetup: (() -> Void)?
+    var onOpenNodeUpdate: (() -> Void)?
+    private var nodeUpgradeAvailable = false
     var onRestartFlyd: (() -> Void)?
     var onPasteRawDictation: (() -> Void)?
     var onPasteLastDictation: (() -> Void)?
@@ -98,6 +100,15 @@ final class StatusItem {
         )
         setupItem.target = self
         menu.addItem(setupItem)
+        if nodeUpgradeAvailable {
+            let nodeItem = NSMenuItem(
+                title: "Update Node for AgentRun…",
+                action: #selector(openNodeUpdate),
+                keyEquivalent: ""
+            )
+            nodeItem.target = self
+            menu.addItem(nodeItem)
+        }
 
         menu.addItem(.separator())
 
@@ -168,6 +179,16 @@ final class StatusItem {
 
     @objc private func invokeFlyd() {
         onInvoke?()
+    }
+
+    func setNodeUpgradeAvailable(_ available: Bool) {
+        guard nodeUpgradeAvailable != available else { return }
+        nodeUpgradeAvailable = available
+        if statusItem != nil { setupMenu() }
+    }
+
+    @objc private func openNodeUpdate() {
+        onOpenNodeUpdate?()
     }
 
     @objc private func openSetup() {
