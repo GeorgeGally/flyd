@@ -5,6 +5,9 @@ import type { PredicateEvaluation } from "../../cognition/system-one/types.js";
 import type { Objective, PlannedRun } from "./types.js";
 import type { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import { dslMode, runRecoveryDsl, selectedForCanary, type DslExecutor, type DslOutcome } from "./decision-workflows/recovery-runner.js";
+import { resolveStrategicQuestion } from "./strategic-judgment.js";
+import { validateEnvelope, type ContextEnvelope } from "../../intelligence/context-envelope.js";
+import { createHash } from "node:crypto";
 
 /** Never infer permission to retry an effect that may already have happened. */
 const UNSAFE_EFFECT = /\b(?:send|email|message a client|whatsapp|book|reserve|buy|purchase|pay|transfer|publish|push|merge|deploy|delete|erase|destroy|migrate production|change permissions|rotate credentials|charge)\b/i;
@@ -30,6 +33,7 @@ export type RecoveryDisposition =
 export interface RecoveryJudgeOptions {
   evaluate?: typeof evaluateExecutivePredicates;
   model?: DecisionModelOptions;
+  strategic?: typeof resolveStrategicQuestion;
   maxAttempts?: number;
   /** Existing canonical event store owned by the CoS tick; never a second journal. */
   store?: IntelligenceEventStore;
@@ -84,6 +88,48 @@ export async function judgeRecovery(input: RecoveryInput, options: RecoveryJudge
     // Once a DSL decision may have reached the model, never call it again.
     if (chosen.kind === "hold") return { action: "hold", reason: chosen.reason };
     if (chosen.kind === "decided") {
+      if (chosen.action === "hold" && chosen.reason === "low_confidence" &&
+          process.env.FLYD_COS_DSL_PRIVATE_REASONING === "1" && options.store &&
+          input.objective.id && canRecoverInternally(input, options.maxAttempts) &&
+          (options.current?.() ?? true)) {
+        // At most one private higher-reasoning request per version/attempt.
+        // Its marker is committed before the model call: an interrupted one
+        // cannot be repeated after restart. No user-visible escalation.
+        const key = createHash("sha256").update(JSON.stringify([
+          input.objective.id, input.objective.briefRevision ?? 0,
+          input.run.key, input.run.attempt, "cos.dsl.private.v1",
+        ])).digest("hex");
+        const sourceId = "cos.dsl.private";
+        const store = options.store;
+        const claimed = store.transaction(() => {
+          if (store.findByIdempotencyKey(sourceId, key)) return false;
+          const envelope: ContextEnvelope = {
+            pathKind: "executive", kind: "executive_decision", sourceId,
+            consent: { grantedAt: new Date().toISOString(), scopes: [] },
+            retentionClass: "local_default", payloadClassification: "operational",
+            provenance: "cos.dsl.private.v1", policyVersion: "cos.dsl.private.v1",
+            idempotencyKey: key, correlationId: input.objective.id,
+            payload: { phase: "requested", run: input.run.key, attempt: input.run.attempt },
+          };
+          if (!validateEnvelope(envelope, { consentLookup: store }).ok) return false;
+          store.append(envelope);
+          return true;
+        });
+        if (!claimed) return { action: "hold", reason: "private recovery investigation already attempted" };
+        const strategy = await (options.strategic ?? resolveStrategicQuestion)({
+          domain: input.run.team,
+          goal: (input.objective.brief?.outcome ?? input.objective.words).slice(0, 400),
+          question: ("A confirmed internal attempt failed: " + input.failure).slice(0, 400),
+          options: ["Investigate the internal failure and choose a different bounded repair"],
+          evidenceRefs: (input.run.prior ?? []).slice(0, 8),
+          screenedInternal: true,
+        }, "Fast System-1 recovery judgment was inconclusive").catch(() => ({ kind: "hold" as const, reason: "private review unavailable" }));
+        if (strategy.kind === "internal" && canRecoverInternally(input, options.maxAttempts) &&
+            (options.current?.() ?? true)) {
+          return { action: "rebrief", reason: strategy.message };
+        }
+        return { action: "hold", reason: strategy.reason };
+      }
       return chosen.action === "rebrief"
         ? { action: "rebrief", reason: repeated
             ? "A prior attempt failed identically; use a fundamentally different internal approach and verify it."
