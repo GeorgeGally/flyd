@@ -151,6 +151,30 @@ describe("bounded live CoS DSL rollout", () => {
     } finally { store.close(); }
   });
 
+  it("atomically claims the judge request so concurrent CoS ticks cannot double-call", async () => {
+    const store = new IntelligenceEventStore({ path: ":memory:" });
+    const state = {
+      source_state: "coding", summary: "test", question: "safe recovery",
+      options: ["rebrief", "hold"], goal_context: "test",
+    };
+    let calls = 0;
+    let release!: () => void;
+    const pause = new Promise<void>((resolve) => { release = resolve; });
+    const options = {
+      store, executor: adapter,
+      evaluate: async () => { calls++; await pause; return evaluation(); },
+    };
+    try {
+      const first = runRecoveryDsl(input, state, options);
+      const second = runRecoveryDsl(input, state, options);
+      // Both invocations have been started before releasing the sole judge.
+      release();
+      const [a, b] = await Promise.all([first, second]);
+      expect([a.kind, b.kind].sort()).toEqual(["decided", "hold"]);
+      expect(calls).toBe(1);
+    } finally { store.close(); }
+  });
+
   it("rejects a changed objective without starting a provider call", async () => {
     let calls = 0;
     const result = await runRecoveryDsl(input, {}, {
