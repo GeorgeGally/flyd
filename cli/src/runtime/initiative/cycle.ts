@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
+import { INITIATIVE_CURATED_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
 import { validateEnvelope, type ContextEnvelope } from "../../intelligence/context-envelope.js";
 import { readProjects, type Project } from "../../council/projects.js";
 import { latestEdition, type Edition } from "../../council/scout.js";
@@ -18,7 +19,7 @@ import { decideInitiative, inspectInitiative, safeInitiativePayload } from "./po
 export type InitiativeMode = "off" | "shadow" | "on";
 export function initiativeMode(): InitiativeMode {
   const raw = process.env.FLYD_INITIATIVE?.toLowerCase();
-  return raw === "0" || raw === "off" ? "off" : raw === "on" ? "on" : "shadow";
+  return raw === "0" || raw === "off" ? "off" : raw === "shadow" ? "shadow" : "on";
 }
 export interface InitiativeRunDeps {
   now?: () => Date;
@@ -27,6 +28,8 @@ export interface InitiativeRunDeps {
   edition?: () => Edition | null;
   advisories?: (now: Date) => Advisory[];
   sourceAllowed?: (source: InitiativeSource) => boolean;
+  /** The actual LEARN consent gate; bypassable only in isolated tests. */
+  consented?: () => boolean;
   /** For tests and explicit future scope approval. */
   mode?: InitiativeMode;
   record?: (card: ActivityRecord) => void;
@@ -73,9 +76,9 @@ function permitted(source: InitiativeSource): boolean {
 }
 function envelope(now: Date, kind: ContextEnvelope["kind"], idempotencyKey: string, candidate: InitiativeCandidate, payload: Record<string, unknown>): ContextEnvelope {
   return {
-    pathKind: "executive", kind, sourceId: "initiative.v10",
-    consent: { grantedAt: now.toISOString(), scopes: ["local_curated_operational"] },
-    retentionClass: "local_default", payloadClassification: "operational",
+    pathKind: "executive", kind, sourceId: INITIATIVE_CURATED_CONTRACT.sourceId,
+    consent: { grantedAt: now.toISOString(), scopes: [...INITIATIVE_CURATED_CONTRACT.scopes] },
+    retentionClass: INITIATIVE_CURATED_CONTRACT.retentionClass, payloadClassification: "personal",
     provenance: "initiative.v1:local_only",
     idempotencyKey, correlationId: candidate.id, policyVersion: "initiative.v1",
     evidenceRefs: candidate.sources.map(s => s.evidenceRef),
@@ -112,6 +115,13 @@ export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<
   const mode = deps.mode ?? initiativeMode();
   const result: InitiativeRunResult = { mode, generated: 0, investigated: 0, published: 0, skipped: 0, reasons: [] };
   if (mode === "off") return result;
+  // The LEARN contract is disabled unless the user explicitly opts in. Do
+  // not even read local projects or create a SQLite db when it is missing.
+  const consented = deps.consented ?? (() => {
+    const registry = new SourceContractRegistry();
+    return registry.status(INITIATIVE_CURATED_CONTRACT.sourceId) === "enabled";
+  });
+  if (!consented()) return { ...result, mode: "off", reasons: ["source_consent_required"] };
   const now = deps.now?.() ?? new Date();
   const ownedStore = !deps.store;
   const store = deps.store ?? new IntelligenceEventStore();
@@ -133,7 +143,7 @@ export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<
       const key = candidate.id + ":" + decision.revision;
       if (!candidate.sources.every(valid)) { result.skipped++; continue; }
       const created = store.transaction(() => {
-        if (store.findByIdempotencyKey("initiative.v10", "decision:" + key)) return false;
+        if (store.findByIdempotencyKey(INITIATIVE_CURATED_CONTRACT.sourceId, "decision:" + key)) return false;
         const decisionPayload: Record<string, unknown> = {
           candidate_id: candidate.id, revision: decision.revision,
           disposition: decision.disposition, attention: decision.attention,
@@ -165,7 +175,7 @@ export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<
         if (decision.attention !== "ambient" || result.published >= 1 || (deps.countPublished ?? countInitiativeCards)(dayOf(now)) >= 1) continue;
         if (!candidate.sources.every(valid)) continue;
         const key = candidate.id + ":" + decision.revision;
-        if (!store.findByIdempotencyKey("initiative.v10", "finding:" + key)) continue;
+        if (!store.findByIdempotencyKey(INITIATIVE_CURATED_CONTRACT.sourceId, "finding:" + key)) continue;
         const card = initiativeActivity(candidate);
         const previously = (deps.seen ?? initiativeCardRecorded)(card.key!);
         if (previously) continue;
