@@ -74,6 +74,21 @@ describe("Flyd v10 source-grounded curiosity", () => {
     expect(deriveInitiatives({ now, projects: [], advisories: [] })).toEqual([]);
   });
 
+  it("notices an explicitly dated waiting venture independently of Calendar or personal sensing", () => {
+    const waiting: Project = {
+      ...project, id: "market", name: "Community Market", kind: "venture",
+      status: "waiting", next: "Confirm the venue contract",
+      due: "2026-11-25", now: "Venue has not confirmed the revised terms",
+    };
+    const found = deriveInitiatives({ now, projects: [waiting] });
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ origin: "project", domain: "venture" });
+    expect(found[0]?.observed).toContain("Recorded due date: 2026-11-25");
+    expect(decideInitiative(found[0]!, { mode: "on", allowed: () => true }).attention).toBe("silent");
+    const cleared = deriveInitiatives({ now, projects: [{ ...waiting, status: "active" }] });
+    expect(cleared).toHaveLength(0);
+  });
+
   it("uses evidence/source revisions as stable identity, never Date.now or prose punctuation", () => {
     const a = sources().find(x => x.origin === "scout")!;
     const b = deriveInitiatives({ now: new Date(now.getTime() + 60_000), projects: [project], edition }).find(x => x.origin === "scout")!;
