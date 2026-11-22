@@ -53,7 +53,7 @@ function dayOf(now: Date): string { return `${now.getFullYear()}-${String(now.ge
 export function countInitiativeCards(day: string, path = activityRecordPath()): number {
   try {
     const seen = new Set<string>();
-    for (const row of readFileSync(path, "utf8").split("\n")) {
+    for (const row of readFileSync(path, "utf8").split("\n").slice(-1200)) {
       try {
         const item = JSON.parse(row) as ActivityRecord;
         if (item.key?.startsWith("initiative:") && item.at && dayOf(new Date(item.at)) === day) seen.add(item.key);
