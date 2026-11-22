@@ -12,7 +12,8 @@ import type { DomainRun } from "../command/types.js";
 import { routingFailureEvidence } from "../runtime/routing-learning.js";
 import { reviewEvidence, selfReviewDir } from "../council/reply-review.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
-import { EXPERIENCE_RUNTIME_CONTRACT } from "../intelligence/sensors/source-contracts.js";
+import { EXPERIENCE_RUNTIME_CONTRACT, OUTCOME_REVIEW_LEARNING_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
+import { negativeOutcomeReviewPatterns } from "../intelligence/outcomes/review-improvement.js";
 import { FIX_LAYERS, type FixLayer } from "./fix-layers.js";
 import { tasteCheckPlan } from "../council/taste-checks.js";
 import { readTaste, tastePath } from "../council/taste.js";
@@ -116,6 +117,17 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
   try {
     const store = new IntelligenceEventStore({ path: join(flydDir, "intelligence.sqlite") });
     try {
+      // Explicit feedback is *not* automatic learning consent. This separate
+      // source must have been deliberately enabled by the user before even
+      // aggregate ratings may enter the human-gated improver's model prompt.
+      const registry = new SourceContractRegistry({
+        path: join(flydDir, "intelligence", "source-consents.json"),
+      });
+      registry.register(OUTCOME_REVIEW_LEARNING_CONTRACT);
+      const reviewSource = registry.list().find((item) => item.contract.sourceId === OUTCOME_REVIEW_LEARNING_CONTRACT.sourceId);
+      if (reviewSource?.state.status === "enabled" && reviewSource.state.explicitlyConfigured === true) {
+        evidence.push(...negativeOutcomeReviewPatterns(store, { since, now }));
+      }
       for (const event of store.readSource(EXPERIENCE_RUNTIME_CONTRACT.sourceId)) {
         if (event.erased || !event.payload || event.capturedAt < since) continue;
         const payload = event.payload as { type?: unknown; insight?: Record<string, unknown> };
