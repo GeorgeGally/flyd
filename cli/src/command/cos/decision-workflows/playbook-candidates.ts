@@ -39,7 +39,7 @@ export function proposeRecoveryPlaybooks(
     e.matured &&
     (e.outcome?.attribution === "direct_verified" || e.outcome?.attribution === "observed_impact") &&
     e.metricDelta !== undefined && Number.isFinite(e.metricDelta) && e.metricDelta > 0 &&
-    e.outcome.metric?.evidenceRef);
+    e.outcome?.metric?.evidenceRef);
   const unique = new Map(passed.map((e) => [e.intervention.interventionId, e]));
   if (unique.size < required) return [];
   const ids = [...unique.values()].map((e) => e.episodeId).sort();
