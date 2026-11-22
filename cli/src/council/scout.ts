@@ -745,7 +745,10 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
 
   // Everything the watches fetched since the last edition, plus this run's own fetch.
   const pooled = readPool(dir, now, latestEdition(dir)?.generatedAt);
-  const gathered = await gatherCandidates(sources, { fetchFn: deps.fetchFn, fetchTopicFn: deps.fetchTopicFn, includeTopics: true, now, telemetryDir: dir, redditLimit: REDDIT_PER_EDITION, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
+  // Live discovery runs separately after morning; do not block the edition on
+  // multi-minute last30days topic sweeps. Keep an explicit opt-in and test hook.
+  const includeTopics = editorialMode() !== "on" || Boolean(deps.fetchTopicFn) || process.env.FLYD_SCOUT_MORNING_TOPICS === "1";
+  const gathered = await gatherCandidates(sources, { fetchFn: deps.fetchFn, fetchTopicFn: deps.fetchTopicFn, includeTopics, now, telemetryDir: dir, redditLimit: REDDIT_PER_EDITION, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
   const { failed } = gathered;
   const candidates = [...gathered.candidates, ...pooled, ...(editorialMode() === "on" ? discoveryCandidates(dir, now) : [])];
   sources = recordFailures(sources, failed, now);
