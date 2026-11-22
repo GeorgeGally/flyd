@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { IntelligenceEventStore } from "../event-store.js";
 import { EXECUTIVE_DECISION_VERSION, persistExecutiveDecision, type ExecutiveDecisionRecord } from "../executive/decision-step.js";
 import { OUTCOME_REVIEW_SOURCE, outcomeReviewCandidates, outcomeReviews, recordExplicitOutcomeReview } from "../outcomes/outcome-review.js";
