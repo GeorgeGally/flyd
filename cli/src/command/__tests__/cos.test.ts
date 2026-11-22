@@ -108,7 +108,7 @@ describe("Chief of Staff tick", () => {
       complete: async () => "{}",
       say: async () => {
         expect(cosReports(objective.id, h.store)).toHaveLength(1);
-        expect(readObjective(objective.id)?.pendingReport?.id).toBe(`${objective.id}:${readObjective(objective.id)?.pendingReport?.id.split(":").slice(1).join(":")}`);
+        expect(readObjective(objective.id)?.pendingReport?.id.startsWith(`${objective.id}:`)).toBe(true);
         throw new Error("notification adapter crashed");
       },
     };
