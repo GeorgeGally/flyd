@@ -107,25 +107,52 @@ async function loadExecutor(): Promise<DslExecutor> {
   return imported as DslExecutor;
 }
 
-/** Startup diagnostics never include private state, receipts or credentials. */
+export const AGENTRUN_MIN_NODE_VERSION = "24.22.3";
+
+/**
+ * Update notices are relevant only when the existing CoS wants the DSL.
+ * Explicit off (and unknown/invalid mode) is not an invitation to nag.
+ */
+export function agentRunNodeUpgradeRequired(
+  nodeVersion = process.versions.node,
+  cos = process.env.FLYD_COS,
+  selection = process.env.FLYD_COS_DECISION_DSL,
+): boolean {
+  const desired = selection === undefined || selection.trim() === "" ||
+    selection === "on" || selection === "shadow" || selection === "canary";
+  return cos === "1" && desired && !supportsAgentRunNode(nodeVersion);
+}
+
+/** Safe, local, authenticated startup diagnostics. No private state or keys. */
 export async function agentRunActivationStatus(): Promise<{
   mode: DslMode;
   enabled: boolean;
   reason: string;
   nodeVersion: string;
+  minimumNodeVersion: string;
+  nodeUpgradeRequired: boolean;
 }> {
+  const basics = {
+    nodeVersion: process.versions.node,
+    minimumNodeVersion: AGENTRUN_MIN_NODE_VERSION,
+    nodeUpgradeRequired: agentRunNodeUpgradeRequired(),
+  };
   const mode = process.env.FLYD_COS === "1" ? dslMode() : "off";
   if (mode === "off") {
-    return { mode, enabled: false, reason: process.env.FLYD_COS !== "1" ? "CoS is disabled" : "legacy recovery selected", nodeVersion: process.versions.node };
+    return { ...basics, mode, enabled: false,
+      reason: basics.nodeUpgradeRequired ? "AgentRun requires newer Node; legacy recovery selected"
+        : process.env.FLYD_COS !== "1" ? "CoS is disabled" : "legacy recovery selected" };
   }
   if (!executiveDecisionProviderConfigured()) {
-    return { mode, enabled: false, reason: "Jev/Gemini decision provider not configured", nodeVersion: process.versions.node };
+    return { ...basics, mode, enabled: false, reason: "Jev/Gemini decision provider not configured" };
   }
   try {
     await loadExecutor();
-    return { mode, enabled: true, reason: "pinned AgentRun runtime and decision-provider configuration verified", nodeVersion: process.versions.node };
+    return { ...basics, mode, enabled: true,
+      reason: "pinned AgentRun runtime and decision-provider configuration verified" };
   } catch (error) {
-    return { mode, enabled: false, reason: error instanceof Error ? error.message : "AgentRun runtime unavailable", nodeVersion: process.versions.node };
+    return { ...basics, mode, enabled: false,
+      reason: error instanceof Error ? error.message : "AgentRun runtime unavailable" };
   }
 }
 
