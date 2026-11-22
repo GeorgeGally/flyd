@@ -70,7 +70,7 @@ describe("opt-in usefulness learning", () => {
       id: expect.stringMatching(/^review-cluster:[a-f0-9]{16}:3$/),
       kind: "review",
       at: "2026-11-22T11:00:00Z",
-      text: expect.stringContaining("at least 3"),
+      text: expect.stringContaining("At least 3"),
     }]);
     expect(JSON.stringify(patterns())).not.toContain("An internally verified private outcome");
     expect(JSON.stringify(patterns())).not.toContain("firstmate.task");
