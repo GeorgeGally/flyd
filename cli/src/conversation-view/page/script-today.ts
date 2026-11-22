@@ -95,6 +95,8 @@ export const TODAY_SCRIPT = `
     var quoted = story.media === "quote" && story.quote ? frontText(story.quote).toLowerCase() : "";
     if (said && said !== frontText(story.title).toLowerCase() && said !== quoted) node.appendChild(el("p", "", story.gist));
     // Where it came from, quietly after the story: never a label over the headline.
+    if (story.updatedFrom) node.appendChild(el("p", "src", "Update · " + story.updatedFrom));
+    if (story.evidenceStatus === "corroborated") node.appendChild(el("p", "src", "Independently corroborated"));
     if (story.source) node.appendChild(el("p", "src", story.source));
     // Preserve independent reading paths without presenting source count as proof.
     if (Array.isArray(story.evidenceUrls)) {
@@ -114,6 +116,18 @@ export const TODAY_SCRIPT = `
         });
         node.appendChild(evidence);
       }
+    }
+    if (Array.isArray(story.evidenceSnippets) && story.evidenceSnippets.length) {
+      var details = el("details", "story-evidence");
+      details.appendChild(el("summary", "", "Why this is supported"));
+      story.evidenceSnippets.slice(0, 3).forEach(function (excerpt) {
+        details.appendChild(el("p", "", excerpt));
+      });
+      if (story.evidenceCheckedAt) {
+        var checked = new Date(story.evidenceCheckedAt);
+        if (!isNaN(checked)) details.appendChild(el("p", "src", "Sources checked " + checked.toLocaleDateString()));
+      }
+      node.appendChild(details);
     }
     // Talking about this story is his choice, made here: the message box then names it.
     var chat = el("button", "story-chat", "Chat about this");

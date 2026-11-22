@@ -153,33 +153,35 @@ export class EvidenceEngine {
       const capability = capabilityForLocator(locator);
       const inspection = await this.registry.inspect(capability, "read");
       capabilityHealth.push(inspection.health);
-      const read = inspection.adapter?.read;
-      if (!read) {
+      // A healthy probe cannot guarantee a successful read of a particular page.
+      // Reuse the registered public web reader when the first backend fails.
+      const primary = inspection.adapter;
+      const alternatives = capability === "web"
+        ? this.registry.adaptersFor(capability).filter((adapter) => adapter.id !== primary?.id && adapter.priority > (primary?.priority ?? -1) && Boolean(adapter.read))
+        : [];
+      const readers = [...(primary?.read ? [primary] : []), ...alternatives];
+      if (readers.length === 0) {
         const healthGap = gapFromHealth(inspection.health);
         addGapOnce(gaps, healthGap ?? {
-          capability,
-          code: "capability_unavailable",
+          capability, code: "capability_unavailable",
           message: `${capability} has no healthy read backend for ${locator}`,
         });
         return null;
       }
-
-      try {
-        const items = await read.call(inspection.adapter, { locator });
-        return {
-          label: `direct_${index + 1}`,
-          capability,
-          weight: 1.25,
-          items,
-        } satisfies EvidenceStream;
-      } catch (error) {
-        addGapOnce(gaps, {
-          capability,
-          code: "search_failed",
-          message: `${capability} read failed: ${error instanceof Error ? error.message : "unknown error"}`,
-        });
-        return null;
+      let lastError: unknown;
+      for (const adapter of readers) {
+        if (!adapter.read) continue;
+        try {
+          const items = await adapter.read({ locator });
+          if (!items.length && adapter !== readers[readers.length - 1]) continue;
+          return { label: `direct_${index + 1}`, capability, weight: 1.25, items } satisfies EvidenceStream;
+        } catch (error) { lastError = error; }
       }
+      addGapOnce(gaps, {
+        capability, code: "search_failed",
+        message: `${capability} read failed: ${lastError instanceof Error ? lastError.message : "unknown error"}`,
+      });
+      return null;
     }));
     streams.push(...directEntries.filter((entry): entry is EvidenceStream => Boolean(entry)));
 

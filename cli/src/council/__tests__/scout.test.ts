@@ -177,12 +177,12 @@ describe("edition, feedback, and watch", () => {
       return JSON.stringify({ picks: [{ index: Number(index), kind: "must", why: "A direct Koko competitor just raised." }] });
     });
     const now = at("2026-09-27T09:00:00Z");
-    const musts = await watchScout({ complete, fetchFn, notify, dir, redditSpacingMs: 0, now: () => now });
+    const musts = await watchScout({ complete, fetchFn, notify, verifyMustKnow: async (picks) => picks, dir, redditSpacingMs: 0, now: () => now });
     expect(musts.map((item) => item.title)).toEqual(["Ollie raises $7.5M for AI parenting assistant"]);
     expect(notify).toHaveBeenCalledWith("Flyd", "Ollie raises $7.5M for AI parenting assistant — A direct Koko competitor just raised.");
     expect(recentFlashes(dir, now)).toHaveLength(1);
     // Already examined: the next watch does not even call the model.
-    expect(await watchScout({ complete, fetchFn, notify, dir, redditSpacingMs: 0, now: () => now })).toEqual([]);
+    expect(await watchScout({ complete, fetchFn, notify, verifyMustKnow: async (picks) => picks, dir, redditSpacingMs: 0, now: () => now })).toEqual([]);
     expect(complete).toHaveBeenCalledTimes(1);
   });
 });
@@ -427,7 +427,7 @@ describe("the edition draws on the whole day", () => {
     const prompts: string[] = [];
     await runScout({ complete: rankerFor(prompts), fetchFn, dir, now: () => at("2026-11-14T07:00:00Z") });
     expect(prompts[0]).toContain("This week in models");
-    expect(prompts[0]).toMatch(/· 2026-10-23\) Three weeks back/);
+    expect(prompts[0]).toMatch(/· 2026-10-23\b.*\) Three weeks back/);
     expect(prompts[0]).not.toContain("Last season");
   });
 
@@ -487,7 +487,7 @@ describe("the edition draws on the whole day", () => {
       topic("bitcoin stamps protocol", { status: "paused", note: "replanned 2026-11-11", pausedAt: "2026-11-11T00:00:00Z", dislikes: 1 }),
     ]);
     expect(editionTopics(readSources(dir)).map((source) => source.target)).toEqual([
-      "p5.js generative sketches", "on-chain audio ordinals", "pen plotter generative art", "demoscene 64k intros",
+      "p5.js generative sketches", "on-chain audio ordinals", "pen plotter generative art",
     ]);
     const many = Array.from({ length: 12 }, (_, index) => ({ ...topic(`topic ${index}`), id: `topic:topic ${index}`, status: "active" as const, shown: 0, likes: 0, dislikes: 0, failures: 0, addedAt: "2026-11-01T00:00:00Z" }));
     expect(editionTopics(many)).toHaveLength(TOPICS_PER_EDITION);
@@ -499,7 +499,7 @@ describe("the edition draws on the whole day", () => {
     });
     const prompts: string[] = [];
     await runScout({ complete: rankerFor(prompts), fetchFn: fakeFetch({}), fetchTopicFn, dir, now: () => at("2026-11-14T07:00:00Z") });
-    expect([...searched].sort()).toEqual(["demoscene 64k intros", "on-chain audio ordinals", "p5.js generative sketches", "pen plotter generative art"]);
+    expect([...searched].sort()).toEqual(["on-chain audio ordinals", "p5.js generative sketches", "pen plotter generative art"]);
     expect(prompts[0]).toContain("Found for pen plotter generative art");
   });
 

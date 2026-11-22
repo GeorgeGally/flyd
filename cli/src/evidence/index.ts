@@ -40,6 +40,7 @@ export { HackerNewsAdapter } from "./adapters/hackernews.js";
 export { RedditAdapter } from "./adapters/reddit.js";
 export { RssAdapter } from "./adapters/rss.js";
 export { JinaReaderAdapter, JinaSearchAdapter } from "./adapters/web-jina.js";
+export { PublicPageReaderAdapter, extractPublicPage } from "./adapters/web-public.js";
 export { XApiAdapter } from "./adapters/x-api.js";
 export { YoutubeYtDlpAdapter, vttToText } from "./adapters/youtube-ytdlp.js";
 export type { CommandRunner, FetchLike } from "./adapters/common.js";

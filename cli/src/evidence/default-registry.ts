@@ -4,6 +4,7 @@ import { HackerNewsAdapter } from "./adapters/hackernews.js";
 import { RedditAdapter } from "./adapters/reddit.js";
 import { RssAdapter } from "./adapters/rss.js";
 import { JinaReaderAdapter, JinaSearchAdapter } from "./adapters/web-jina.js";
+import { PublicPageReaderAdapter } from "./adapters/web-public.js";
 import { XApiAdapter } from "./adapters/x-api.js";
 import { YoutubeYtDlpAdapter } from "./adapters/youtube-ytdlp.js";
 import type { CommandRunner, FetchLike } from "./adapters/common.js";
@@ -32,6 +33,7 @@ export function createDefaultEvidenceRegistry(
       ...sharedHttp,
       apiKey: env.JINA_API_KEY,
     }),
+    new PublicPageReaderAdapter(sharedHttp),
     new JinaSearchAdapter({
       ...sharedHttp,
       apiKey: env.JINA_API_KEY,

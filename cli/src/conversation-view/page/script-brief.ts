@@ -521,6 +521,16 @@ export const BRIEF_SCRIPT = `
       rate.appendChild(el("span", "story-told", storyTold[story.url] === "more" ? "More like this" : "Less like this"));
       return wrap;
     }
+    var why = el("select", "story-reason");
+    why.setAttribute("aria-label", "Optional reason for feedback on " + story.title);
+    [
+      ["", "Why? (optional)"], ["interesting", "Interesting"], ["surprising", "Unexpected"],
+      ["wrong-topic", "Wrong subject"], ["not-new", "Not new"], ["repeat", "Repeated"],
+      ["too-shallow", "Too shallow"], ["bad-source", "Bad source"], ["already-knew", "Already knew"]
+    ].forEach(function (entry) {
+      var option = el("option", "", entry[1]); option.value = entry[0]; why.appendChild(option);
+    });
+    wrap.appendChild(why);
     ["more", "less"].forEach(function (verdict, index) {
       if (index) rate.appendChild(document.createTextNode(" · "));
       var button = el("button", "", verdict);
@@ -529,9 +539,10 @@ export const BRIEF_SCRIPT = `
       button.addEventListener("click", function (event) {
         event.stopPropagation();
         rate.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
-        tokenFetch("/api/scout-feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(story.n ? { n: story.n, url: story.url, verdict: verdict } : { url: story.url, verdict: verdict }) }, true).then(function (response) {
+        tokenFetch("/api/scout-feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: story.url, ...(story.n ? { n: story.n } : {}), verdict: verdict, ...(why.value ? { reason: why.value } : {}) }) }, true).then(function (response) {
           if (!response.ok) throw new Error(String(response.status));
           storyTold[story.url] = verdict;
+          why.remove();
           rate.textContent = "";
           rate.appendChild(el("span", "story-told", verdict === "more" ? "More like this" : "Less like this"));
         }).catch(function () {
