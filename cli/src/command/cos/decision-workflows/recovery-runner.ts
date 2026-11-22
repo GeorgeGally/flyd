@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { validateEnvelope, type ContextEnvelope } from "../../../intelligence/context-envelope.js";
 import type { IntelligenceEventStore } from "../../../intelligence/event-store.js";
 import { predicateThreshold, questionFingerprint } from "../../../cognition/system-one/registry.js";
 import { createRecoveryDslJudge, PilotJudgmentError, RECOVERY_PREDICATE, recoveryGate } from "./system-one-contract.js";
-import { RECOVERY_WORKFLOW_POLICY, RECOVERY_WORKFLOW_VERSION, recoveryWorkflow, recoveryWorkflowDigest } from "./recovery-workflow.js";
+import { RECOVERY_DSL_PACKAGE_VERSION, RECOVERY_WORKFLOW_POLICY, recoveryWorkflow, recoveryWorkflowDigest } from "./recovery-workflow.js";
 import type { DecisionModelOptions } from "../../../cognition/system-one/decision-provider.js";
 import type { PredicateEvaluation } from "../../../cognition/system-one/types.js";
 import { canRecoverInternally, type RecoveryInput } from "../recovery.js";
@@ -57,7 +58,12 @@ async function loadExecutor(): Promise<DslExecutor> {
   // compatible Core may use the exact package in the runtime's own node_modules;
   // the test host can point this at its pinned, isolated installation.
   const moduleId: string = process.env.FLYD_COS_DSL_MODULE || "@parcha/agentrun-dsl";
-  const imported = await import(moduleId) as Partial<DslExecutor>;
+  const url = import.meta.resolve(moduleId);
+  const packageMeta = JSON.parse(readFileSync(new URL("../package.json", url), "utf8")) as { name?: string; version?: string };
+  if (packageMeta.name !== "@parcha/agentrun-dsl" || packageMeta.version !== RECOVERY_DSL_PACKAGE_VERSION) {
+    throw new Error("AgentRun DSL version does not match frozen workflow");
+  }
+  const imported = await import(url) as Partial<DslExecutor>;
   if (typeof imported.runWorkflow !== "function" || typeof imported.validateWorkflow !== "function") {
     throw new Error("Invalid pinned AgentRun DSL module");
   }
@@ -162,10 +168,19 @@ export async function runRecoveryDsl(
       runJudge: async (request: Parameters<typeof judge>[0]) => {
         if (!approvedCurrent(input, options)) throw new PilotJudgmentError("cancelled");
         if (store) {
-          event(store, input.objective.id ?? input.run.key, requestKey, "started", {
-            workflow: recoveryWorkflowDigest(), question: questionFingerprint(RECOVERY_PREDICATE),
-            threshold: predicateThreshold(RECOVERY_PREDICATE), attempt: input.run.attempt,
+          // The request marker must be an atomic claim across competing Core
+          // processes. Merely appending an idempotent duplicate and continuing
+          // would still issue two paid (possibly state-changing) requests.
+          const claimed = store.transaction(() => {
+            if (store.findByIdempotencyKey(SOURCE, requestKey + ":started") ||
+                store.findByIdempotencyKey(SOURCE, requestKey + ":answered")) return false;
+            event(store, input.objective.id ?? input.run.key, requestKey, "started", {
+              workflow: recoveryWorkflowDigest(), question: questionFingerprint(RECOVERY_PREDICATE),
+              threshold: predicateThreshold(RECOVERY_PREDICATE), attempt: input.run.attempt,
+            });
+            return true;
           });
+          if (!claimed) throw new PilotJudgmentError("unknown_provider_outcome");
         }
         started = true;
         return judge(request);
