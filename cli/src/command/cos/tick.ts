@@ -406,12 +406,29 @@ function completed(objective: Objective, run: PlannedRun, key: string): void {
  */
 async function failed(objective: Objective, run: PlannedRun, key: string, why: string, detail: string, deps: CosTickDeps, store: IntelligenceEventStore, retryable: boolean): Promise<void> {
   const reason = why && !unfitForHim(why).length ? why : "";
-  const recovery = await (deps.recoveryJudge ?? judgeRecovery)({
+  const recoveryInput: RecoveryInput = {
     objective, run,
     failure: reason || "A team could not finish the work.",
     retryable,
     effectKnownInternal: retryable && !run.ref?.includes(":"),
-  });
+  };
+  const recovery = deps.recoveryJudge
+    ? await deps.recoveryJudge(recoveryInput)
+    : await judgeRecovery(recoveryInput, {
+        store,
+        current: () => {
+          const latest = readObjective(objective.id);
+          const currentRun = latest && planOf(latest).find((entry) => entry.key === run.key);
+          return Boolean(latest && currentRun &&
+            (latest.briefRevision ?? 0) === (objective.briefRevision ?? 0) &&
+            currentRun.attempt === run.attempt && currentRun.state === run.state &&
+            ["working", "needs_george"].includes(latest.status));
+        },
+      });
+  // The objective or run may have changed while System-1 was deciding.
+  // Never apply an old decision to a corrected brief.
+  const latest = readObjective(objective.id);
+  if (!latest || (latest.briefRevision ?? 0) !== (objective.briefRevision ?? 0)) return;
   if (recovery.action === "rebrief") {
     changeRun(objective.id, run.key,
       (current) => current.reviewed === key ? null : requeue(current, {
