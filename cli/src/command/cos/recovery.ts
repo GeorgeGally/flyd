@@ -3,6 +3,8 @@ import { familyEgress, questionFor } from "../../cognition/system-one/registry.j
 import { projectJevState } from "../../cognition/system-one/jev.js";
 import type { PredicateEvaluation } from "../../cognition/system-one/types.js";
 import type { Objective, PlannedRun } from "./types.js";
+import type { IntelligenceEventStore } from "../../intelligence/event-store.js";
+import { dslMode, runRecoveryDsl, selectedForCanary, type DslExecutor, type DslOutcome } from "./decision-workflows/recovery-runner.js";
 
 /** Never infer permission to retry an effect that may already have happened. */
 const UNSAFE_EFFECT = /\b(?:send|email|message a client|whatsapp|book|reserve|buy|purchase|pay|transfer|publish|push|merge|deploy|delete|erase|destroy|migrate production|change permissions|rotate credentials|charge)\b/i;
@@ -14,7 +16,7 @@ export function maxAutonomousAttempts(raw = process.env.FLYD_COS_MAX_ATTEMPTS): 
 }
 
 export interface RecoveryInput {
-  objective: Pick<Objective, "words" | "brief" | "adaptations" | "urgency">;
+  objective: Pick<Objective, "words" | "brief" | "adaptations" | "urgency"> & Partial<Pick<Objective, "id" | "briefRevision">>;
   run: Pick<PlannedRun, "key" | "team" | "outcome" | "sent" | "attempt" | "prior" | "failure" | "ref">;
   failure: string;
   retryable: boolean;
@@ -29,6 +31,14 @@ export interface RecoveryJudgeOptions {
   evaluate?: typeof evaluateExecutivePredicates;
   model?: DecisionModelOptions;
   maxAttempts?: number;
+  /** Existing canonical event store owned by the CoS tick; never a second journal. */
+  store?: IntelligenceEventStore;
+  /** Injectable interpreter for offline tests; live execution uses the pinned AgentRun package. */
+  dslExecutor?: DslExecutor;
+  /** Current-objective authority/revision check, called after judgment as well. */
+  current?: () => boolean;
+  /** For metrics and shadow comparisons; never dispatches a domain run. */
+  onDslResult?: (mode: "shadow" | "canary" | "on", result: DslOutcome) => void;
 }
 
 export function canRecoverInternally(input: RecoveryInput, maxAttempts = maxAutonomousAttempts()): boolean {
@@ -53,6 +63,32 @@ export async function judgeRecovery(input: RecoveryInput, options: RecoveryJudge
     goal_context: (input.objective.brief?.outcome ?? input.objective.words).slice(0, 500),
     evidence_refs: (input.run.prior ?? []).slice(0, 8),
   });
+  const flag = process.env.FLYD_COS === "1" ? dslMode() : "off";
+  const cohort = String(input.objective.id ?? "") + ":" + input.run.key + ":" + String(input.run.attempt);
+  const selected = flag === "on" || (flag === "canary" && selectedForCanary(cohort));
+  const runCandidate = async (shadow = false): Promise<DslOutcome> => {
+    return runRecoveryDsl(input, state, {
+      store: shadow ? undefined : options.store,
+      testOnlyUndurable: shadow || Boolean(options.dslExecutor && !options.store),
+      ...(options.dslExecutor ? { executor: options.dslExecutor } : {}),
+      evaluate: options.evaluate, model: options.model, current: options.current,
+    });
+  };
+  if (selected) {
+    const chosen = await runCandidate();
+    options.onDslResult?.(flag === "on" ? "on" : "canary", chosen);
+    // A missing interpreter or Node incompatibility is a *pre-send* fallback.
+    // Once a DSL decision may have reached the model, never call it again.
+    if (chosen.kind === "hold") return { action: "hold", reason: chosen.reason };
+    if (chosen.kind === "decided") {
+      return chosen.action === "rebrief"
+        ? { action: "rebrief", reason: repeated
+            ? "A prior attempt failed identically; use a fundamentally different internal approach and verify it."
+            : "Try a different authorized internal approach and verify against done_when." }
+        : { action: "hold", reason: chosen.reason };
+    }
+  }
+
   const judged = await (options.evaluate ?? evaluateExecutivePredicates)(
     state,
     [questionFor("cos_recovery_tactic")],
@@ -68,5 +104,12 @@ export async function judgeRecovery(input: RecoveryInput, options: RecoveryJudge
   const reason = repeated
     ? "A prior attempt failed the same way; choose a fundamentally different internal approach, diagnose the recurring cause, and verify it."
     : "Use the failure evidence to select a different internal approach, then verify against done_when.";
-  return { action: "rebrief", reason, ...(judged ? { evidence: judged } : {}) };
+  const legacy: RecoveryDisposition = { action: "rebrief", reason, ...(judged ? { evidence: judged } : {}) };
+  if (flag === "shadow" && process.env.FLYD_COS_DSL_SHADOW_CALLS === "1") {
+    // Shadow calls are opt-in, budgeted separately, return no effects, and
+    // never change the incumbent CoS decision or ask George to decide.
+    const candidate = await runCandidate(true);
+    options.onDslResult?.("shadow", candidate);
+  }
+  return legacy;
 }
