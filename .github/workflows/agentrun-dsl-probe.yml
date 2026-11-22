@@ -50,6 +50,9 @@ jobs:
       - name: Exercise CoS recovery, receipts, policy gates, and safe replay through AgentRun
         working-directory: cli
         run: npx tsx ../experiments/agentrun-dsl/rollout-integration.ts
+      - name: Run 100 scripted safety/evaluation cases
+        working-directory: cli
+        run: npx tsx ../experiments/agentrun-dsl/rollout-eval.ts
       - name: Verify test-only dependency never enters Core package graph
         run: |
           if grep -q '"@parcha/agentrun-dsl"' cli/package.json; then
