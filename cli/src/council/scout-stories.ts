@@ -110,7 +110,7 @@ export function noteworthyUpdate(candidate: ScoutCandidate, previous: Pick<Editi
   const left = specificNumbers(candidate.title);
   const right = specificNumbers(previous.title);
   if (!left.length || !right.length || left.join(",") === right.join(",")) return false;
-  const removeNumbers = (title: string): string => title.replace(/\\b(?:v\\d+(?:\\.\\d+){0,3}|\\d+(?:\\.\\d+){1,3}|\\d{4})\\b/gi, "");
+  const removeNumbers = (title: string): string => title.replace(/\b(?:v\d+(?:\.\d+){0,3}|\d+(?:\.\d+){1,3}|\d{4})\b/gi, "");
   const a = new Set(titleTokens(removeNumbers(candidate.title)));
   const b = new Set(titleTokens(removeNumbers(previous.title)));
   const common = [...a].filter((word) => b.has(word)).length;
