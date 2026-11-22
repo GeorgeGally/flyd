@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Last30daysContractError, last30daysHealth, parseLast30daysAgent, parseLast30daysDiscovery } from "../scout-last30days.js";
-import { discoveryCandidates, readDiscoveryCache, refreshDiscovery } from "../scout-discovery.js";
+import { discoveryCandidates, readDiscoveryCache, refreshDiscovery, discoverNative } from "../scout-discovery.js";
+import { adjudicateScoutEvidence, evidenceMatches, sourceFamily } from "../scout-evidence.js";
+import { prepareScoutCandidates, scoutPreferenceSignal } from "../scout-editorial.js";
+import { noteworthyUpdate } from "../scout-stories.js";
+import type { EvidenceBundle, RankedEvidence } from "../../evidence/types.js";
 import { groupScoutStories, previouslyCovered, sameStory } from "../scout-stories.js";
 import { recordScoutMetrics, readScoutMetrics } from "../scout-metrics.js";
 import { editorialEvaluationSummary, editorialShadowBrief, recordEditorialJudgment } from "../scout-eval.js";
@@ -86,7 +90,17 @@ describe("discovery and event curation", () => {
           previouslySurfacedCount: 0 },
       ],
     }));
-    expect(await refreshDiscovery(dir, now, discover)).toMatchObject({ outcome: "ok" });
+    const verify = vi.fn(async (nomination: { topic: string }) => ({
+      evidence: nomination.topic.includes("experimental")
+        ? [
+          { url: "https://primary.example/story", title: nomination.topic, snippet: "Project release", source: "web", kind: "release", isPrimary: true },
+          { url: "https://independent.example/story", title: nomination.topic, snippet: "Independent confirmation", source: "web", kind: "news", isPrimary: false },
+        ] : [],
+      evidenceStatus: (nomination.topic.includes("experimental") ? "corroborated" : "unverified") as "corroborated" | "unverified",
+      independentSources: nomination.topic.includes("experimental") ? 2 : 0, gaps: [], generatedAt: now.toISOString(),
+    }));
+    expect(await refreshDiscovery(dir, now, discover, { verify })).toMatchObject({ outcome: "ok" });
+    expect(verify).toHaveBeenCalledTimes(2);
     expect(discover).toHaveBeenCalledTimes(1);
     expect(readDiscoveryCache(dir).runs).toHaveLength(1);
     expect(discoveryCandidates(dir, now).map((item) => item.title)).toEqual(["New experimental image language"]);
@@ -119,6 +133,79 @@ describe("discovery and event curation", () => {
     expect(brief).toContain("Old story");
     expect(recordEditorialJudgment(dir, "tie")).toContain("recorded");
     expect(editorialEvaluationSummary(dir)).toContain("1 days");
+  });
+
+  it("does not treat two posts from one outlet as independent corroboration", () => {
+    const toEvidence = (url: string): RankedEvidence => ({
+      id: url, sourceItemId: url, capability: "web", backend: "jina", kind: "news",
+      title: "Generative sound tool launches", content: "A generative sound tool launches today",
+      locator: url, publishedAt: "2026-11-17T02:00:00Z",
+      retrievedAt: "2026-11-17T04:00:00Z", nativeRank: 1, localRelevance: 1,
+      freshness: 1, sourceQuality: 1, queryLabel: "research", provenance: [],
+      rrfScore: 1, capabilities: ["web"],
+    });
+    const bundle: EvidenceBundle = {
+      query: "Generative sound tool launches", intent: "factual", generatedAt: "2026-11-17T04:00:00Z",
+      plan: { query: "x", intent: "factual", depth: "quick", sourceWeights: {}, subqueries: [], maxResults: 10, maxPerStream: 5 },
+      evidence: [
+        toEvidence("https://same.example/article-a"),
+        toEvidence("https://same.example/article-b"),
+      ], conflicts: [], gaps: [], capabilityHealth: [],
+    };
+    expect(adjudicateScoutEvidence("Generative sound tool launches", bundle)).toMatchObject({
+      evidenceStatus: "single-source", independentSources: 1,
+    });
+    bundle.evidence.push(toEvidence("https://other.example/independent"));
+    expect(adjudicateScoutEvidence("Generative sound tool launches", bundle)).toMatchObject({
+      evidenceStatus: "corroborated", independentSources: 2,
+    });
+    bundle.conflicts.push({ left: "1", right: "2", topic: "release", reason: "disagree", confidence: 0.9 });
+    expect(adjudicateScoutEvidence("Generative sound tool launches", bundle).evidenceStatus).toBe("contradicted");
+    expect(evidenceMatches("Generative sound tool launches", toEvidence("https://other.example/independent"))).toBe(true);
+    expect(sourceFamily("https://github.com/acme/tool/releases/1")).toBe("github:acme");
+  });
+
+  it("uses a public native fallback without inventing momentum or confirmation", async () => {
+    const now = new Date("2026-11-17T18:00:00Z");
+    const report = await discoverNative(now, async () => [
+      { title: "Open-source visual programming engine released", locator: "https://example.org/release", publishedAt: "2026-11-17T15:00:00Z" },
+      { title: "Ask HN: help me choose a keyboard", locator: "https://example.org/help", publishedAt: "2026-11-17T15:00:00Z" },
+    ]);
+    expect(report.nominations).toHaveLength(1);
+    expect(report.nominations[0]).toMatchObject({ velocityScore: 0, corroborationCount: 1 });
+    const dir = temp();
+    process.env.FLYD_SCOUT_DISCOVERY = "on";
+    const run = await refreshDiscovery(dir, new Date(2026, 10, 17, 15), async () => { throw Error("Python 3.12 not installed"); }, {
+      fallback: async () => report,
+      verify: async () => ({ evidence: [], evidenceStatus: "unverified", independentSources: 0, gaps: [], generatedAt: now.toISOString() }),
+    });
+    expect(run).toMatchObject({ engine: "native", errorKind: "missing", outcome: "ok" });
+    expect(discoveryCandidates(dir, now)).toHaveLength(0);
+  });
+
+  it("learns from explicit negative feedback while reserving discovered finds", () => {
+    const now = new Date("2026-11-17T12:00:00Z");
+    const weak = candidate("Common AI design update", "https://common.example/1");
+    const newFind = { ...candidate("Unexpected creative invention", "https://interesting.example/1"), source: "Discovery",
+      evidenceStatus: "corroborated" as const, published: now.toISOString(), evidenceUrls: ["https://interesting.example/1"] };
+    const feedback = [{ at: now.toISOString(), verdict: "less" as const,
+      title: weak.title, topic: weak.topic, source: weak.source, why: "", reason: "wrong-topic" as const }];
+    expect(scoutPreferenceSignal(weak, feedback)).toBeLessThan(0);
+    const ranked = prepareScoutCandidates([weak, newFind], feedback, now, 2);
+    expect(ranked).toContainEqual(newFind);
+    expect(prepareScoutCandidates([{ ...newFind, evidenceStatus: "unverified" }], [], now)).toEqual([]);
+  });
+
+  it("distinguishes a corroborated new version from a repeated headline", () => {
+    const earlier = { title: "The Acme visual engine v2 launches", url: "https://a.example/v2" };
+    expect(noteworthyUpdate({
+      ...candidate("The Acme visual engine v3 launches", "https://b.example/v3"),
+      evidenceStatus: "corroborated",
+    }, earlier)).toBe(true);
+    expect(noteworthyUpdate({
+      ...candidate("The Acme visual engine v3 launches", "https://b.example/v3"),
+      evidenceStatus: "unverified",
+    }, earlier)).toBe(false);
   });
 
   it("records only bounded summary counters", () => {
