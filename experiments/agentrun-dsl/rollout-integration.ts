@@ -84,4 +84,23 @@ assert.equal(valid.ok, true, JSON.stringify(valid));
   if (result.kind === "decided") assert.equal(result.action, "hold");
 }
 
+// Test production loader: resolve the exact pinned package from the experiment
+// installation without adding it to Flyd Core's Node 22 dependency graph.
+{
+  const previous = process.env.FLYD_COS_DSL_MODULE;
+  const store = new IntelligenceEventStore({ path: ":memory:" });
+  process.env.FLYD_COS_DSL_MODULE = import.meta.resolve("@parcha/agentrun-dsl");
+  try {
+    const result = await runRecoveryDsl(input, state, {
+      store, evaluate: async () => answer(),
+    });
+    assert.equal(result.kind, "decided", JSON.stringify(result));
+    if (result.kind === "decided") assert.equal(result.action, "rebrief");
+  } finally {
+    store.close();
+    if (previous === undefined) delete process.env.FLYD_COS_DSL_MODULE;
+    else process.env.FLYD_COS_DSL_MODULE = previous;
+  }
+}
+
 console.log("Flyd bounded CoS recovery ↔ real AgentRun interpreter: PASS");
