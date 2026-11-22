@@ -44,6 +44,13 @@ jobs:
       - name: Install Flyd CLI tools without changing dependency declarations
         working-directory: cli
         run: npm ci
+      - name: Test CoS recovery rollout, provider safety, and inert playbooks
+        working-directory: cli
+        run: |
+          npx vitest run src/command/__tests__/cos-dsl-rollout.test.ts \
+            src/command/__tests__/cos-dsl-playbook.test.ts \
+            src/command/__tests__/cos-decision-workflows.test.ts \
+            src/command/__tests__/cos-recovery.test.ts
       - name: Exercise actual Flyd System-1 host through installed AgentRun interpreter
         working-directory: cli
         run: npx tsx ../experiments/agentrun-dsl/flyd-integration.ts
