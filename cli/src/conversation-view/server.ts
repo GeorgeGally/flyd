@@ -1737,11 +1737,11 @@ export class ConversationViewServer {
     }
     const scout = await import("../council/scout.js");
     // Any story he was shown this week, today's edition or a hot one the watch kept, is found by its link.
-    const validReasons: scout.ScoutFeedbackReason[] = ["wrong-topic", "repeat", "not-new", "too-shallow", "bad-source", "interesting", "surprising", "already-knew"];
-    if (reason !== undefined && (!validReasons.includes(reason as scout.ScoutFeedbackReason) || typeof reason !== "string")) {
+    const validReasons: readonly string[] = scout.SCOUT_FEEDBACK_REASONS;
+    if (reason !== undefined && (!validReasons.includes(String(reason)) || typeof reason !== "string")) {
       sendJson(res, 400, { error: "invalid feedback reason" }); return;
     }
-    const rated = scout.recordScoutFeedback({ url }, verdict, scout.scoutDir(), new Date(), reason as scout.ScoutFeedbackReason | undefined);
+    const rated = scout.recordScoutFeedback({ url }, verdict, scout.scoutDir(), new Date(), reason as Parameters<typeof scout.recordScoutFeedback>[4]);
     if (!rated) {
       sendJson(res, 404, { error: "not a story from this week's news" });
       return;
