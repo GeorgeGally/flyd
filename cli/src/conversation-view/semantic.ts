@@ -509,7 +509,9 @@ const FOCUS_PRIORITY: Record<SemanticKind, number> = {
  * column's Artefacts and Done, so the slot stays for live work and what needs him.
  */
 export function semanticFocus(objects: readonly SemanticObject[]): SemanticObject | undefined {
-  return objects.filter((object) => object.kind !== "artifact").sort((a, b) => {
+  // Optional usefulness ratings live in the quiet feedback column; they
+  // never steal the single foreground slot from live work or a conversation.
+  return objects.filter((object) => object.kind !== "artifact" && !object.id.startsWith("outcome-review:")).sort((a, b) => {
     const interrupted = Number(b.lifecycle === "interrupted" && b.status !== "paused") - Number(a.lifecycle === "interrupted" && a.status !== "paused");
     if (interrupted) return interrupted;
     const paused = Number(a.status === "paused") - Number(b.status === "paused");
