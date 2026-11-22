@@ -155,7 +155,7 @@ describe("discovery and event curation", () => {
     expect(adjudicateScoutEvidence("Generative sound tool launches", bundle)).toMatchObject({
       evidenceStatus: "single-source", independentSources: 1,
     });
-    bundle.evidence.push(toEvidence("https://other.example/independent"));
+    bundle.evidence.push({ ...toEvidence("https://other.example/independent"), content: "Independent report: Generative sound tool launches, confirmed by developers." });
     expect(adjudicateScoutEvidence("Generative sound tool launches", bundle)).toMatchObject({
       evidenceStatus: "corroborated", independentSources: 2,
     });
