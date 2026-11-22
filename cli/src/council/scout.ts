@@ -62,6 +62,7 @@ export interface ScoutCandidate {
   relevanceScore?: number; evidenceUrls?: string[]; corroborationCount?: number; storyId?: string; independentSources?: number;
   evidenceStatus?: "corroborated" | "single-source" | "unverified" | "contradicted";
   evidenceSnippets?: string[]; evidenceCheckedAt?: string; updatedFrom?: string;
+  upstreamCluster?: number; freshnessVerdict?: "current" | "stale" | "contradicted" | "unsupported";
 }
 export type ItemKind = "must" | "relevant" | "rabbit_hole";
 export interface EditionItem {
@@ -305,6 +306,7 @@ export function parseLast30days(stdout: string, topic: string, sourceIdValue = s
 
 export async function fetchTopic(topic: string, script = last30daysScript(), telemetryDir = scoutDir()): Promise<ScoutCandidate[]> {
   const report = await researchLast30days(topic, { script });
+  const verdicts = new Map(report.freshnessVerdicts.map((entry) => [entry.candidateId, entry.verdict]));
   recordScoutResearchHealth(telemetryDir, {
     at: new Date().toISOString(), topic, results: report.observations.length,
     sourceStatus: report.sourceStatus,
@@ -319,6 +321,9 @@ export async function fetchTopic(topic: string, script = last30daysScript(), tel
     ...(Object.keys(item.engagement).length ? { engagement: Object.entries(item.engagement).map(([key, value]) => value + " " + key).join(", ") } : {}),
     ...(item.relevanceScore !== undefined ? { relevanceScore: item.relevanceScore } : {}),
     evidenceUrls: [item.url],
+    ...(item.cluster !== undefined ? { upstreamCluster: item.cluster } : {}),
+    ...(verdicts.has(item.candidateId) ? { freshnessVerdict: verdicts.get(item.candidateId) as ScoutCandidate["freshnessVerdict"],
+      ...(verdicts.get(item.candidateId) === "contradicted" || verdicts.get(item.candidateId) === "stale" ? { evidenceStatus: "contradicted" as const } : {}) } : {}),
   }));
 }
 
