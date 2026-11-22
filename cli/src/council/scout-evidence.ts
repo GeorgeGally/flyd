@@ -125,3 +125,35 @@ export async function verifyScoutNomination(
   const bundle = await research(nomination.topic, urls);
   return adjudicateScoutEvidence(nomination.topic, bundle);
 }
+
+
+export interface MustKnowCandidate {
+  title: string;
+  url: string;
+  evidenceStatus?: ScoutEvidenceStatus;
+  evidenceUrls?: string[];
+}
+
+/** Fail closed for proactive interruptions: an LLM rating alone never notifies. */
+export async function verifiedMustKnow<T extends MustKnowCandidate>(
+  picks: T[],
+  research: ScoutResearcher = researchScoutTopic,
+): Promise<T[]> {
+  const verified: T[] = [];
+  for (const pick of picks.slice(0, 2)) {
+    if (pick.evidenceStatus === "corroborated") {
+      verified.push(pick);
+      continue;
+    }
+    try {
+      const bundle = await research(pick.title, [pick.url]);
+      const evidence = adjudicateScoutEvidence(pick.title, bundle);
+      if (evidence.evidenceStatus !== "corroborated") continue;
+      verified.push({
+        ...pick, evidenceStatus: "corroborated",
+        evidenceUrls: [...new Set([pick.url, ...evidence.evidence.map((entry) => entry.url)])],
+      });
+    } catch { /* Notification accuracy outranks immediacy. */ }
+  }
+  return verified;
+}
