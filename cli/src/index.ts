@@ -102,6 +102,41 @@ program
   });
 
 program
+  .command("intelligence")
+  .description("Inspect recorded interventions and independent outcome evidence (read-only)")
+  .argument("[action]", "outcomes")
+  .option("--json", "machine-readable counts without private source text")
+  .action(async (action: string | undefined, options: { json?: boolean }) => {
+    if (action && action !== "outcomes") throw new Error("flyd intelligence outcomes [--json]");
+    // No mutation, notification or model request. Missing verification stays unknown.
+      const [{ IntelligenceEventStore }, { verifiedLoopFromStore, summarizeVerifiedLoop }] = await Promise.all([
+        import("./intelligence/event-store.js"), import("./intelligence/outcomes/verified-loop.js"),
+      ]);
+      const store = new IntelligenceEventStore();
+      try {
+        const items = verifiedLoopFromStore(store);
+        const summary = summarizeVerifiedLoop(items);
+        if (options.json) {
+          process.stdout.write(JSON.stringify(summary, null, 2) + "\n");
+        } else {
+          process.stdout.write([
+            "Recorded interventions: " + summary.interventions,
+            "Independently verified effects: " + summary.verifiedEffects,
+            "Explicit failures: " + summary.failedEffects,
+            "Pending / unknown effects: " + summary.pendingEffects + " / " + summary.unknownEffects,
+            "Confirmed notification deliveries: " + summary.delivered,
+            "Unconfirmed delivery attempts: " + summary.pendingDelivery,
+            "Impact still unknown: " + summary.unknownImpact,
+            "Effect verification coverage: " + summary.verificationCoverage.known + "/" + summary.verificationCoverage.eligible,
+            "Delivery is not proof of effect or personal impact.",
+          ].join("\n") + "\n");
+        }
+      } finally {
+        store.close();
+      }
+  });
+
+program
   .command("scorecard")
   .description("How Flyd is living up to its chief-of-staff standard: reads back what you were shown since last time, then a short scorecard")
   .option("--days <n>", "how far back the scorecard looks", "7")

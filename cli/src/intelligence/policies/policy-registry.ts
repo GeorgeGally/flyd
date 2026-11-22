@@ -87,6 +87,13 @@ export class PolicyRegistry {
     const holdout = cohortMetrics(cohorts.holdout);
     const reasons: string[] = [];
 
+    // Cohorts must be the very policy and metric being replaced; otherwise
+    // evidence about a different workflow could promote an unrelated policy.
+    const incompatible = [...cohorts.train, ...cohorts.holdout].filter((episode) =>
+      episode.intervention.metricName !== candidate.targetMetric
+      || episode.intervention.policyVersion !== candidate.replacesVersion);
+    if (incompatible.length > 0) reasons.push(`incompatible_episode_scope: ${incompatible.length} mismatched policy/metric episodes`);
+
     // Evidence sufficiency — one apparent gain or thin data cannot promote.
     if (holdout.episodeCount < candidate.minimumEpisodes || train.episodeCount < candidate.minimumEpisodes) {
       reasons.push(`insufficient_evidence: train=${train.episodeCount} holdout=${holdout.episodeCount} need≥${candidate.minimumEpisodes} per cohort`);

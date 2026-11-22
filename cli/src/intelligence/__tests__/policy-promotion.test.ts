@@ -56,6 +56,82 @@ describe("outcome assessment", () => {
   });
 });
 
+describe("typed measured outcome safety", () => {
+  it("never converts convincing prose, approval or a mismatched metric into measured improvement", () => {
+    const interventionRecord = intervention();
+    const store = new MemoryOutcomeStore();
+    const textual = recordOutcome(store, {
+      interventionId: interventionRecord.interventionId,
+      attribution: "observed_impact", detail: "0.99",
+    });
+    const episodes = materializeEpisodes([interventionRecord], [textual]).episodes;
+    expect(episodes[0]?.metricDelta).toBeUndefined();
+    expect(cohortMetrics(episodes).meanMetricDelta).toBeUndefined();
+
+    const mismatched = recordOutcome(store, {
+      interventionId: interventionRecord.interventionId, attribution: "direct_verified",
+      metric: {
+        metricName: "another_metric", baseline: 0, observed: 100,
+        direction: "higher_is_better", evidenceRef: "event:1",
+      },
+    });
+    expect(materializeEpisodes([interventionRecord], [mismatched]).episodes[0]?.metricDelta).toBeUndefined();
+  });
+
+  it("refuses non-finite, unproven or unsupported measurements and handles lower-is-better", () => {
+    const store = new MemoryOutcomeStore();
+    expect(() => recordOutcome(store, {
+      interventionId: "x", attribution: "unknown",
+      metric: { metricName: "latency", baseline: 100, observed: 20, direction: "lower_is_better", evidenceRef: "event:1" },
+    })).toThrow();
+    expect(() => recordOutcome(store, {
+      interventionId: "x", attribution: "direct_verified",
+      metric: { metricName: "latency", baseline: 100, observed: Number.NaN, direction: "lower_is_better", evidenceRef: "event:1" },
+    })).toThrow();
+    const i = intervention({ metricName: "latency" });
+    const measured = recordOutcome(store, {
+      interventionId: i.interventionId, attribution: "direct_verified",
+      metric: { metricName: "latency", baseline: 100, observed: 80, direction: "lower_is_better", evidenceRef: "event:latency" },
+      assessedAt: new Date(Date.parse(i.occurredAt) + 3_600_000),
+    });
+    expect(materializeEpisodes([i], [measured]).episodes[0]?.metricDelta).toBe(20);
+  });
+});
+
+describe("episode outcome precedence", () => {
+  it("a later rejection vetoes an earlier measured success", () => {
+    const i = intervention({ occurredAt: "2026-11-21T00:00:00Z" });
+    const store = new MemoryOutcomeStore();
+    recordOutcome(store, {
+      interventionId: i.interventionId, attribution: "observed_impact",
+      metric: { metricName: i.metricName, baseline: 0, observed: 0.3, direction: "higher_is_better", evidenceRef: "event:success" },
+      assessedAt: new Date("2026-11-21T01:00:00Z"),
+    });
+    recordOutcome(store, {
+      interventionId: i.interventionId, attribution: "user_rejected",
+      assessedAt: new Date("2026-11-21T02:00:00Z"),
+    });
+    const item = materializeEpisodes([i], store.outcomes).episodes[0]!;
+    expect(item.outcome?.attribution).toBe("user_rejected");
+    expect(item.metricDelta).toBeUndefined();
+  });
+
+  it("does not let negative-time or late receipts mature an episode", () => {
+    const i = intervention({ occurredAt: "2026-11-21T00:00:00Z" });
+    const store = new MemoryOutcomeStore();
+    for (const at of ["2026-11-20T23:59:00Z", "2026-12-01T00:00:00Z"]) {
+      recordOutcome(store, {
+        interventionId: i.interventionId, attribution: "direct_verified",
+        metric: { metricName: i.metricName, baseline: 0, observed: 0.5, direction: "higher_is_better", evidenceRef: "event:stale" },
+        assessedAt: new Date(at),
+      });
+    }
+    const result = materializeEpisodes([i], store.outcomes);
+    expect(result.unknownCount).toBe(1);
+    expect(result.episodes[0]?.matured).toBe(false);
+  });
+});
+
 describe("episode replay + policy promotion", () => {
   function buildEpisodes(count: number, attribution: "observed_impact" | "unknown" | "user_rejected") {
     const store = new MemoryOutcomeStore();
@@ -66,12 +142,40 @@ describe("episode replay + policy promotion", () => {
       recordOutcome(store, {
         interventionId: intervention.interventionId,
         attribution,
-        detail: attribution === "observed_impact" ? "0.15" : undefined,
+        metric: attribution === "observed_impact" ? {
+          metricName: intervention.metricName, baseline: 0, observed: 0.15,
+          direction: "higher_is_better", evidenceRef: "event:measurement",
+        } : undefined,
         assessedAt: new Date(Date.parse(intervention.occurredAt) + 3_600_000),
       });
     }
     return { interventions, outcomes: store.outcomes };
   }
+
+  it("refuses an impressive gain measured under the wrong policy or metric", () => {
+    const registry = new PolicyRegistry("v0");
+    const candidate = candidateFor(registry, { minimumEpisodes: 1 });
+    const store = new MemoryOutcomeStore();
+    const interventions = Array.from({ length: 4 }, (_, i) => intervention({
+      policyVersion: i < 2 ? "old-other-policy" : "v0",
+      metricName: i >= 2 ? "other_metric" : "briefing_usefulness",
+      occurredAt: new Date(Date.parse("2026-08-01T00:00:00Z") + i * 86_400_000).toISOString(),
+    }));
+    for (const entry of interventions) {
+      recordOutcome(store, {
+        interventionId: entry.interventionId, attribution: "direct_verified",
+        metric: {
+          metricName: entry.metricName, baseline: 0, observed: 0.9,
+          direction: "higher_is_better", evidenceRef: "event:unrelated",
+        },
+        assessedAt: new Date(Date.parse(entry.occurredAt) + 3_600_000),
+      });
+    }
+    const eps = materializeEpisodes(interventions, store.outcomes).episodes;
+    const verdict = registry.evaluate(candidate.candidateId, timeSplit(eps), eps);
+    expect(verdict.decision).toBe("rejected");
+    expect(verdict.reasons.join("; ")).toContain("incompatible_episode_scope");
+  });
 
   it("one-event apparent gains and unknown-heavy replay reject promotion as insufficient", () => {
     const registry = new PolicyRegistry("v0");
@@ -140,7 +244,10 @@ describe("episode replay + policy promotion", () => {
       recordOutcome(store, {
         interventionId: i.interventionId,
         attribution: "observed_impact",
-        detail: "0.2",
+        metric: {
+          metricName: i.metricName, baseline: 0, observed: 0.2,
+          direction: "higher_is_better", evidenceRef: "event:protected-replay",
+        },
         assessedAt: new Date(Date.parse(i.occurredAt) + 3_600_000),
       });
     }
@@ -171,7 +278,10 @@ describe("episode replay + policy promotion", () => {
       recordOutcome(store, {
         interventionId: intervention.interventionId,
         attribution: "observed_impact",
-        detail: "0.12",
+        metric: {
+          metricName: intervention.metricName, baseline: 0, observed: 0.12,
+          direction: "higher_is_better", evidenceRef: "event:invoked-observation",
+        },
         assessedAt: new Date(Date.parse(intervention.occurredAt) + 1_800_000),
       });
     }
