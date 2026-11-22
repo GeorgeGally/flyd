@@ -38,7 +38,9 @@ export interface RecoveryJudgeOptions {
   /** Current-objective authority/revision check, called after judgment as well. */
   current?: () => boolean;
   /** For metrics and shadow comparisons; never dispatches a domain run. */
-  onDslResult?: (mode: "shadow" | "canary" | "on", result: DslOutcome) => void;
+  onDslResult?: (mode: "shadow" | "canary" | "on", result: DslOutcome, comparison?: {
+    legacy?: RecoveryDisposition; latencyMs: number;
+  }) => void;
 }
 
 export function canRecoverInternally(input: RecoveryInput, maxAttempts = maxAutonomousAttempts()): boolean {
@@ -75,8 +77,9 @@ export async function judgeRecovery(input: RecoveryInput, options: RecoveryJudge
     });
   };
   if (selected) {
+    const started = Date.now();
     const chosen = await runCandidate();
-    options.onDslResult?.(flag === "on" ? "on" : "canary", chosen);
+    options.onDslResult?.(flag === "on" ? "on" : "canary", chosen, { latencyMs: Date.now() - started });
     // A missing interpreter or Node incompatibility is a *pre-send* fallback.
     // Once a DSL decision may have reached the model, never call it again.
     if (chosen.kind === "hold") return { action: "hold", reason: chosen.reason };
@@ -95,19 +98,25 @@ export async function judgeRecovery(input: RecoveryInput, options: RecoveryJudge
     options.model,
     familyEgress("executive"),
   ).catch(() => undefined);
+  // The incumbent's result always wins in shadow. We compare without
+  // dispatching or mutating the objective and store only non-personal metrics.
+  let shadow: DslOutcome | undefined;
+  let shadowLatencyMs = 0;
   if (flag === "shadow" && process.env.FLYD_COS_DSL_SHADOW_CALLS === "1") {
-    // The incumbent always owns the result; the shadow has no execution path.
-    const candidate = await runCandidate(true);
-    options.onDslResult?.("shadow", candidate);
+    const started = Date.now();
+    shadow = await runCandidate(true);
+    shadowLatencyMs = Date.now() - started;
   }
   const answer = judged?.answers.cos_recovery_tactic;
-  if (judged?.ok && answer?.confidence !== undefined && answer.confidence >= 0.8 && answer.probability >= 0.8) {
-    if (answer.choice === "hold_for_evidence") {
-      return { action: "hold", reason: "the evidence does not justify another attempt", evidence: judged };
-    }
-  }
+  const strongHold = judged?.ok && answer?.confidence !== undefined
+    && answer.confidence >= 0.8 && answer.probability >= 0.8
+    && answer.choice === "hold_for_evidence";
   const reason = repeated
     ? "A prior attempt failed the same way; choose a fundamentally different internal approach, diagnose the recurring cause, and verify it."
     : "Use the failure evidence to select a different internal approach, then verify against done_when.";
-  return { action: "rebrief", reason, ...(judged ? { evidence: judged } : {}) };
+  const legacy: RecoveryDisposition = strongHold
+    ? { action: "hold", reason: "the evidence does not justify another attempt", evidence: judged }
+    : { action: "rebrief", reason, ...(judged ? { evidence: judged } : {}) };
+  if (shadow) options.onDslResult?.("shadow", shadow, { legacy, latencyMs: shadowLatencyMs });
+  return legacy;
 }
