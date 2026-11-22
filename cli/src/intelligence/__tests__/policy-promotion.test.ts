@@ -151,6 +151,31 @@ describe("episode replay + policy promotion", () => {
     return { interventions, outcomes: store.outcomes };
   }
 
+  it("refuses an impressive gain measured under the wrong policy or metric", () => {
+    const registry = new PolicyRegistry("v0");
+    const candidate = candidateFor(registry, { minimumEpisodes: 1 });
+    const store = new MemoryOutcomeStore();
+    const interventions = Array.from({ length: 4 }, (_, i) => intervention({
+      policyVersion: i < 2 ? "old-other-policy" : "v0",
+      metricName: i >= 2 ? "other_metric" : "briefing_usefulness",
+      occurredAt: new Date(Date.parse("2026-08-01T00:00:00Z") + i * 86_400_000).toISOString(),
+    }));
+    for (const entry of interventions) {
+      recordOutcome(store, {
+        interventionId: entry.interventionId, attribution: "direct_verified",
+        metric: {
+          metricName: entry.metricName, baseline: 0, observed: 0.9,
+          direction: "higher_is_better", evidenceRef: "event:unrelated",
+        },
+        assessedAt: new Date(Date.parse(entry.occurredAt) + 3_600_000),
+      });
+    }
+    const eps = materializeEpisodes(interventions, store.outcomes).episodes;
+    const verdict = registry.evaluate(candidate.candidateId, timeSplit(eps), eps);
+    expect(verdict.decision).toBe("rejected");
+    expect(verdict.reasons.join("; ")).toContain("incompatible_episode_scope");
+  });
+
   it("one-event apparent gains and unknown-heavy replay reject promotion as insufficient", () => {
     const registry = new PolicyRegistry("v0");
     const candidate = candidateFor(registry);
