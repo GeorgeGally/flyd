@@ -7,6 +7,7 @@ import {
   dslMode, runRecoveryDsl, selectedForCanary, supportsAgentRunNode, type DslExecutor,
 } from "../cos/decision-workflows/recovery-runner.js";
 import { recoveryWorkflow, recoveryWorkflowDigest } from "../cos/decision-workflows/recovery-workflow.js";
+import { recordDslRollout } from "../cos/decision-workflows/rollout-audit.js";
 
 const input: RecoveryInput = {
   objective: {
@@ -148,6 +149,28 @@ describe("bounded live CoS DSL rollout", () => {
         options: ["rebrief", "hold"], goal_context: "test" }, options);
       expect(second.kind).toBe("hold");
       expect(calls).toBe(1);
+    } finally { store.close(); }
+  });
+
+  it("records only rollout categories and latency, never source text or raw prompts", () => {
+    const store = new IntelligenceEventStore({ path: ":memory:" });
+    try {
+      const decision = { kind: "decided" as const, action: "rebrief" as const, reason: "sensitive recovery secret", replayed: false };
+      const comparison = {
+        legacy: { action: "hold" as const, reason: "private source content" },
+        latencyMs: 12.4,
+      };
+      expect(recordDslRollout(store, input, "shadow", decision, comparison)).toBe(true);
+      expect(recordDslRollout(store, input, "shadow", decision, comparison)).toBe(true);
+      const logs = store.readSource("cos.dsl.rollout");
+      expect(logs).toHaveLength(1);
+      expect(logs[0]?.payload).toMatchObject({
+        mode: "shadow", candidate: "decided", candidateAction: "rebrief",
+        legacyAction: "hold", latencyMs: 12,
+      });
+      expect(JSON.stringify(logs)).not.toContain("sensitive recovery secret");
+      expect(JSON.stringify(logs)).not.toContain("private source content");
+      expect(JSON.stringify(logs)).not.toContain(input.objective.words);
     } finally { store.close(); }
   });
 
