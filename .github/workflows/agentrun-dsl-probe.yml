@@ -8,6 +8,9 @@ on:
       - "experiments/agentrun-dsl/**"
       - "cli/src/command/cos/decision-workflows/**"
       - "cli/src/command/__tests__/cos-decision-workflows.test.ts"
+      - "cli/src/command/__tests__/cos-dsl-rollout.test.ts"
+      - "cli/src/command/cos/recovery.ts"
+      - "cli/src/command/cos/tick.ts"
       - ".github/workflows/agentrun-dsl-probe.yml"
   push:
     branches: [main]
@@ -15,6 +18,9 @@ on:
       - "experiments/agentrun-dsl/**"
       - "cli/src/command/cos/decision-workflows/**"
       - "cli/src/command/__tests__/cos-decision-workflows.test.ts"
+      - "cli/src/command/__tests__/cos-dsl-rollout.test.ts"
+      - "cli/src/command/cos/recovery.ts"
+      - "cli/src/command/cos/tick.ts"
       - ".github/workflows/agentrun-dsl-probe.yml"
   workflow_dispatch:
 
@@ -41,6 +47,9 @@ jobs:
       - name: Exercise actual Flyd System-1 host through installed AgentRun interpreter
         working-directory: cli
         run: npx tsx ../experiments/agentrun-dsl/flyd-integration.ts
+      - name: Exercise CoS recovery, receipts, policy gates, and safe replay through AgentRun
+        working-directory: cli
+        run: npx tsx ../experiments/agentrun-dsl/rollout-integration.ts
       - name: Verify test-only dependency never enters Core package graph
         run: |
           if grep -q '"@parcha/agentrun-dsl"' cli/package.json; then
