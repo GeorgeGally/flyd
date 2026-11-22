@@ -2400,7 +2400,7 @@ export class ConversationViewServer {
       return;
     }
     // An empty app must not create a new intelligence DB just for a click.
-    const dbPath = join(FLYD_DIR, "intelligence.sqlite");
+    const dbPath = join(this.activity?.directory() ?? FLYD_DIR, "intelligence.sqlite");
     if (!existsSync(dbPath)) {
       sendJson(res, 404, { error: "verified result not found" });
       return;
