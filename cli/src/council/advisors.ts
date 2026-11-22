@@ -118,6 +118,34 @@ export function updateAdvisoryStatus(id: string, status: AdvisoryStatus, now = n
   return advisories[index];
 }
 
+/**
+ * Model selection is not a presentation receipt. Require a substantial excerpt
+ * of the actual advice in the response emitted to the user. Paraphrases stay
+ * open until a stronger, structured source-linked receipt is available.
+ * This conservative guard makes no model call and cannot widen permissions.
+ */
+function presentationWords(value: string): string[] {
+  return value.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+export function advisoryVisibleInAnswer(id: string, renderedAnswer: string, path = advisoriesPath()): boolean {
+  const advice = readAdvisories(path).find((item) => item.id === id && item.status === "open");
+  if (!advice) return false;
+  const words = presentationWords(advice.text);
+  if (words.length < 5) return false;
+  const answer = " " + presentationWords(renderedAnswer).join(" ") + " ";
+  const window = Math.min(8, words.length);
+  for (let i = 0; i <= words.length - window; i++) {
+    if (answer.includes(" " + words.slice(i, i + window).join(" ") + " ")) return true;
+  }
+  return false;
+}
+
+export function confirmVisibleAdvisory(id: string, renderedAnswer: string, now = new Date(), path = advisoriesPath()): Advisory | null {
+  if (!advisoryVisibleInAnswer(id, renderedAnswer, path)) return null;
+  return updateAdvisoryStatus(id, "shown", now, path);
+}
+
 const PERSONA: Record<AdvisorName, string> = {
   critic: [
     "You are George's Critic: a measured, fair-minded sceptic who is firmly on his side.",
