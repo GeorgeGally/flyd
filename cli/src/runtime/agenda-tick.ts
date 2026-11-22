@@ -198,7 +198,7 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       // explicitly enabled; candidates and decisions live on the event spine.
       name: "initiative", usesModel: false,
       run: async () => {
-        if (process.env.FLYD_INITIATIVE !== "shadow" && process.env.FLYD_INITIATIVE !== "on") return;
+        if (process.env.FLYD_INITIATIVE === "0" || process.env.FLYD_INITIATIVE === "off") return;
         const { runInitiativeCycle } = await import("./initiative/cycle.js");
         const result = await runInitiativeCycle({ ...(options.now ? { now: options.now } : {}) });
         return result.investigated || result.published
