@@ -435,7 +435,10 @@ async function failed(objective: Objective, run: PlannedRun, key: string, why: s
   // The objective or run may have changed while System-1 was deciding.
   // Never apply an old decision to a corrected brief.
   const latest = readObjective(objective.id);
-  if (!latest || (latest.briefRevision ?? 0) !== (objective.briefRevision ?? 0)) return;
+  const currentRun = latest && planOf(latest).find((candidate) => candidate.key === run.key);
+  if (!latest || !currentRun ||
+      (latest.briefRevision ?? 0) !== (objective.briefRevision ?? 0) ||
+      currentRun.attempt !== run.attempt || currentRun.state !== run.state) return;
   if (recovery.action === "rebrief") {
     changeRun(objective.id, run.key,
       (current) => current.reviewed === key ? null : requeue(current, {
