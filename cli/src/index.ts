@@ -106,8 +106,21 @@ program
   .description("Inspect recorded interventions and independent outcome evidence (read-only)")
   .argument("[action]", "outcomes")
   .option("--json", "machine-readable counts without private source text")
-  .action(async (action: string | undefined, options: { json?: boolean }) => {
-    if (action && action !== "outcomes") throw new Error("flyd intelligence outcomes [--json]");
+  .option("--enable-review-learning", "explicitly allow aggregated negative outcome ratings into human-gated self-improvement")
+  .option("--disable-review-learning", "stop passing outcome ratings to self-improvement")
+  .action(async (action: string | undefined, options: { json?: boolean; enableReviewLearning?: boolean; disableReviewLearning?: boolean }) => {
+    if (action && action !== "outcomes") throw new Error("flyd intelligence outcomes [--json|--enable-review-learning|--disable-review-learning]");
+    if (options.enableReviewLearning && options.disableReviewLearning) throw new Error("choose one learning control");
+    if (options.enableReviewLearning || options.disableReviewLearning) {
+      const { SourceContractRegistry, OUTCOME_REVIEW_LEARNING_CONTRACT } = await import("./intelligence/sensors/source-contracts.js");
+      const registry = new SourceContractRegistry();
+      registry.register(OUTCOME_REVIEW_LEARNING_CONTRACT);
+      registry.setStatus(OUTCOME_REVIEW_LEARNING_CONTRACT.sourceId, options.enableReviewLearning ? "enabled" : "disabled");
+      process.stdout.write(options.enableReviewLearning
+        ? "Outcome review learning enabled: only clusters of at least 3 explicit negative ratings on independently verified results can inform human-gated improvements.\n"
+        : "Outcome review learning disabled: ratings remain local feedback and will not enter improvement prompts.\n");
+      return;
+    }
     // No mutation, notification or model request. Missing verification stays unknown.
       const [{ IntelligenceEventStore }, { verifiedLoopFromStore, summarizeVerifiedLoop }] = await Promise.all([
         import("./intelligence/event-store.js"), import("./intelligence/outcomes/verified-loop.js"),
