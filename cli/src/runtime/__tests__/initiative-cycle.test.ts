@@ -3,6 +3,8 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
+import { INITIATIVE_CURATED_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
+import { erasePreparedInitiativeCards } from "../../commands/initiative.js";
 import { ActivityReader, recordActivity, visibleInitiativeRecords, type ActivityRecord } from "../../conversation-view/activity.js";
 import type { Project } from "../../council/projects.js";
 import type { Edition } from "../../council/scout.js";
@@ -168,10 +170,38 @@ describe("Flyd v10 source-grounded curiosity", () => {
     })).toEqual([]);
   });
 
+  it("does not read any curated source or open a DB without explicit LEARN consent", async () => {
+    const tmp = dir();
+    const result = await runInitiativeCycle({
+      mode: "on", consented: () => false,
+      now: () => now,
+      projects: () => { throw new Error("private project source was accessed"); },
+      edition: () => { throw new Error("private edition source was accessed"); },
+      advisories: () => { throw new Error("private advisory source was accessed"); },
+    });
+    expect(result.mode).toBe("off");
+    expect(result.reasons).toContain("source_consent_required");
+    expect(existsSync(join(tmp, "intelligence.sqlite"))).toBe(false);
+  });
+
+  it("revoke removes persisted initiative presentation records without changing other activity", () => {
+    const tmp = dir();
+    const card = initiativeActivity(sources().find(x => x.origin === "scout")!);
+    recordActivity(card, tmp, now);
+    recordActivity({ key: "other", kind: "noted", title: "Real work remains" }, tmp, now);
+    expect(erasePreparedInitiativeCards(join(tmp, "activity", "records.jsonl"))).toBe(1);
+    const reader = new ActivityReader({ dir: tmp, now: () => now.getTime() });
+    reader.refresh();
+    expect(reader.current().recent.some(x => x.title === "Real work remains")).toBe(true);
+  });
+
   it("the installed reader checks live evidence, not only visibility when the card was written", () => {
     vi.stubEnv("FLYD_INITIATIVE", "on");
     const tmp = dir();
     mkdirSync(join(tmp, "scout"), { recursive: true });
+    const consent = new SourceContractRegistry({ path: join(tmp, "intelligence", "source-consents.json") });
+    consent.register(INITIATIVE_CURATED_CONTRACT);
+    consent.setStatus(INITIATIVE_CURATED_CONTRACT.sourceId, "enabled");
     writeFileSync(join(tmp, "projects.json"), JSON.stringify({ projects: [project] }));
     writeFileSync(join(tmp, "scout", "edition-latest.json"), JSON.stringify(edition));
     recordActivity(initiativeActivity(sources().find(x => x.origin === "scout")!), tmp, now);
