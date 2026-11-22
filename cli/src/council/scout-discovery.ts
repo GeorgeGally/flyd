@@ -50,7 +50,7 @@ export function readDiscoveryCache(dir: string): DiscoveryCache {
         !!run && typeof run.domain === "string" && typeof run.ranAt === "string" &&
         ["ok", "nothing-solid", "failed"].includes(run.outcome)).map((run) => ({
           ...run,
-          engine: run.engine === "native" ? "native" : "last30days",
+          engine: run.engine === "native" ? ("native" as const) : ("last30days" as const),
           nominations: Array.isArray(run.nominations) ? run.nominations : [],
           verified: Array.isArray(run.verified) ? run.verified : [],
           sourceStatus: run.sourceStatus && typeof run.sourceStatus === "object" ? run.sourceStatus : {},
