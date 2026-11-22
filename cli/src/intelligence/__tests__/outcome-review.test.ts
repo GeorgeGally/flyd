@@ -106,6 +106,18 @@ describe("explicit outcome review", () => {
     expect(verifiedLoopFromStore(store)).toEqual([]);
   });
 
+  it("reissues a new event after explicitly renewing an erased feedback source", () => {
+    put();
+    expect(recordExplicitOutcomeReview(store, { decisionId: ID, verdict: "helpful", at: AT })).toBe("recorded");
+    store.eraseSource(OUTCOME_REVIEW_SOURCE);
+    expect(outcomeReviews(store).has(ID)).toBe(false);
+    expect(recordExplicitOutcomeReview(store, { decisionId: ID, verdict: "not_helpful", at: AT })).toBe("not_eligible");
+    store.renewSource(OUTCOME_REVIEW_SOURCE);
+    expect(recordExplicitOutcomeReview(store, { decisionId: ID, verdict: "not_helpful", at: AT })).toBe("recorded");
+    expect(store.readSource(OUTCOME_REVIEW_SOURCE).filter((event) => !event.erased)).toHaveLength(1);
+    expect(outcomeReviews(store).get(ID)?.verdict).toBe("not_helpful");
+  });
+
   it("refuses a guessed id, a malformed verdict and future-dated feedback", () => {
     put();
     expect(recordExplicitOutcomeReview(store, { decisionId: "f".repeat(32), verdict: "helpful", at: AT })).toBe("not_eligible");
