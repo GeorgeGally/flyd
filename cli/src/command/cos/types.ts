@@ -122,6 +122,8 @@ export interface Objective {
   /** He took a result that fell short as it is (its finals' reviewed keys): delivered without another check. */
   takenAsIs?: string;
   reportIds: string[];
+  /** Durable exclusive claim for one report delivery; lease allows recovery after process death. */
+  pendingReport?: { id: string; token: string; at: string };
   /** Intake taken by a process, so two ticks never brief it twice; a claim older than the lease is taken over. */
   claim?: { pid: number; at: string };
 }
