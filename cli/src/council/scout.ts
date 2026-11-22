@@ -15,6 +15,7 @@ import { last30daysPath, researchLast30days } from "./scout-last30days.js";
 import { discoveryCandidates } from "./scout-discovery.js";
 import { prepareScoutCandidates } from "./scout-editorial.js";
 import { verifiedMustKnow } from "./scout-evidence.js";
+import { writeEditorialShadow } from "./scout-eval.js";
 import { groupScoutStories, previouslyCovered, noteworthyUpdate } from "./scout-stories.js";
 import { recordScoutMetrics, recordScoutResearchHealth } from "./scout-metrics.js";
 
@@ -775,11 +776,11 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
           ...rankContext(dir, now, sources, "edition"), policy: "on",
         })), shadowFresh, BRIEF_MAX, EDITION_PER_SOURCE)
       : [];
-    atomicWrite(join(dir, "editorial-shadow.json"), JSON.stringify({
+    writeEditorialShadow(dir, {
       date: today, generatedAt: now.toISOString(),
       baseline: ranked.map((item) => ({ title: item.title, url: item.url })),
       candidate: shadowRanked.map((item) => ({ title: item.title, url: item.url, why: item.why })),
-    }, null, 2));
+    });
     } catch {
       // A shadow candidate is observational only. It can never break the real edition.
     }
