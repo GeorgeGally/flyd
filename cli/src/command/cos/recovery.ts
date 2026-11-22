@@ -64,7 +64,7 @@ export async function judgeRecovery(input: RecoveryInput, options: RecoveryJudge
     evidence_refs: (input.run.prior ?? []).slice(0, 8),
   });
   const flag = process.env.FLYD_COS === "1" ? dslMode() : "off";
-  const cohort = String(input.objective.id ?? "") + ":" + input.run.key + ":" + String(input.run.attempt);
+  const cohort = String(input.objective.id ?? "") + ":" + input.run.key;
   const selected = flag === "on" || (flag === "canary" && selectedForCanary(cohort));
   const runCandidate = async (shadow = false): Promise<DslOutcome> => {
     return runRecoveryDsl(input, state, {
