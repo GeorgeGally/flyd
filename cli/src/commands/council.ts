@@ -64,10 +64,10 @@ export async function runCouncilCommand(action = "status", options: { all?: bool
     }
     case "run": {
       const { query } = await import("../lib/llm.js");
-      const { notifyMac } = await import("../runtime/agenda.js");
+      const { notifyMacOutcome } = await import("../runtime/agenda.js");
       // --all works through a backlog pass by pass (each pass takes a bounded slice).
       for (let pass = 1; pass <= (options.all ? 30 : 1); pass += 1) {
-        const result = await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac, force: true });
+        const result = await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMacOutcome, force: true });
         if (result.skipped) { process.stdout.write(`Council pass skipped: ${result.skipped}\n`); return; }
         const receipt = result.librarian?.memory;
         process.stdout.write(`Pass ${pass}: ${result.librarian?.turns ?? 0} turns, ${result.librarian?.captures ?? 0} captures → memory +${receipt?.added ?? 0} ~${receipt?.updated ?? 0} ✓${receipt?.reinforced ?? 0} ↓${receipt?.archived ?? 0}, profile +${result.librarian?.profileAdded ?? 0}, advisories +${result.advisories.length}\n`);
