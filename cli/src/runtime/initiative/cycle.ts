@@ -1,12 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import { validateEnvelope, type ContextEnvelope } from "../../intelligence/context-envelope.js";
 import { readProjects, type Project } from "../../council/projects.js";
 import { latestEdition, type Edition } from "../../council/scout.js";
 import { openAdvisories, type Advisory } from "../../council/advisors.js";
 import { activityRecordPath, recordActivity, type ActivityRecord } from "../../conversation-view/activity.js";
-import { FLYD_DIR } from "../../lib/config.js";
 import { deriveInitiatives, initiativeRevision, type InitiativeCandidate, type InitiativeSource } from "./candidates.js";
 import { decideInitiative, inspectInitiative, safeInitiativePayload } from "./policy.js";
 
@@ -33,6 +31,7 @@ export interface InitiativeRunDeps {
   mode?: InitiativeMode;
   record?: (card: ActivityRecord) => void;
   seen?: (key: string) => boolean;
+  countPublished?: (day: string) => number;
   /** No model calls; this caps local candidates per tick. */
   maxInvestigations?: number;
 }
@@ -104,9 +103,9 @@ export function initiativeActivity(candidate: InitiativeCandidate): ActivityReco
     } : {}),
     // Source fingerprints must be rechecked by the reader before presenting
     // a record prepared while the source was still in scope.
-    sourceRefs: candidate.sources.map(s => ({ id: s.id, revision: s.revision, scope: s.scope })),
+    sourceRefs: candidate.sources.map(s => ({ ...s })),
     detail,
-  } as ActivityRecord;
+  };
 }
 
 export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<InitiativeRunResult> {
@@ -163,7 +162,7 @@ export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<
     // shadow never imply a notification or that George saw the idea.
     if (mode === "on") {
       for (const { candidate, decision } of evaluated) {
-        if (decision.attention !== "ambient" || result.published >= 1 || countInitiativeCards(dayOf(now)) >= 1) continue;
+        if (decision.attention !== "ambient" || result.published >= 1 || (deps.countPublished ?? countInitiativeCards)(dayOf(now)) >= 1) continue;
         if (!candidate.sources.every(valid)) continue;
         const key = candidate.id + ":" + decision.revision;
         if (!store.findByIdempotencyKey("initiative.v10", "finding:" + key)) continue;
