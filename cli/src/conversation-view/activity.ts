@@ -6,7 +6,7 @@ import { labsDir } from "../command/design-mate.js";
 import { commandDir, listDomainRuns } from "../command/store.js";
 import type { DomainRun } from "../command/types.js";
 import { FLYD_DIR } from "../lib/config.js";
-import { SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
+import { INITIATIVE_CURATED_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
 import { initiativeSourcesCurrent, currentInitiativeEvidence, type CurrentInitiativeEvidence } from "../runtime/initiative/source-validity.js";
 import type { InitiativeSource } from "../runtime/initiative/candidates.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
@@ -763,7 +763,10 @@ export class ActivityReader {
       // Re-evaluate every parent source before showing an idea, even if it
       // was prepared on a prior tick. A revised/revoked parent hides it.
       records: visibleInitiativeRecords(careRecords, {
-        enabled: process.env.FLYD_INITIATIVE === "on",
+        enabled: process.env.FLYD_INITIATIVE !== "0" && process.env.FLYD_INITIATIVE !== "off"
+          && process.env.FLYD_INITIATIVE !== "shadow"
+          && new SourceContractRegistry({ path: join(this.dir, "intelligence", "source-consents.json") })
+            .status(INITIATIVE_CURATED_CONTRACT.sourceId) === "enabled",
         current: (sources) => {
           initiativeEvidence ??= currentInitiativeEvidence(this.dir);
           return initiativeSourcesCurrent(sources, initiativeEvidence);
