@@ -487,7 +487,7 @@ describe("the edition draws on the whole day", () => {
       topic("bitcoin stamps protocol", { status: "paused", note: "replanned 2026-11-11", pausedAt: "2026-11-11T00:00:00Z", dislikes: 1 }),
     ]);
     expect(editionTopics(readSources(dir)).map((source) => source.target)).toEqual([
-      "p5.js generative sketches", "on-chain audio ordinals", "pen plotter generative art", "demoscene 64k intros",
+      "p5.js generative sketches", "on-chain audio ordinals", "pen plotter generative art",
     ]);
     const many = Array.from({ length: 12 }, (_, index) => ({ ...topic(`topic ${index}`), id: `topic:topic ${index}`, status: "active" as const, shown: 0, likes: 0, dislikes: 0, failures: 0, addedAt: "2026-11-01T00:00:00Z" }));
     expect(editionTopics(many)).toHaveLength(TOPICS_PER_EDITION);
@@ -499,7 +499,7 @@ describe("the edition draws on the whole day", () => {
     });
     const prompts: string[] = [];
     await runScout({ complete: rankerFor(prompts), fetchFn: fakeFetch({}), fetchTopicFn, dir, now: () => at("2026-11-14T07:00:00Z") });
-    expect([...searched].sort()).toEqual(["demoscene 64k intros", "on-chain audio ordinals", "p5.js generative sketches", "pen plotter generative art"]);
+    expect([...searched].sort()).toEqual(["on-chain audio ordinals", "p5.js generative sketches", "pen plotter generative art"]);
     expect(prompts[0]).toContain("Found for pen plotter generative art");
   });
 
