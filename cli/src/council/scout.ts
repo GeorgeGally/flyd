@@ -14,7 +14,7 @@ import { providerTrouble, recordScoutRun } from "./scout-run.js";
 import { last30daysPath, researchLast30days } from "./scout-last30days.js";
 import { discoveryCandidates } from "./scout-discovery.js";
 import { prepareScoutCandidates } from "./scout-editorial.js";
-import { groupScoutStories, previouslyCovered } from "./scout-stories.js";
+import { groupScoutStories, previouslyCovered, noteworthyUpdate } from "./scout-stories.js";
 import { recordScoutMetrics, recordScoutResearchHealth } from "./scout-metrics.js";
 
 // The Scout: what's happening in the world that George would want to know —
@@ -59,13 +59,13 @@ export interface ScoutCandidate {
   id: string; title: string; url: string; source: string; sourceId: string; summary: string; published?: string; engagement?: string; topic: string;
   relevanceScore?: number; evidenceUrls?: string[]; corroborationCount?: number; storyId?: string; independentSources?: number;
   evidenceStatus?: "corroborated" | "single-source" | "unverified" | "contradicted";
-  evidenceSnippets?: string[]; evidenceCheckedAt?: string;
+  evidenceSnippets?: string[]; evidenceCheckedAt?: string; updatedFrom?: string;
 }
 export type ItemKind = "must" | "relevant" | "rabbit_hole";
 export interface EditionItem {
   n: number; title: string; url: string; source: string; sourceId?: string; topic: string; why: string; kind: ItemKind | "wildcard";
   media?: MediaKind; figure?: string; quote?: string; attribution?: string; mediaUrl?: string;
-  storyId?: string; evidenceUrls?: string[]; confidence?: "multi-source" | "single-source"; evidenceStatus?: ScoutCandidate["evidenceStatus"];
+  storyId?: string; evidenceUrls?: string[]; confidence?: "multi-source" | "single-source"; evidenceStatus?: ScoutCandidate["evidenceStatus"]; updatedFrom?: string;
 }
 export interface Edition { date: string; generatedAt: string; topics: string[]; items: EditionItem[] }
 export const SCOUT_FEEDBACK_REASONS = ["wrong-topic", "repeat", "not-new", "too-shallow", "bad-source", "interesting", "surprising", "already-knew"] as const;
@@ -414,9 +414,10 @@ export function rankPrompt(
   const list = candidates.map((candidate, index) => {
     const prior = context.fitnessBySource[candidate.sourceId];
     const verification = candidate.evidenceStatus ? " · EVIDENCE " + candidate.evidenceStatus : "";
+    const change = candidate.updatedFrom ? " · VERIFIED UPDATE TO " + candidate.updatedFrom : "";
     const sources = candidate.evidenceUrls?.length ? " · supporting links: " + candidate.evidenceUrls.slice(0, 3).join(" ") : "";
     const excerpts = candidate.evidenceSnippets?.length ? " · checked excerpts: " + candidate.evidenceSnippets.slice(0, 2).join(" | ").slice(0, 520) : "";
-    return `[${index}] (${candidate.source}${prior !== undefined ? ` · source fit ${prior.toFixed(2)}` : ""}${candidate.published ? ` · ${candidate.published}` : ""}${candidate.engagement ? ` · ${candidate.engagement}` : ""}${verification}${sources}) ${candidate.title}${candidate.summary && candidate.summary !== candidate.title ? ` — ${candidate.summary}` : ""}${excerpts}`;
+    return `[${index}] (${candidate.source}${prior !== undefined ? ` · source fit ${prior.toFixed(2)}` : ""}${candidate.published ? ` · ${candidate.published}` : ""}${candidate.engagement ? ` · ${candidate.engagement}` : ""}${verification}${change}${sources}) ${candidate.title}${candidate.summary && candidate.summary !== candidate.title ? ` — ${candidate.summary}` : ""}${excerpts}`;
   }).join("\n");
   const legacy = (context.policy ?? editorialMode()) !== "on";
   const task = context.mode === "watch"
@@ -475,6 +476,7 @@ export function parsePicks(text: string, candidates: ScoutCandidate[], max = BRI
       ...(candidate.storyId ? { storyId: candidate.storyId } : {}),
       ...(candidate.evidenceUrls?.length ? { evidenceUrls: candidate.evidenceUrls } : {}),
       ...(candidate.evidenceStatus ? { evidenceStatus: candidate.evidenceStatus } : {}),
+      ...(candidate.updatedFrom ? { updatedFrom: candidate.updatedFrom } : {}),
       ...(candidate.evidenceStatus === "corroborated" ? { confidence: "multi-source" as const } : {}),
     });
     if (items.length >= max) break;
@@ -745,7 +747,12 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
     ? interleaveBySource(unseenCandidates(candidates, dir))
     : groupScoutStories(interleaveBySource(candidates))
         .filter((item) => !previouslyCovered(item, existingEditions));
-  const eligible = editorialMode() !== "on" ? grouped : unseenCandidates(grouped, dir);
+  const updated = grouped.map((candidate) => {
+    if (editorialMode() !== "on" || candidate.updatedFrom) return candidate;
+    const older = existingEditions.find((entry) => noteworthyUpdate(candidate, entry));
+    return older ? { ...candidate, updatedFrom: older.title } : candidate;
+  });
+  const eligible = editorialMode() !== "on" ? updated : unseenCandidates(updated, dir);
   const fresh = editorialMode() !== "on" ? eligible.slice(0, EDITION_CANDIDATES)
     : prepareScoutCandidates(eligible, readFeedback(dir), now, EDITION_CANDIDATES);
   const maxItems = editorialMode() !== "on" ? LEGACY_BRIEF_MAX : BRIEF_MAX;
@@ -807,10 +814,11 @@ export function editionActivityRecord(edition: Edition): ActivityRecord {
     kind: "news",
     title: "Put together today's news",
     line: `${edition.items.length} ${edition.items.length === 1 ? "story" : "stories"} from your sources.`,
-    stories: edition.items.map(({ title, url, why, source, kind, media, figure, quote, attribution, storyId, evidenceUrls, confidence, evidenceStatus }) => ({
+    stories: edition.items.map(({ title, url, why, source, kind, media, figure, quote, attribution, storyId, evidenceUrls, confidence, evidenceStatus, updatedFrom }) => ({
       title, url, kind, ...(why ? { gist: why } : {}), ...(source ? { source } : {}),
       ...(storyId ? { storyId } : {}), ...(evidenceUrls?.length ? { evidenceUrls } : {}), ...(confidence ? { confidence } : {}),
       ...(evidenceStatus ? { evidenceStatus } : {}),
+      ...(updatedFrom ? { updatedFrom } : {}),
       ...(media && media !== "article" ? { media } : {}),
       ...(figure ? { figure } : {}),
       ...(quote ? { quote } : {}),
