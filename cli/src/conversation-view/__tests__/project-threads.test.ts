@@ -204,6 +204,53 @@ describe("ProjectThreads", () => {
     expect(messages.at(-1)!.id).toBe(`m${THREAD_MESSAGES + 4}`);
   });
 
+  it("puts a project he successfully commented on below projects he has not gone through", async () => {
+    const catalogue = threadCatalogue("", [{ id: "pierre", name: "Pierre", status: "active" }]);
+    const comment = [
+      'About the project "Pierre"',
+      "> Flyd: The Pierre board is up.",
+      "",
+      'Comment on a passage of Flyd\'s reply in the conversation "Pierre" (session project:pierre):',
+      "",
+      "> The Pierre board is up.",
+      "",
+      "Keep the radio.",
+    ].join("\n");
+    const messages = [
+      user("h1", "the hftw login", "2026-11-06T07:00:00Z"),
+      said("h2", "HFTW login is up.", "2026-11-06T07:01:00Z"),
+      user("d1", "the DIR ident", "2026-11-06T09:00:00Z"),
+      said("d2", "DIR is smaller.", "2026-11-06T09:01:00Z"),
+      user("l1", "logan gradients", "2026-11-06T10:00:00Z"),
+      said("l2", "Logan gradients are in.", "2026-11-06T10:01:00Z"),
+      user("p1", "Pierre's radio", "2026-11-06T08:00:00Z"),
+      said("p2", "The Pierre board is up.", "2026-11-06T08:01:00Z"),
+    ];
+    const sessions = { s: { updatedAt: "2026-11-07T12:00:00Z", messages: [...messages, user("p3", comment, "2026-11-07T12:00:00Z")] } };
+    const threads = new ProjectThreads({ feeds: [feed(sessions)], projects: catalogue });
+    await threads.refresh();
+    const sent = threads.list().projects;
+    const sentNames = sent.map((project) => project.name);
+    expect(sentNames[0]).toBe("Logan");
+    expect(sentNames.at(-1)).toBe("Pierre");
+    expect(sentNames.indexOf("DIR")).toBeLessThan(sentNames.indexOf("Pierre"));
+    expect(sentNames.indexOf("HFTW")).toBeLessThan(sentNames.indexOf("Pierre"));
+    expect(sent.find((project) => project.name === "Pierre")).toMatchObject({ commented: true, replyAt: "2026-11-06T08:01:00Z", at: "2026-11-07T12:00:00Z" });
+    expect(sent.filter((project) => project.name !== "Pierre").some((project) => project.commented)).toBe(false);
+    sessions.s = { updatedAt: "2026-11-07T12:01:00Z", messages: [...messages, { ...user("p3", comment, "2026-11-07T12:00:00Z"), waitingFailed: true }] };
+    const failed = new ProjectThreads({ feeds: [feed(sessions)], projects: catalogue });
+    await failed.refresh();
+    const held = failed.list().projects.map((project) => project.name);
+    expect(held[0]).toBe("Logan");
+    expect(held.indexOf("Pierre")).toBeLessThan(held.indexOf("HFTW"));
+    expect(failed.list().projects.some((project) => project.commented)).toBe(false);
+    sessions.s = { updatedAt: "2026-11-07T13:00:00Z", messages: [...messages, user("p3", comment, "2026-11-07T12:00:00Z"), said("p4", "The Pierre radio stays.", "2026-11-07T13:00:00Z")] };
+    const answered = new ProjectThreads({ feeds: [feed(sessions)], projects: catalogue });
+    await answered.refresh();
+    expect(answered.list().projects[0]).toMatchObject({ name: "Pierre" });
+    expect(answered.list().projects[0]!.commented).toBeUndefined();
+  });
+
   it("finds a thread's pictures in the session they came from", async () => {
     const threads = new ProjectThreads({ feeds: [feed({ s: { updatedAt: "2026-11-06T10:00:00Z", messages: [{ ...user("q", "DIR ident", "2026-11-06T09:00:00Z"), images: ["120"] }] } })], projects });
     await threads.refresh();
