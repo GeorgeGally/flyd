@@ -545,11 +545,11 @@ export async function runAssistantTool(
           });
           if (run.status === "refused") return `Coding request refused: ${run.reason}`;
           if (run.run.failure) return run.run.failure;
-          return `Passed on (run ${run.run.id}); the answer comes back to George here when it's ready. Do not send a holding line or say who has it.`;
+          return `Passed on (run ${run.run.id}); the answer comes back to George here when it's ready. Tell him in a line that it's being looked into; don't say who has it or mention the id.`;
         }
         const { dispatchKnowledgeDomain } = await import("../command/librarian.js");
         const run = dispatchKnowledgeDomain({ originalMessage, intendedOutcome: `Answer George's question and change nothing: ${question}`, doneWhen: answerOnly, background: context.background });
-        return `Passed on (run ${run.id}); the answer comes back to George here when it's ready. Do not send a holding line or say who has it.`;
+        return `Passed on (run ${run.id}); the answer comes back to George here when it's ready. Tell him in a line that it's being looked into; don't say who has it or mention the id.`;
       }
       case "background_task": {
         const jobs = await import("./background-jobs.js");

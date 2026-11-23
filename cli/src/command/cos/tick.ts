@@ -129,13 +129,14 @@ async function report(objective: Objective, made: CosReport, deps: CosTickDeps, 
   // the fact that this outcome was selected.
   recordCosReport(made, store, now);
   try {
-    if (objective.answerTurn && objective.origin.turnId && objective.origin.sessionId && status === "done") {
+    const answering = objective.answerTurn && objective.origin.turnId && objective.origin.sessionId && status === "done";
+    if (answering) {
       const refs = planOf(objective).filter((run) => run.ref).map((run) => run.ref!);
-      const result = refs.map((ref) => resultText(ref)).filter(Boolean).join("\n\n") || made.detail || made.outcome;
+      const result = await answerFrom(objective, refs.map((ref) => resultText(ref)).filter(Boolean).join("\n\n") || made.detail || made.outcome, deps);
       const { deliverDeferredAnswer } = await import("../../conversation-view/deferred-answer.js");
-      deliverDeferredAnswer({ runId: refs.at(-1) ?? objective.id, sessionId: objective.origin.sessionId.replace(/^view:/, ""), turnId: objective.origin.turnId, text: result, at: now.toISOString() }, deps.answerDir);
+      deliverDeferredAnswer({ runId: refs.at(-1) ?? objective.id, sessionId: objective.origin.sessionId!.replace(/^view:/, ""), turnId: objective.origin.turnId!, text: result, at: now.toISOString() }, deps.answerDir);
     }
-    await tell();
+    if (!answering) await tell();
   } catch (error) {
     // Keep the durable claim until its lease expires; then the same keyed
     // delivery is retried. Never mark a failed send as reported.
@@ -152,6 +153,16 @@ async function report(objective: Objective, made: CosReport, deps: CosTickDeps, 
       reportIds: current.reportIds.includes(made.id) ? current.reportIds : [...current.reportIds, made.id],
     };
   });
+}
+
+/** The result as George's answer: status lines dropped, then said briefly in Flyd's voice; the trimmed text when the rewrite fails. */
+async function answerFrom(objective: Objective, raw: string, deps: CosTickDeps): Promise<string> {
+  const trimmed = raw.split("\n").filter((line) => !/^\s*(?:status|run(?: id)?|team|owner)\s*[:\-]/i.test(line)).join("\n").trim().slice(0, 6000);
+  try {
+    const said = JSON.parse((await (deps.complete ?? defaultComplete)(`Say this result to George as the answer to his question, in a few plain sentences in Flyd's own first-person voice. Keep every fact, name and number; drop status lines, team names and process. Reply as JSON: {"answer": "..."}.\n\nHis question: ${objective.words}\n\nResult:\n${trimmed}`)).replace(/^```(?:json)?\s*|\s*```$/g, "")) as Record<string, unknown>;
+    const answer = typeof said.answer === "string" ? said.answer.trim() : "";
+    return answer || trimmed;
+  } catch { return trimmed; }
 }
 
 /** The wait for work that couldn't start: his words brief it again. */

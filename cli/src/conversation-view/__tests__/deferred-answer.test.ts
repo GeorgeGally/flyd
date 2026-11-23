@@ -8,6 +8,7 @@ import { runRequestId, type Dispatch } from "../../command/cos/dispatch.js";
 import { openObjective } from "../../command/cos/objectives.js";
 import { cosTick } from "../../command/cos/tick.js";
 import { createDomainRun, updateDomainRun } from "../../command/store.js";
+import { readDeferredAnswers } from "../deferred-answer.js";
 import { FlydDesk } from "../flyd-desk.js";
 
 it("delivers a delegated follow-up once to its originating conversation", async () => {
@@ -17,9 +18,11 @@ it("delivers a delegated follow-up once to its originating conversation", async 
   try {
     const session = "window:abcdefgh";
     let objectiveId = "";
+    const asked = vi.fn();
     const desk = new FlydDesk({ dir: join(dir, "asks"), answer: async (_question, _history, _step, turn) => {
+      asked();
       objectiveId = openObjective({ words: "What size is the video?", flydNotes: "", answerTurn: true, origin: { surface: "chat", sessionId: turn!.source.sessionId, turnId: turn!.source.turnId } }).id;
-      return "__FLYD_DEFERRED_ANSWER__";
+      return { deferred: true };
     } });
     desk.ask("What size is the video?", [], session);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -32,13 +35,16 @@ it("delivers a delegated follow-up once to its originating conversation", async 
     };
     const decision: ExecutiveDecisionRecord = { schema: "flyd.executive-decision.v1", decisionId: "d", sourceId: "domain.knowledge", sourceEventId: "e", taskId: "x", disposition: "handle_internally", reason: "finished", summary: "The video is 1920 × 1080.", evidenceRefs: [], verification: { status: "verified", evidenceRefs: [] }, show: true, notify: true, createdAt: new Date().toISOString() };
     const tell = vi.fn(async () => {});
-    const deps = { store, dispatch, tell, answerDir: join(dir, "deferred-answers"), decide: async () => decision, complete: async (prompt: string) => prompt.includes("check the finished result") ? JSON.stringify({ met: true }) : JSON.stringify({ team: "knowledge", outcome: "Find the video size", done_when: ["size identified"] }) };
+    const deps = { store, dispatch, tell, answerDir: join(dir, "deferred-answers"), decide: async () => decision, complete: async (prompt: string) => prompt.startsWith("Say this result") ? JSON.stringify({ answer: "It is 1920 × 1080." }) : prompt.includes("check the finished result") ? JSON.stringify({ met: true }) : JSON.stringify({ team: "knowledge", outcome: "Find the video size", done_when: ["size identified"] }) };
     await cosTick(deps);
-    updateDomainRun(runRequestId({ id: objectiveId }), (run) => ({ ...run, status: "completed", result: { format: "structured", brief: "The video is 1920 × 1080.", detailedReport: "", decisionsMade: [], unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "low" } }));
+    updateDomainRun(runRequestId({ id: objectiveId }), (run) => ({ ...run, status: "completed", result: { format: "structured", brief: "Status: done\nThe video is 1920 × 1080.", detailedReport: "", decisionsMade: [], unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "low" } }));
     await cosTick(deps);
     await cosTick(deps);
-    expect(desk.exchanges(session)[0]?.answer?.text).toBe("The video is 1920 × 1080.");
-    expect(tell).toHaveBeenCalledTimes(1);
+    expect(desk.exchanges(session)[0]?.answer?.text).toBe("It is 1920 × 1080.");
+    expect(tell).not.toHaveBeenCalled();
+    expect(readDeferredAnswers(join(dir, "deferred-answers"))).toHaveLength(1);
+    desk.resumeInterrupted(Date.now());
+    expect(asked).toHaveBeenCalledTimes(1);
     expect(desk.exchanges("window:otherone")).toEqual([]);
   } finally {
     store.close();

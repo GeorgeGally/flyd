@@ -1,4 +1,4 @@
-import { readDeferredAnswers } from "./deferred-answer.js";
+import { readDeferredAnswers, type DeferredAnswer } from "./deferred-answer.js";
 import { listObjectives } from "../command/cos/objectives.js";
 import { PreparationStore } from "../runtime/preparation-store.js";
 import type { ConversationTurnSource } from "../runtime/conversation-turn.js";
@@ -207,6 +207,8 @@ interface AskRecord {
   retried?: true;
   /** Set once the turn began a tool that changes something outside the conversation; asking it again would repeat that. */
   acted?: true;
+  /** Set once the turn handed its answer to work in hand; it is delivered when that finishes, and the question is never asked again. */
+  handedOff?: true;
   /** Where he asked it: a project's conversation or the general chat, kept so asking it again reads it the same way. */
   scope?: ChatScope;
   understanding?: TurnUnderstanding;
@@ -215,7 +217,10 @@ interface AskRecord {
 }
 
 /** Flyd's own answer to a question, given the window's earlier questions and answers; `onStep` says what it is doing as it goes. */
-export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void; onMutation(): void; askUser?(prompt: string): Promise<boolean | "always">; outside?: boolean; attached?: string; scope?: ChatScope }) => Promise<string | AnswerBody>;
+/** The turn handed its answer to work in hand: it lands in the conversation when ready, so nothing is shown meanwhile. */
+export interface AnswerDeferred { deferred: true }
+
+export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void; onMutation(): void; askUser?(prompt: string): Promise<boolean | "always">; outside?: boolean; attached?: string; scope?: ChatScope }) => Promise<string | AnswerBody | AnswerDeferred>;
 
 /** What the screenshots he attached to a question show, in words, for Flyd's turn, which takes words only. */
 export type Seer = (question: string, images: ImageUpload[], onStep?: (step: string, tool?: InFlightTool) => void) => Promise<string>;
@@ -457,7 +462,7 @@ export class FlydDesk {
    */
   resumeInterrupted(now = Date.now()): void {
     for (const record of this.records()) {
-      if (record.answer || record.error || record.retried || record.acted || this.inFlight.has(record.id)) continue;
+      if (record.answer || record.error || record.retried || record.acted || record.handedOff || this.inFlight.has(record.id)) continue;
       if (Date.parse(record.at) > this.startedAt || !(now - Date.parse(record.at) <= RESUME_WINDOW_MS)) continue;
       const images = (record.images ?? []).flatMap((imageId) => {
         const image = this.image(imageId);
@@ -480,7 +485,7 @@ export class FlydDesk {
       .filter((other) => other.id !== id && Date.parse(other.at) <= Date.parse(record.at));
     const kept = record.images ?? [];
     const scope = record.scope;
-    const delivered = readDeferredAnswers(join(this.dir, "..", "deferred-answers"));
+    const delivered = earlier.some((item) => item.handedOff) ? this.deferredAnswers() : [];
     const earlierAnswered = earlier
       .map((item) => {
         const answer = delivered.find((entry) => entry.turnId === `ask:${item.id}` && (entry.sessionId === conversationOf(item) || entry.sessionId === item.sessionId));
@@ -548,7 +553,7 @@ export class FlydDesk {
         this.write(record);
       })
       : Promise.resolve();
-    const answering: Promise<string | AnswerBody> = (images.length && this.see) || filed.length || record.seen || record.read
+    const answering: Promise<string | AnswerBody | AnswerDeferred> = (images.length && this.see) || filed.length || record.seen || record.read
       ? Promise.all([seeing, reading]).then(() => {
         const attached = attachedWords(record, MAX_READ_CHARS);
         return this.answerer(record.text, history, onStep, attached ? { ...turn, attached } : turn);
@@ -561,7 +566,11 @@ export class FlydDesk {
     };
     void answering
       .then((answer) => {
-        if (answer === "__FLYD_DEFERRED_ANSWER__") { settle(); return; }
+        if (typeof answer === "object" && "deferred" in answer) {
+          if (live()) this.write({ ...record, handedOff: true });
+          settle();
+          return;
+        }
         const body = typeof answer === "string" ? null : answerBody(answer);
         const text = (typeof answer === "string" ? withoutObviousAsk(answer) : plainAnswer(body!)).trim();
         if (!text) throw new Error("no answer came back");
@@ -586,6 +595,10 @@ export class FlydDesk {
         this.startAnswer(record, images, filed);
       });
     return { id: `ask:${record.id}`, timestamp: record.at, waiting: first };
+  }
+
+  private deferredAnswers(): DeferredAnswer[] {
+    return readDeferredAnswers(join(this.dir, "..", "deferred-answers"));
   }
 
   recordDecisionAnswer(answer: string, question: string, iteration: boolean, options: string[], sessionId = "conversation"): SentMessage {
@@ -659,11 +672,13 @@ export class FlydDesk {
       this.resumed = true;
       this.resumeInterrupted();
     }
-    const answers = readDeferredAnswers(join(this.dir, "..", "deferred-answers"));
-    const pending = new Set(listObjectives().filter((objective) => objective.answerTurn && objective.origin.turnId).map((objective) => objective.origin.turnId));
-    return (sessionId === undefined ? this.records() : this.recordsForSession(sessionId)).map((record) => {
+    const shown = sessionId === undefined ? this.records() : this.recordsForSession(sessionId);
+    const waitingOn = shown.some((record) => record.handedOff && !record.answer);
+    const answers = waitingOn ? this.deferredAnswers() : [];
+    const pending = new Set(waitingOn ? listObjectives().filter((objective) => objective.answerTurn && (objective.status === "intake" || objective.status === "working") && objective.origin.turnId).map((objective) => objective.origin.turnId) : []);
+    return shown.map((record) => {
       const question: ConversationMessage = { id: `ask:${record.id}`, role: "user", text: record.text, timestamp: record.at, ...(record.images?.length ? { images: record.images } : {}), ...(record.files?.length ? { files: record.files } : {}) };
-      const delivered = answers.find((answer) => answer.turnId === question.id && (answer.sessionId === conversationOf(record) || answer.sessionId === record.sessionId));
+      const delivered = !record.handedOff ? undefined : answers.find((answer) => answer.turnId === question.id && (answer.sessionId === conversationOf(record) || answer.sessionId === record.sessionId));
       if (delivered) return { question, answer: { id: `answer:${record.id}`, role: "assistant" as const, text: inFlydsVoice(delivered.text), timestamp: delivered.at, answers: question.id }, waiting: "" };
       if (record.answer) {
         const preparation = record.preparationId ? this.preparations.read(record.preparationId) : undefined;
@@ -679,7 +694,7 @@ export class FlydDesk {
           waiting: "",
         };
       }
-      if (pending.has(question.id)) return { question, waiting: "" };
+      if (record.handedOff && pending.has(question.id)) return { question, waiting: "" };
       if (this.inFlight.has(record.id) && !record.error) return { question, waiting: this.steps.get(record.id) ?? answeringLine(record.text, Boolean(record.images?.length)) };
       // Flyd has already asked it again itself: what went wrong is Flyd's to read in its own record; he gets one plain line.
       return { question, waiting: COULD_NOT_ANSWER, waitingFailed: true };

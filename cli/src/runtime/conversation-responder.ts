@@ -63,6 +63,8 @@ import { chatScopeLine, type ChatScope } from "./chat-scope.js";
 interface ConversationInput {
   source?: ConversationTurnSource;
   onPreparation?: (id: string) => void;
+  /** Called when the turn handed its answer off: the result lands in the conversation when it is ready, and this turn returns nothing. */
+  onDeferred?: () => void;
   onInteraction?: (kind: "conversation" | "work_status" | "decision" | "deliverable") => void;
   /** Server adapter: never exposes desktop, shell or coding capabilities. */
   surface?: "mobile";
@@ -1340,7 +1342,7 @@ export async function respondToConversation(
     ...(input.chatScope ? { chatScope: input.chatScope } : {}),
     userMessage: input.message,
     ...(source?.turnId ? { turnId: source.turnId } : {}),
-    answerTurn: plan?.route === "answer" && source?.surface === "view",
+    answerTurn: Boolean(input.onDeferred) && plan?.route === "answer" && source?.surface === "view",
     skill: skill ? { name: skill.name, body: skill.body } : null,
     onCodingHandoff: input.onCodingHandoff,
     background: Boolean(personalToolDeps.background),
@@ -1380,7 +1382,7 @@ export async function respondToConversation(
       const succeeded = !TOOL_FAILURE.test(result);
       toolCalls.push({ name, input: toolInput, succeeded, ...(succeeded ? {} : { error: result }) });
       if (succeeded) toolOutputs.push(result);
-      if (succeeded && name === "hand_off" && plan?.route === "answer" && source?.surface === "view") deferredAnswer = true;
+      if (succeeded && name === "hand_off" && input.onDeferred && plan?.route === "answer" && source?.surface === "view") deferredAnswer = true;
       // Only a real change makes an old failure stale; `ls` or `git status` doesn't.
       const changedWorld = name === "bash" ? !isReadOnlyCommand(String(toolInput.command ?? "")) : isMutatingToolCall(name, toolInput);
       if (succeeded && changedWorld) repeats.changed();
@@ -1442,7 +1444,7 @@ export async function respondToConversation(
       },
       dependencies.runAgentLoop ?? agentLoop,
     );
-    if (deferredAnswer) return "__FLYD_DEFERRED_ANSWER__";
+    if (deferredAnswer) { input.onDeferred?.(); return ""; }
     const connection = connectionFor(usedModel);
     // Grounding is demanded of claims about code and work state, not of a
     // conversation that happens to name a project (or Flyd itself).
@@ -1472,10 +1474,6 @@ export async function respondToConversation(
       if (fixed.trim()) final = extractFinal(fixed).replace(/^"""|"""$/g, "").trim();
     }
     final = finishInFlydsVoice(final);
-    if (!/\b(?:guess|guessing)\b/i.test(input.message)) {
-      final = final.replace(/(?:^|\n)\s*(?:i (?:won['’]t|will not) guess|i(?:'m| am) (?:checking|confirming|looking into)[^.!?\n]*)(?:[.!…]+)(?:[ \t]*|\n+|$)/gi, "").trim();
-    }
-    if (!final) throw new Error("No substantive answer came back");
     // An ungrounded name or date never goes out as written: the rewrite
     // dropped or grounded it, or the answer says it can't be verified. Either
     // way the receipt records what was flagged and what became of it.
@@ -1502,7 +1500,7 @@ export async function respondToConversation(
     }
     return final;
   } catch (error) {
-    if (deferredAnswer) return "__FLYD_DEFERRED_ANSWER__";
+    if (deferredAnswer) { input.onDeferred?.(); return ""; }
     const message = error instanceof Error ? error.message : String(error);
     await record(connectionFor(model), toolCalls, "", "failed", message);
     throw error;
