@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
-import { INITIATIVE_CURATED_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
+import { INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
+import { initiativeSourcesCurrent } from "./source-validity.js";
 import { validateEnvelope, type ContextEnvelope } from "../../intelligence/context-envelope.js";
 import { readProjects, type Project } from "../../council/projects.js";
 import { latestEdition, type Edition } from "../../council/scout.js";
@@ -30,6 +31,8 @@ export interface InitiativeRunDeps {
   sourceAllowed?: (source: InitiativeSource) => boolean;
   /** The actual LEARN consent gate; bypassable only in isolated tests. */
   consented?: () => boolean;
+  /** Fixture hook; production separately checks the consented public research source. */
+  publicResearchEnabled?: () => boolean;
   /** For tests and explicit future scope approval. */
   mode?: InitiativeMode;
   record?: (card: ActivityRecord) => void;
@@ -127,14 +130,27 @@ export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<
   const ownedStore = !deps.store;
   const store = deps.store ?? new IntelligenceEventStore();
   try {
+    store.purgeSourceBefore(INITIATIVE_CURATED_CONTRACT.sourceId, new Date(now.getTime() - 30 * 86_400_000));
     const valid = (s: InitiativeSource) => permitted(s) && (deps.sourceAllowed?.(s) ?? true);
-    const candidates = deriveInitiatives({
-      now, projects: (deps.projects ?? readProjects)(),
-      edition: (deps.edition ?? latestEdition)(),
-      advisories: (deps.advisories ?? openAdvisories)(now),
-      reports: store.readSourcePage("cos.report", { limit: 100 }),
-      sourceAllowed: valid,
-    });
+    const projects = (deps.projects ?? readProjects)();
+    const edition = (deps.edition ?? latestEdition)();
+    const advisories = (deps.advisories ?? openAdvisories)(now);
+    const reports = store.readSourcePage("cos.report", { limit: 100 });
+    const current = { projects, edition, advisories, reports };
+    // Old decisions are not enough to justify a new action: drop all readable
+    // content for any case whose parent evidence changed or disappeared.
+    const stale = new Map<string, { candidateId: string; revision: string }>();
+    for (const event of store.readSourcePage(INITIATIVE_CURATED_CONTRACT.sourceId, { limit: 1000 })) {
+      const p = event.payload;
+      if (!p || !Array.isArray(p.sources)) continue;
+      const id = p.candidate_id;
+      const rev = p.revision ?? p.source_revision;
+      if (typeof id !== "string" || typeof rev !== "string") continue;
+      const refs = p.sources as InitiativeSource[];
+      if (!initiativeSourcesCurrent(refs, current)) stale.set(id + "@" + rev, { candidateId: id, revision: rev });
+    }
+    if (stale.size) store.retractInitiativeCases([...stale.values()]);
+    const candidates = deriveInitiatives({ now, projects, edition, advisories, reports, sourceAllowed: valid });
     result.generated = candidates.length;
     // Shared deterministic value-of-information budget, no model calls.
     const ranked = candidates.map((candidate) => ({ candidate, decision: decideInitiative(candidate, { allowed: valid, mode }) }))
@@ -164,6 +180,7 @@ export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<
           reason: decision.reason, score: decision.score,
           why_now: decision.whyNow, why_me: decision.whyMe,
           source_keys: candidate.sources.map(s => s.id),
+          sources: candidate.sources.map(s => ({ ...s })),
           expires_at: candidate.expiresAt,
         };
         const chosen = envelope(now, "executive_decision", "decision:" + key, candidate, decisionPayload);
@@ -186,6 +203,9 @@ export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<
     // shadow never imply a notification or that George saw the idea.
     if (mode === "on") {
       for (const { candidate, decision } of evaluated) {
+        const publicResearchEnabled = deps.publicResearchEnabled?.()
+          ?? new SourceContractRegistry().status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) === "enabled";
+        if (candidate.origin === "scout" && publicResearchEnabled) continue;
         if (decision.attention !== "ambient" || result.published >= 1 || (deps.countPublished ?? countInitiativeCards)(dayOf(now)) >= 1) continue;
         if (!candidate.sources.every(valid)) continue;
         // A revoked/erased generation can later be explicitly renewed. Prior
