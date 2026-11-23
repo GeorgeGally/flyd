@@ -5,6 +5,7 @@ import type { Project } from "../../council/projects.js";
 import type { Edition } from "../../council/scout.js";
 import type { Advisory } from "../../council/advisors.js";
 import type { StoredEvent } from "../../intelligence/event-store.js";
+import { projectRevision, scoutItemRevision, councilRevision } from "./lineage.js";
 
 /**
  * One bounded insight proposal, NOT a user intention or a work order.
@@ -118,8 +119,8 @@ export function deriveInitiatives(input: InitiativeSignals): InitiativeCandidate
       ).sort((a, b) => b.match.score - a.match.score).slice(0, 1);
       for (const { item, novel } of relevant) {
         const sources = [
-          source("project:" + project.id, project.updated, "local_operational", "project:" + project.id),
-          source("scout:" + (item.storyId ?? item.url), input.edition.generatedAt, "public", item.url),
+          source("project:" + project.id, projectRevision(project), "local_operational", "project:" + project.id),
+          source("scout:" + (item.storyId ?? item.url), scoutItemRevision(item), "public", item.url),
         ];
         const technique = novel.slice(0, 2).join(" ");
         const question = "Could " + technique + " from " + oneLine(item.title, 64) + " help " + oneLine(project.name, 48) + "?";
@@ -146,7 +147,7 @@ export function deriveInitiatives(input: InitiativeSignals): InitiativeCandidate
     const delta = Math.floor((at - now.getTime()) / 86_400_000);
     if (!Number.isFinite(at) || delta < -3 || delta > 14 || NO_PERSONAL.test(project.next ?? "")) continue;
     const question = "Does " + oneLine(project.name, 55) + " have what it needs for " + oneLine(project.next!, 75) + " before " + project.due + "?";
-    const sources = [source("project:" + project.id, project.updated, "local_operational", "project:" + project.id)];
+    const sources = [source("project:" + project.id, projectRevision(project), "local_operational", "project:" + project.id)];
     made.push({
       id: initiativeKey("project", project.id, question), origin: "project",
       domain: project.kind === "venture" ? "venture" : project.kind === "client" ? "client" : "work",
@@ -167,7 +168,7 @@ export function deriveInitiatives(input: InitiativeSignals): InitiativeCandidate
     if (advisory.status !== "open" || advisory.confidence === "low" || advisory.evidence.length === 0
       || Date.parse(advisory.expires) < Date.parse(today)
       || !isFresh(advisory.createdAt, now, 14) || NO_PERSONAL.test(advisory.text)) continue;
-    const sources = [source("council:" + advisory.id, advisory.createdAt, "local_operational", "advisory:" + advisory.id)];
+    const sources = [source("council:" + advisory.id, councilRevision(advisory), "local_operational", "advisory:" + advisory.id)];
     made.push({
       id: initiativeKey("council", advisory.id, advisory.text),
       origin: "council", domain: "work", subject: oneLine(advisory.headline || advisory.text, 75),
