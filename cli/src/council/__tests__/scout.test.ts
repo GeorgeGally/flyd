@@ -59,6 +59,19 @@ describe("scout sources", () => {
     expect(hermes.filter((sub) => !subreddits.has(sub.toLowerCase()))).toEqual([]);
   });
 
+  it("adds live niche feeds for George's scenes beside Hermes's, and explores niche reserve before general outlets", () => {
+    const sources = readSources(dir, at("2026-11-23T08:00:00Z"));
+    const active = sources.filter((source) => source.status === "active");
+    for (const feed of ["Right Click Save", "Bitcoin Optech", "AI Weirdness", "Red Blob Games", "Ken Shirriff", "Old VCR", "The Digital Antiquarian", "Tedium", "The Public Domain Review"]) {
+      expect(active.find((source) => source.name === feed)).toMatchObject({ kind: "rss" });
+    }
+    for (const sub of ["r/plotterart", "r/lostmedia", "r/demoscene"]) expect(active.some((source) => source.name === sub)).toBe(true);
+    const reserve = sources.filter((source) => source.status === "reserve").map((source) => source.name);
+    expect(reserve.indexOf("Creative Applications")).toBeLessThan(reserve.indexOf("TechCrunch"));
+    expect(reserve.indexOf("Atlas Obscura")).toBeLessThan(reserve.indexOf("The Verge"));
+    expect(reserve.slice(-4)).toEqual(["The Verge", "Uncrate", "Slashdot", "TechRadar"]);
+  });
+
   it("unions defaults added later into the managed population without disturbing it", () => {
     writeSources([
       { id: "rss:waxy.org/feed", kind: "rss", name: "Waxy.org", target: "https://waxy.org/feed/", status: "active", shown: 9, likes: 4, dislikes: 0, failures: 0, addedBy: "george", addedAt: "2026-09-01T00:00:00Z" },
@@ -224,11 +237,23 @@ describe("edition brief", () => {
 });
 
 describe("evolution", () => {
+  it("explores niche reserve feeds before general outlets George already had in reserve", async () => {
+    const general = ["Fast Company", "TechCrunch", "The Verge"];
+    writeSources(seedSources(at("2026-09-01T00:00:00Z")).filter((source) => general.includes(source.name)), dir);
+    const complete = vi.fn(async (prompt: string) => prompt.startsWith("Plan") ? '{"topics": []}' : '{"add": []}');
+    await evolveScout({ complete, dir, now: () => at("2026-11-23T07:00:00Z") });
+    const sources = readSources(dir);
+    const explored = sources.filter((source) => source.note === "exploring from reserve").map((source) => source.name);
+    expect(explored).toHaveLength(1);
+    expect(general).not.toContain(explored[0]);
+    expect(sources.find((source) => source.name === "TechCrunch")?.status).toBe("reserve");
+  });
+
   it("pauses sources that keep missing, explores the reserve, breeds new sources, revises taste, and tells George", async () => {
     writeSources([
       { id: "rss:dull.test/feed", kind: "rss", name: "Dull", target: "https://dull.test/feed", status: "active", shown: 10, likes: 0, dislikes: 2, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z" },
       { id: "reddit:generative", kind: "reddit", name: "r/generative", target: "generative", status: "active", shown: 4, likes: 3, dislikes: 0, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z" },
-      { id: "rss:flowingdata.com/feed", kind: "rss", name: "FlowingData", target: "https://flowingdata.com/feed", status: "reserve", shown: 0, likes: 0, dislikes: 0, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z" },
+      { id: "rss:www.creativeapplications.net/feed", kind: "rss", name: "Creative Applications", target: "https://www.creativeapplications.net/feed/", status: "reserve", shown: 0, likes: 0, dislikes: 0, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z" },
     ], dir);
     const complete = vi.fn(async () => JSON.stringify({
       add: [
@@ -243,13 +268,13 @@ describe("evolution", () => {
     expect(changes.map((change) => change.kind)).toEqual(["paused", "revived", "added", "taste"]);
     const sources = readSources(dir);
     expect(sources.find((source) => source.name === "Dull")?.status).toBe("paused");
-    expect(sources.find((source) => source.name === "FlowingData")?.status).toBe("active");
+    expect(sources.find((source) => source.name === "Creative Applications")?.status).toBe("active");
     expect(sources.find((source) => source.target === "algorithmicmusic")).toMatchObject({ addedBy: "evolution", status: "active" });
     expect(sources.some((source) => source.target === "http://insecure.test/feed")).toBe(false);
     expect(readTaste(dir)).toContain("generative audio");
     expect(readFileSync(join(dir, "taste-history.jsonl"), "utf8")).toContain("crypto art");
     expect(takeEvolutionNotes(dir)).toEqual([
-      "paused: Dull: you passed on most of the 10 stories it brought", "revived: trying FlowingData",
+      "paused: Dull: you passed on most of the 10 stories it brought", "revived: trying Creative Applications",
       "added: r/algorithmicmusic — He liked on-chain generative audio", "taste: now favours generative audio",
     ]);
     expect(takeEvolutionNotes(dir)).toEqual([]);
@@ -566,6 +591,36 @@ describe("what reaches an edition", () => {
     ] }), candidates, 30, 3, stats);
     expect(picks).toHaveLength(2);
     expect(stats).toEqual({ picks: 2, junk: 0 });
+  });
+
+  it("curates against obvious headlines: his preferences reach the ranker, general outlets are marked and shortlisted after niche finds", async () => {
+    const indexOf = (prompt: string, title: string) => Number(prompt.split("\n").find((line) => line.includes(title))?.match(/^\[(\d+)\]/)?.[1]);
+    onlySources([
+      { kind: "rss", name: "Ars Technica", target: "https://feeds.arstechnica.com/arstechnica/index", category: "Technology" },
+      { kind: "rss", name: "Old VCR", target: "https://oldvcr.blogspot.com/feeds/posts/default", category: "Internet Archaeology" },
+    ]);
+    writeFileSync(process.env.FLYD_USER_PROFILE!, "# George\n\n## Preferences\n- SYNTHETIC_PREF: wants weird demoscene and plotter finds, hates generic headlines\n\n## People\n- SYNTHETIC_PERSON\n");
+    const fetchFn = fakeFetch({
+      "arstechnica.com": rss([{ title: "Big phone maker unveils new flagship phone", link: "https://arstechnica.com/gadgets/flagship", date: recent }]),
+      "oldvcr.blogspot.com": rss([{ title: "Reverse engineering a forgotten 1980s BBS terminal", link: "https://oldvcr.blogspot.com/bbs", date: recent }]),
+    });
+    const prompts: string[] = [];
+    const complete = vi.fn(async (prompt: string) => {
+      if (prompt.startsWith("Plan ")) return '{"topics": []}';
+      prompts.push(prompt);
+      return JSON.stringify({ picks: [{ index: indexOf(prompt, "forgotten 1980s BBS"), kind: "rabbit_hole", why: "A lost terminal brought back from the dead." }] });
+    });
+    try {
+      await runScout({ complete, fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-11-14T07:00:00Z") });
+      const prompt = prompts[0]!;
+      expect(prompt).toContain("SYNTHETIC_PREF");
+      expect(prompt).not.toContain("SYNTHETIC_PERSON");
+      expect(prompt.split("\n").find((line) => line.includes("flagship phone"))).toContain("GENERAL OUTLET");
+      expect(prompt.split("\n").find((line) => line.includes("BBS terminal"))).not.toContain("GENERAL OUTLET");
+      expect(indexOf(prompt, "forgotten 1980s BBS")).toBeLessThan(indexOf(prompt, "flagship phone"));
+    } finally {
+      rmSync(process.env.FLYD_USER_PROFILE!, { force: true });
+    }
   });
 
   it("keeps a 30-story edition when enough stories clear the bar", async () => {

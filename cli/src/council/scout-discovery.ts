@@ -8,9 +8,11 @@ import type { ScoutCandidate } from "./scout.js";
 /** A separate, bounded research producer. An edition reads the *last completed* cache. */
 const BEATS = [
   "creative coding and generative art",
+  "bitcoin ordinals and on-chain generative art",
   "generative music and experimental audio",
   "creative AI tools and interactive design",
   "internet archaeology and unusual inventions",
+  "obscure media, protocol history and odd hardware",
   "", // Global exploration intentionally escapes any fixed interest vocabulary.
 ] as const;
 const CACHE_TTL_MS = 5 * 86_400_000;
