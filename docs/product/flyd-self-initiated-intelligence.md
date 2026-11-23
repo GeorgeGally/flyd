@@ -67,7 +67,7 @@ The new local LEARN source is **disabled by default**, has a declared 30-day ret
 **What is implemented in source on PR #343:**
 
 - **P0 / R2 groundwork:** project/advisory/Scout sources now carry content-based revisions; R1 shadow counts are **triaged** rather than “investigated.” Source changes invalidate stale derived events and UI. The event spine can retract derived cases, research, feedback and associated CoS reports when their parents are erased; derived payloads have a 30-day retention purge and invalidated episode/replay projections.
-- **P1:** explicit `initiative.public-research` opt-in lets existing EvidenceEngine check the public Scout URL/title against other accessible public sources under a bounded query/time/attempt budget. Query projection is gated by exact source+destination+purpose checks and excludes private project details. It records **source_confirmed / inconclusive / contradictory / no_evidence / stale / failed / not_permitted**. Confirmed sources are **not** a verified project improvement.
+- **P1:** explicit `initiative.public-research` opt-in (90-day renewable standing permission) lets EvidenceEngine check public Scout URLs/titles within bounded query/time/attempt limits. Query projection is gated by source+destination+purpose checks and excludes private project details. It records **source_confirmed / inconclusive / contradictory / no_evidence / stale / failed / not_permitted**. An **optional fourth** `initiative.public-synthesis` opt-in allows one bounded configured quick-model critique of public evidence snippets only; its output is explicitly an **unverified model interpretation**, never proof of project improvement.
 - **P2 (restricted, safe slice):** a separate explicit CLI acceptance stores an expiring, project-content-fingerprinted `initiative.mandate` for **read-only evidence reports only**. A qualifying independently checked result is recorded in an idempotent, CoS-owned `initiative` objective and `cos.report`. No unrestricted FirstMate, Librarian, coding, design, repo-write, email or publication dispatch is authorized.
 - **P3:** the existing Activity UI can show one quiet, source-backed research result or an authorized CoS research follow-up, with live source/consent checks. It does not inject private initiative notes into Jev or a chat model, which would otherwise violate the local-only LEARN consent. Full context-sensitive, content-generated conversation manifestation remains an expansion gate.
 - **P4:** explicit `flyd initiative review <candidate-id> helpful|not_helpful` produces local user-feedback evidence; `stats` keeps feedback distinct from **unknown external impact**. Frozen, synthetic 120-case safety replay counts missed opportunities, false positive initiative, protected regressions and cost coverage; it is **not** real-world model-quality proof and cannot auto-promote a policy.
@@ -76,12 +76,13 @@ The new local LEARN source is **disabled by default**, has a declared 30-day ret
 
 **New controls** (in addition to R1):
 - `flyd initiative research-enable` / `research-disable` / `research-revoke` / `research-renew` / `research-run`
+- `flyd initiative synthesis-enable` / `synthesis-disable` / `synthesis-revoke` / `synthesis-renew` (public-only, separate model provider consent)
 - `flyd initiative authorize-readonly <project-id>` / `revoke-mandates` / `renew-mandates`
 - `flyd initiative review <candidate-id> helpful|not_helpful`
 - `flyd initiative stats` / `doctor`
 - `FLYD_INITIATIVE_RESEARCH=0` (public research kill switch)
 
-All three consents—curated local intelligence, public evidence retrieval, and project-specific read-only follow-through—are independent and disabled by default. The latter two do not authorize model transmission of private context, writing files to code repositories, sending external messages or spending money.
+Four independent, disabled-by-default consents govern local curated intelligence, public research, optional public-evidence-only model interpretation, and accepted project-scoped read-only follow-through. **No consent here permits sending private project context to a model, editing code repositories, external messages, purchases or deployments.** The optional public-model scope may incur configured provider usage; real metered spend is not yet measured in the pilot.
 
 ### Unfinished before v10 can honestly be called complete
 
