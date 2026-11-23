@@ -88,7 +88,7 @@ export async function runInitiativeCommand(action = "status", projectId?: string
     registry.setStatus(source, "enabled");
     const store = new IntelligenceEventStore();
     try {
-      const mandate = acceptReadOnlyInitiativeMandate(store, project, { explicitUserAction: true });
+      const mandate = acceptReadOnlyInitiativeMandate(store, project, { explicitUserAction: true, registry });
       console.log("Accepted READ-ONLY research follow-up for " + project.name + " until " + mandate.expiresAt + ".");
       console.log("No repository edits, sending, publishing, payments or new user-owned decisions are authorized.");
     } finally { store.close(); }
