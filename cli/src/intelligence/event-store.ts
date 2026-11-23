@@ -309,6 +309,19 @@ export class IntelligenceEventStore {
     return { file: this.db.name, head: row.head, count: row.n, erased: row.erased };
   }
 
+  /** Invalidate cached/derived views whenever initiative content is retracted. */
+  private scheduleInitiativeErasureSweeps(): void {
+    const episodeTable = this.db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'episode_nodes'",
+    ).get();
+    if (episodeTable) this.db.prepare("DELETE FROM episode_nodes").run();
+    for (const surface of ["projections", "indexes", "replay_snapshots", "legacy_copies"] as const) {
+      this.db.prepare(
+        "INSERT INTO erasure_sweeps (sweep_id, source_id, surface, status) VALUES (?, ?, ?, 'pending')",
+      ).run(crypto.randomUUID(), "initiative.curated", surface);
+    }
+  }
+
   /**
    * Remove event content without revoking the whole source. An expired event
    * keeps an opaque idempotency tombstone, so a restart cannot resurrect it.
@@ -321,6 +334,7 @@ export class IntelligenceEventStore {
         " causation_ids = '[]', correlation_id = NULL WHERE source_id = ?" +
         " AND captured_at < ? AND erased = 0",
       ).run(sourceId, before.toISOString());
+      if (res.changes > 0) this.scheduleInitiativeErasureSweeps();
       return res.changes;
     });
   }
@@ -388,6 +402,7 @@ export class IntelligenceEventStore {
       const sequences = this.derivedInitiativeSequences(keys);
       const cos = this.linkedCosReportSequences(new Set(this.eventReferences(sequences)));
       this.retractSequences([...sequences, ...cos]);
+      if (sequences.length || cos.length) this.scheduleInitiativeErasureSweeps();
       return sequences.length + cos.length;
     });
   }
@@ -412,6 +427,7 @@ export class IntelligenceEventStore {
       });
       const cos = this.linkedCosReportSequences(new Set(this.eventReferences(erase)));
       this.retractSequences([...erase, ...cos]);
+      if (erase.length || cos.length) this.scheduleInitiativeErasureSweeps();
       return erase.length + cos.length;
     });
   }
@@ -431,6 +447,7 @@ export class IntelligenceEventStore {
       });
       const cos = this.linkedCosReportSequences(new Set(this.eventReferences(found)));
       this.retractSequences([...found, ...cos]);
+      if (found.length || cos.length) this.scheduleInitiativeErasureSweeps();
       return found.length + cos.length;
     });
   }
