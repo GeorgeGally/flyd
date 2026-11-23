@@ -3871,6 +3871,20 @@ describe("the front page", () => {
     expect(JSON.parse(String(request[1]!.body))).toMatchObject({ decisionFollowUp: "dec-1", decisionTask: "sync", text: "No, hold it" });
   });
 
+  it("drops the Flyd speaker label from the reply chip but keeps a lowercase flyd: the title itself says", async () => {
+    const stream = await opened();
+    const job = (id: string, title: string) => ({ id, group: "done", state: "Done", title, project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null });
+    stream.emit("update", {
+      order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false },
+      jobs: [job("a", "Flyd: I'm reviewing recent changes for token use"), job("b", "flyd: lowercase is the user's own word")],
+    });
+    for (const [id, shown] of [["a", "I'm reviewing recent changes for token use"], ["b", "flyd: lowercase is the user's own word"]] as const) {
+      after(() => document.querySelector<HTMLElement>(`.job[data-job="${id}"]`)!.click());
+      document.querySelector<HTMLButtonElement>(`.work[data-job="${id}"] .work-reply`)!.click();
+      expect(document.getElementById("replying-title")!.textContent).toBe(shown);
+    }
+  });
+
   it("renders stored job digests and says what an empty list actually is", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, jobs: [], jobsFleetKnown: false, show: { title: "", summary: "", items: [], counts: {}, live: false } });
