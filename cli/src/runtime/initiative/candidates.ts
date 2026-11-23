@@ -189,6 +189,7 @@ export function deriveInitiatives(input: InitiativeSignals): InitiativeCandidate
     if (event.erased || event.kind !== "observation" || event.sourceId !== "cos.report") return [];
     const report = event.payload?.report as { kind?: string; outcome?: string; objectiveId?: string } | undefined;
     return report?.kind === "blocked" && report.objectiveId && report.outcome
+      && isFresh(event.capturedAt, now, 30) && !NO_PERSONAL.test(report.outcome)
       ? [{ event, report, tokens: words(report.outcome) }] : [];
   }).filter(x => x.tokens.length >= MIN_WORD);
   for (const [i, first] of failures.entries()) {
