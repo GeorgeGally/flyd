@@ -95,6 +95,13 @@ describe("Flyd v10 source-grounded curiosity", () => {
     expect(a.id).toBe(b.id);
     expect(initiativeRevision(a.sources)).toBe(initiativeRevision(b.sources));
     expect(initiativeRevision(a.sources.map(s => ({ ...s, revision: s.revision + "-revised" })))).not.toBe(initiativeRevision(a.sources));
+    // A same-day project edit changes the material revision even if its
+    // date field does not change; refreshing a timestamp without content does not.
+    const revised = deriveInitiatives({ now, projects: [{ ...project, now: "Newly confirmed different approach" }], edition });
+    expect(initiativeRevision(revised.find(x => x.origin === "scout")!.sources)).not.toBe(initiativeRevision(a.sources));
+    const retimed = deriveInitiatives({ now, projects: [project], edition: { ...edition, generatedAt: "2026-11-23T13:00:00Z" } });
+    expect(initiativeRevision(retimed.find(x => x.origin === "scout")!.sources)).toBe(initiativeRevision(a.sources));
+
   });
 
   it("preserves uncertain findings separately from verified outcomes and action authority", () => {
@@ -223,7 +230,7 @@ describe("Flyd v10 source-grounded curiosity", () => {
       enabled: true, current: refs => initiativeSourcesCurrent(refs, { ...current, projects: [] }),
     })).toEqual([]);
     expect(visibleInitiativeRecords([card], {
-      enabled: true, current: refs => initiativeSourcesCurrent(refs, { ...current, edition: { ...edition, generatedAt: "2026-11-23T15:00:00Z" } }),
+      enabled: true, current: refs => initiativeSourcesCurrent(refs, { ...current, edition: { ...edition, items: edition.items.map((item) => ({ ...item, why: "Materially revised public evidence" })) } }),
     })).toEqual([]);
   });
 
