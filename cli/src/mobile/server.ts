@@ -18,9 +18,9 @@ export interface MobileServerOptions {
   /** Today's news edition, as the desktop shows it. */
   news?(): MobileNews | null;
   /** George's more/less on a story: a local preference write (recordScoutFeedback), not an outward action. False when it is not in today's edition. */
-  rateStory?(input: { n: number; url: string; verdict: "more" | "less" }): boolean;
+  rateStory?(input: { n: number; url: string; verdict: "more" | "less"; reason?: string }): boolean;
 }
-export interface MobileNews { date: string; items: Array<{ n: number; title: string; url: string; source: string; why: string; kind: string }> }
+export interface MobileNews { date: string; items: Array<{ n: number; title: string; url: string; source: string; why: string; kind: string; evidenceUrls?: string[]; evidenceStatus?: string; updatedFrom?: string; evidenceSnippets?: string[]; evidenceCheckedAt?: string }> }
 export class HttpError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 function json(res: ServerResponse, status: number, data: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(data));
@@ -171,9 +171,12 @@ export class MobileServer {
     if (req.method === "POST" && path === "/api/news/feedback") {
       if (!this.options.rateStory) throw new HttpError(503, "News is not available on this Flyd host");
       const value = await parse(req);
-      const { n, url, verdict } = value;
+      const { n, url, verdict, reason } = value;
       if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || typeof url !== "string" || !url || (verdict !== "more" && verdict !== "less")) throw new HttpError(400, "Invalid news feedback");
-      if (!this.options.rateStory({ n, url, verdict })) throw new HttpError(409, "That story is no longer in today's news; refresh and try again");
+      if (reason !== undefined && (typeof reason !== "string" ||
+        !["wrong-topic","repeat","not-new","too-shallow","bad-source","interesting","surprising","already-knew"].includes(reason)))
+        throw new HttpError(400, "Invalid news feedback reason");
+      if (!this.options.rateStory({ n, url, verdict, ...(reason ? { reason } : {}) })) throw new HttpError(409, "That story is no longer in today's news; refresh and try again");
       json(res, 200, { ok: true, verdict }); return;
     }
     if (req.method === "POST" && path === "/api/transcribe") {

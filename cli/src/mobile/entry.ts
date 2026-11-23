@@ -44,9 +44,9 @@ export async function runMobile(args: string[] = []): Promise<void> {
       // Today's news with the desktop's more/less: a local preference write, no tool or outward action.
       news: () => {
         const edition = scout.latestEdition();
-        return edition ? { date: edition.date, items: edition.items.map(({ n, title, url, source, why, kind }) => ({ n, title, url, source, why, kind })) } : null;
+        return edition ? { date: edition.date, items: edition.items.map(({ n, title, url, source, why, kind, evidenceUrls, evidenceStatus, updatedFrom, evidenceSnippets, evidenceCheckedAt }) => ({ n, title, url, source, why, kind, evidenceUrls, evidenceStatus, updatedFrom, evidenceSnippets, evidenceCheckedAt })) } : null;
       },
-      rateStory: ({ n, url, verdict }) => scout.latestEdition()?.items.find((item) => item.n === n)?.url === url && Boolean(scout.recordScoutFeedback(n, verdict)),
+      rateStory: ({ n, url, verdict, reason }) => scout.latestEdition()?.items.find((item) => item.n === n)?.url === url && Boolean(scout.recordScoutFeedback(n, verdict, scout.scoutDir(), new Date(), reason as Parameters<typeof scout.recordScoutFeedback>[4])),
       ...(mail ? { mail: (action: string, input: Record<string, unknown>) => mail.run(action, input) } : {}),
       answer: (message, history, id) => respondToConversation({
         surface: "mobile", mobileAccounts: accounts,

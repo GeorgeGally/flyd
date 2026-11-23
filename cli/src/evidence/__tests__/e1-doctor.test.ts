@@ -25,7 +25,7 @@ describe("default evidence capability registry", () => {
       "x",
       "youtube",
     ]);
-    expect(registry.adaptersFor("web").flatMap((adapter) => adapter.operations)).toEqual(["read", "search"]);
+    expect(registry.adaptersFor("web").flatMap((adapter) => adapter.operations)).toEqual(["read", "search", "read"]);
     expect(registry.adaptersFor("github")[0].operations).toEqual(["read", "search"]);
     expect(registry.adaptersFor("hackernews")[0].operations).toEqual(["read", "search"]);
     expect(registry.adaptersFor("reddit")[0].operations).toEqual(["read", "search"]);

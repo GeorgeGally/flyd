@@ -131,6 +131,7 @@ flyd doctor [--json]                 # installed CLI diagnostics incl. live chat
 flyd evidence research "topic" [--deep] [--json]
 flyd agenda [list|add|cancel|inbox|run-due|install]           # proactive agenda          → docs/product/flyd-backstage.md
 flyd council [status|run [--all]|advisories|investigate|backfill]  # memory/projects curation → docs/product/flyd-backstage.md
+flyd initiative [status|enable|disable|pause|revoke|renew|run]  # explicit local LEARN opt-in for source-backed hypotheses; no new model egress or CoS dispatch → docs/product/flyd-self-initiated-intelligence.md
 flyd scout [show|run|watch|evolve|more N|less N|sources|taste]     # personal news          → docs/product/flyd-backstage.md
 flyd crew [list|dispatch <outcome> [--done <point>]…|show|supervise|land|discard]  # crewmates; only fully-checked self-improvement fixes land themselves, all else waits for George's /land → flyd-backstage.md
 flyd improve [status|evidence|run|routing-import|routing-audit|routing-evaluate]  # governed self-improvement → docs/product/flyd-routing-learning.md

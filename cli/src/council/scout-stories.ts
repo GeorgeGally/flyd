@@ -82,13 +82,19 @@ export function groupScoutStories(input: ScoutCandidate[]): StoryCandidate[] {
     const main = bestCandidate(group);
     const urlSet = new Set(group.flatMap((item) => [item.url, ...(item.evidenceUrls ?? [])]).map(urlKey));
     const hosts = new Set([...urlSet].map(sourceHost).filter(Boolean));
+    // Verification comes only from a completed Evidence Engine pass, not from
+    // counting syndication, discussion URLs or distinct hosting domains.
+    const verified = group.find((entry) => entry.evidenceStatus === "corroborated");
     return {
       ...main,
-      storyId: stableId(main),
+      storyId: verified?.storyId ?? stableId(main),
       evidenceUrls: [...urlSet],
-      // A domain is a conservative approximation, not proof of editorial independence.
+      ...(verified?.evidenceSnippets ? { evidenceSnippets: verified.evidenceSnippets } : {}),
+      ...(verified?.evidenceCheckedAt ? { evidenceCheckedAt: verified.evidenceCheckedAt } : {}),
+      ...(verified ? { evidenceStatus: "corroborated" as const } : {}),
+      // Source diversity is descriptive; it is never a confidence verdict.
       independentSources: hosts.size,
-      corroborationCount: Math.max(main.corroborationCount ?? 0, hosts.size),
+      corroborationCount: verified?.corroborationCount ?? main.corroborationCount ?? 0,
     };
   });
 }
@@ -98,11 +104,15 @@ export function previouslyCovered(candidate: ScoutCandidate, previous: Array<Pic
   return previous.some((prior) => sameStory(candidate, prior));
 }
 
-/** Keep the newest verified update eligible without treating slight rewordings as fresh news. */
+/** A new version/number of the *same named project* is an update, not a duplicate. */
 export function noteworthyUpdate(candidate: ScoutCandidate, previous: Pick<EditionItem, "title" | "url">): boolean {
-  if (!sameStory(candidate, previous)) return false;
+  if (candidate.evidenceStatus !== "corroborated") return false;
   const left = specificNumbers(candidate.title);
   const right = specificNumbers(previous.title);
-  // A clear changed version/number is a candidate *update* that needs fact verification.
-  return left.length > 0 && right.length > 0 && left.join(",") !== right.join(",");
+  if (!left.length || !right.length || left.join(",") === right.join(",")) return false;
+  const removeNumbers = (title: string): string => title.replace(/\b(?:v\d+(?:\.\d+){0,3}|\d+(?:\.\d+){1,3}|\d{4})\b/gi, "");
+  const a = new Set(titleTokens(removeNumbers(candidate.title)));
+  const b = new Set(titleTokens(removeNumbers(previous.title)));
+  const common = [...a].filter((word) => b.has(word)).length;
+  return common >= 3 && common / Math.max(1, Math.min(a.size, b.size)) >= 0.7;
 }

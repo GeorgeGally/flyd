@@ -2,6 +2,7 @@
 
 Date: 2026-11-23 (Bali)
 Source reviewed: main at `8dc6d665722a42f620116640f018e99116897cf1`.
+Integration checked against main at `7cd5fa1e` before publication, preserving its Scout and initiative changes.
 Status: source audit complete; Jev failure reporting implemented with this change. The communication-intent pipeline remains unimplemented.
 
 ## What George asked for
@@ -121,6 +122,7 @@ Acceptance must include:
 
 ## Verification for this change
 
+- After integration with the newer main, all six affected suites passed: 183 tests covering provider health, Jev client/registry, queued corrections, island status and the full conversation server. The production build also passed against that combined source.
 - Eight focused suites passed: 107 tests covering provider health, the existing Jev client, registry-adjacent answer/semantic contracts, island delivery and queued corrections.
 - Registry and focused conversation-server checks passed: 13 tests, including real HTTP/SSE transport for the credit warning and existing Claude notice behavior.
 - The existing page suite passed during the broader view run; existing conversation-server tests also passed apart from the new integration test's delivery-window expectation, which was corrected and verified in the focused run. Its one-minute shared delivery window is preserved, with stable incident IDs rather than new alerts per failed request.
@@ -130,4 +132,4 @@ Acceptance must include:
 
 Tests cover credit/billing versus rate limiting, sanitized persistence, deduplication, offline replay isolation, recovery, write failure, and real conversation-server transport to the notice column and island. Existing page coverage exercises the unchanged readouts and surrounding view.
 
-An unrelated existing nullable executor in `command/cos/steer.ts` blocked typechecking and could dereference null when correcting a queued plan. The accompanying minimal guard omits the absent executor from pending deliveries; a regression test covers a correction before dispatch. This does not change manifestation or Jev policy.
+An unrelated existing nullable executor in `command/cos/steer.ts` initially blocked typechecking and could dereference null when correcting a queued plan. Main subsequently received an equivalent null filter; integration retains that upstream implementation and the added regression test for a correction before dispatch. This does not change manifestation or Jev policy.

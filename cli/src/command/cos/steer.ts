@@ -110,7 +110,7 @@ async function correct(objective: Objective, message: string, team: DomainId | u
       ...current, plan: runs, briefRevision: revision, status: resumed ? "working" : current.status,
       ...(resumed ? { waitingOn: undefined, snooze: undefined } : {}), progressAt: new Date().toISOString(),
       corrections: [...(current.corrections ?? []), { revision, run: target.key, text: message, at: new Date().toISOString() }],
-      pendingCorrections: [...(current.pendingCorrections ?? []), ...[...(active ? [active] : []), ...downstream].map((run) => ({ revision, runId: run.id, text: message }))],
+      pendingCorrections: [...(current.pendingCorrections ?? []), ...[active, ...downstream].filter((run): run is DomainRun => run !== null).map((run) => ({ revision, runId: run.id, text: message }))],
     };
   });
   if (!saved) return { delivered: false, objectiveId: objective.id, reason: "not_steerable" };

@@ -1726,21 +1726,25 @@ export class ConversationViewServer {
       sendJson(res, 403, { error: "forbidden" });
       return;
     }
-    let payload: { n?: unknown; url?: unknown; verdict?: unknown };
+    let payload: { n?: unknown; url?: unknown; verdict?: unknown; reason?: unknown };
     try {
       payload = JSON.parse(await readBody(req, 4 * 1024)) as typeof payload;
     } catch {
       sendJson(res, 400, { error: "invalid body" });
       return;
     }
-    const { n, url, verdict } = payload;
+    const { n, url, verdict, reason } = payload;
     if (typeof url !== "string" || !/^https?:\/\//i.test(url) || (verdict !== "more" && verdict !== "less") || (n !== undefined && (typeof n !== "number" || !Number.isInteger(n)))) {
       sendJson(res, 400, { error: "expected { url, verdict: more|less, n? }" });
       return;
     }
     const scout = await import("../council/scout.js");
     // Any story he was shown this week, today's edition or a hot one the watch kept, is found by its link.
-    const rated = scout.recordScoutFeedback({ url }, verdict);
+    const validReasons: readonly string[] = scout.SCOUT_FEEDBACK_REASONS;
+    if (reason !== undefined && (!validReasons.includes(String(reason)) || typeof reason !== "string")) {
+      sendJson(res, 400, { error: "invalid feedback reason" }); return;
+    }
+    const rated = scout.recordScoutFeedback({ url }, verdict, scout.scoutDir(), new Date(), reason as Parameters<typeof scout.recordScoutFeedback>[4]);
     if (!rated) {
       sendJson(res, 404, { error: "not a story from this week's news" });
       return;

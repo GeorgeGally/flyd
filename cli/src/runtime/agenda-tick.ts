@@ -193,6 +193,20 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       },
     },
     {
+      // Self-started curiosity over already curated, local operational sources.
+      // No model calls, external effects or new scheduler. Shadow until
+      // explicitly enabled; candidates and decisions live on the event spine.
+      name: "initiative", usesModel: false,
+      run: async () => {
+        if (process.env.FLYD_INITIATIVE === "0" || process.env.FLYD_INITIATIVE === "off") return;
+        const { runInitiativeCycle } = await import("./initiative/cycle.js");
+        const result = await runInitiativeCycle({ ...(options.now ? { now: options.now } : {}) });
+        return result.investigated || result.published
+          ? `Investigated ${result.investigated} grounded questions; ${result.published} quiet insight cards`
+          : undefined;
+      },
+    },
+    {
       // Have the morning ready before George is up (council/morning.ts).
       name: "morning", usesModel: true,
       run: async () => {
