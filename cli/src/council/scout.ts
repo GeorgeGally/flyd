@@ -8,12 +8,12 @@ import type { ActivityRecord } from "../conversation-view/activity.js";
 import { classifyMedia, mixInspiration, workFocusFromProjects, type InspirationItem, type MediaKind, type WorkFocus } from "./inspiration.js";
 import { gatherInspiration, markShown, readShown } from "./inspiration-sources.js";
 import { localDay } from "./memory-store.js";
-import { readNewsInterests } from "./news-interests.js";
+import { newsProfile, newsTaste } from "./news-interests.js";
 import { liveProjects } from "./projects.js";
 import { providerTrouble, recordScoutRun } from "./scout-run.js";
 import { last30daysPath, researchLast30days } from "./scout-last30days.js";
 import { discoveryCandidates } from "./scout-discovery.js";
-import { prepareScoutCandidates } from "./scout-editorial.js";
+import { generalOutlet, prepareScoutCandidates } from "./scout-editorial.js";
 import { verifiedMustKnow } from "./scout-evidence.js";
 import { writeEditorialShadow } from "./scout-eval.js";
 import { groupScoutStories, previouslyCovered, noteworthyUpdate } from "./scout-stories.js";
@@ -145,19 +145,52 @@ const SEED_RSS: Array<[string, string, string]> = [
   ["Daring Fireball", "https://daringfireball.net/feeds/main", "Technology"],
   // Hermes read Two Minute Papers through a FeedBurner address that now 404s; this is the same channel's own feed.
   ["Two Minute Papers", "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg", "AI & ML"],
+  // Niche feeds for the scenes Hermes's curator favoured. Hermes's own feeds were mostly
+  // general tech, and anonymous Reddit is often rate-limited, so on a typical day these
+  // feeds supply most of the niche candidates. Each was checked to be live and recently updated (2026-11).
+  ["Right Click Save", "https://www.rightclicksave.com/rss", "Bitcoin & Crypto Art"],
+  ["Bitcoin Optech", "https://bitcoinops.org/feed.xml", "Protocol History"],
+  ["AI Weirdness", "https://www.aiweirdness.com/rss/", "AI Art"],
+  ["Red Blob Games", "https://www.redblobgames.com/blog/posts.xml", "Creative Coding"],
+  ["Ken Shirriff", "https://www.righto.com/feeds/posts/default", "Hardware Hacking"],
+  ["lcamtuf", "https://lcamtuf.substack.com/feed", "Hardware Hacking"],
+  ["Old VCR", "https://oldvcr.blogspot.com/feeds/posts/default", "Internet Archaeology"],
+  ["The Digital Antiquarian", "https://www.filfre.net/feed/", "Internet Archaeology"],
+  ["Tedium", "https://feed.tedium.co/", "Internet Archaeology"],
+  ["Internet Archive Blogs", "https://blog.archive.org/feed/", "Internet Archaeology"],
+  ["The Public Domain Review", "https://publicdomainreview.org/rss.xml", "Obscure Media"],
+  ["Open Culture", "https://www.openculture.com/feed", "Obscure Media"],
 ];
 
-/** Untried feeds the evolve step can explore (from the old Discovery catalogue, legacy/rails/config/news_feeds.yml). */
+/** Niche communities added beside Hermes's 35; they share the polite Reddit rotation. */
+const NICHE_SUBREDDITS: Record<string, string[]> = {
+  "Creative Coding": ["proceduralgeneration", "plotterart", "glitch_art", "shaders", "demoscene"],
+  "Internet Archaeology": ["lostmedia", "retrobattlestations"],
+};
+
+/**
+ * Untried feeds the evolve step explores, first in list order. Niche feeds come first;
+ * the general outlets (from the old Discovery catalogue, legacy/rails/config/news_feeds.yml)
+ * stay available but are tried last, so exploration does not fill the edition with front-page tech news.
+ */
 const RESERVE_RSS: Array<[string, string, string]> = [
+  ["Creative Applications", "https://www.creativeapplications.net/feed/", "Creative Tech"],
+  ["Computer History Museum", "https://computerhistory.org/feed/", "Protocol History"],
+  ["The History of the Web", "https://thehistoryoftheweb.com/feed/", "Protocol History"],
+  ["OS/2 Museum", "https://www.os2museum.com/wp/feed/", "Internet Archaeology"],
+  ["Low-tech Magazine", "https://solar.lowtechmagazine.com/posts/index.xml", "Odd Hardware"],
+  ["CNX Software", "https://www.cnx-software.com/feed/", "Hardware Hacking"],
+  ["Hackster.io", "https://www.hackster.io/news.atom", "Hardware Hacking"],
+  ["Atlas Obscura", "https://www.atlasobscura.com/feeds/latest", "Obscure Media"],
+  ["Nightingale", "https://nightingaledvs.com/feed/", "Data visualisation"],
   ["Information Is Beautiful", "https://feeds.feedburner.com/InformationIsBeautiful", "Design"],
   ["FlowingData", "https://flowingdata.com/feed", "Data visualisation"],
   ["Core77", "https://feeds.feedburner.com/core77/blog", "Design"],
   ["Smashing Magazine", "https://www.smashingmagazine.com/feed/", "Design"],
+  ["Design Milk", "https://feeds.feedburner.com/design-milk", "Design"],
   ["Fast Company", "https://www.fastcompany.com/latest/rss?truncated=false", "Design"],
   ["TechCrunch", "https://techcrunch.com/feed/", "Startups"],
-  ["Creative Applications", "https://www.creativeapplications.net/feed/", "Creative Tech"],
   ["The Verge", "https://www.theverge.com/rss/index.xml", "Technology"],
-  ["Design Milk", "https://feeds.feedburner.com/design-milk", "Design"],
   ["Uncrate", "https://feeds.feedburner.com/uncrate", "Design"],
   ["Slashdot", "https://rss.slashdot.org/Slashdot/slashdot", "Technology"],
   ["TechRadar", "https://www.techradar.com/feeds.xml", "Technology"],
@@ -179,7 +212,7 @@ function newSource(kind: SourceKind, name: string, target: string, category: str
 export function seedSources(now = new Date()): ScoutSource[] {
   return [
     ...SEED_RSS.map(([name, url, category]) => newSource("rss", name, url, category, "active", "seed", now)),
-    ...Object.entries(SEED_SUBREDDITS).flatMap(([category, subs]) => subs.map((sub) => newSource("reddit", redditName(sub), sub, category, "active", "seed", now))),
+    ...[SEED_SUBREDDITS, NICHE_SUBREDDITS].flatMap((group) => Object.entries(group)).flatMap(([category, subs]) => subs.map((sub) => newSource("reddit", redditName(sub), sub, category, "active", "seed", now))),
     ...RESERVE_RSS.map(([name, url, category]) => newSource("rss", name, url, category, "reserve", "seed", now)),
   ];
 }
@@ -446,15 +479,16 @@ export async function gatherCandidates(sources: ScoutSource[], options: FetchOpt
 
 export function rankPrompt(
   candidates: ScoutCandidate[],
-  context: { taste: string; feedback: ScoutFeedback[]; fitnessBySource: Record<string, number>; today: string; mode: "edition" | "watch"; policy?: "legacy" | "on" },
+  context: { taste: string; profile?: string | null; feedback: ScoutFeedback[]; fitnessBySource: Record<string, number>; today: string; mode: "edition" | "watch"; policy?: "legacy" | "on" },
 ): string {
   const list = candidates.map((candidate, index) => {
     const prior = context.fitnessBySource[candidate.sourceId];
     const verification = candidate.evidenceStatus ? " · EVIDENCE " + candidate.evidenceStatus : "";
     const change = candidate.updatedFrom ? " · VERIFIED UPDATE TO " + candidate.updatedFrom : "";
     const sources = candidate.evidenceUrls?.length ? " · supporting links: " + candidate.evidenceUrls.slice(0, 3).join(" ") : "";
+    const general = generalOutlet(candidate) ? " · GENERAL OUTLET" : "";
     const excerpts = candidate.evidenceSnippets?.length ? " · checked excerpts: " + candidate.evidenceSnippets.slice(0, 2).join(" | ").slice(0, 520) : "";
-    return `[${index}] (${candidate.source}${prior !== undefined ? ` · source fit ${prior.toFixed(2)}` : ""}${candidate.published ? ` · ${candidate.published}` : ""}${candidate.engagement ? ` · ${candidate.engagement}` : ""}${verification}${change}${sources}) ${candidate.title}${candidate.summary && candidate.summary !== candidate.title ? ` — ${candidate.summary}` : ""}${excerpts}`;
+    return `[${index}] (${candidate.source}${general}${prior !== undefined ? ` · source fit ${prior.toFixed(2)}` : ""}${candidate.published ? ` · ${candidate.published}` : ""}${candidate.engagement ? ` · ${candidate.engagement}` : ""}${verification}${change}${sources}) ${candidate.title}${candidate.summary && candidate.summary !== candidate.title ? ` — ${candidate.summary}` : ""}${excerpts}`;
   }).join("\n");
   const legacy = (context.policy ?? editorialMode()) !== "on";
   const task = context.mode === "watch"
@@ -472,9 +506,12 @@ export function rankPrompt(
       : [
         `Curate ${BRIEF_MIN}–${BRIEF_MAX} STORIES: a full edition he reads over coffee, not a tasting menu.`,
         "Work through the candidates and keep every item that clears the bar. A thin day may be shorter, but never stop early while good items remain.",
-        "Lead with developments genuinely worth attention. Do not force Bitcoin first, project name-dropping, or a fixed topical taxonomy.",
-        "Prioritise novelty, nonobvious creative experiments, concrete consequences, and interesting discoveries outside familiar topics.",
-        "A rabbit hole or serendipity pick is welcome when it earns its place. No forced quotas.",
+        "Never pad to reach the count with obvious headlines. A leaner edition of real finds beats filler.",
+        "You live where on-chain art, generative art and creative tech meet. Lead with what he lives for: real on-chain and generative art (Ordinals, inscriptions, long-form generative, 1/1s), creative coding, and AI art experiments, meaning what people are actually building. Then the weird and niche: internet archaeology, obscure media, protocol history, odd hardware, and deep dives.",
+        "Favour projects, experiments, tools, techniques and deep dives over news reports. Novel and non-obvious beats important-but-everywhere.",
+        "Obvious is a reason to drop. A story he would see on any tech front page (big-tech product launches, earnings, lawsuits, regulation, funding rounds, mainstream AI-lab announcements, gadget reviews) earns a place only when it is genuinely unusual for his world. Items marked GENERAL OUTLET clear a higher bar.",
+        "Skip PFP nonsense, floor-price and NFT-market talk, and crypto price speculation. Include BTC news only if it is genuinely unusual.",
+        "One rabbit hole, the single most interesting link of the batch: deep, weird or inspiring, not a news article. No other forced quotas.",
         "The numbers and source count are attention signals, not proof of a claim. A single unverified rumour cannot be reported as fact.",
         "Explain what happened and why George might care, grounded strictly in the candidate evidence. Do not fabricate primary confirmation.",
         "Avoid generic world news, crypto price talk, promotional posts, duplicate releases, and superficial trend chatter.",
@@ -491,6 +528,7 @@ export function rankPrompt(
     "For discoveries use checked excerpts and evidence links only; do not invent dates, statistics or central claims.",
     'Reply with JSON only: {"picks": [{"index": 0, "kind": "must|relevant|rabbit_hole", "why": "..."}]} — {"picks": []} if nothing clears the bar.',
     `--- George's taste (he wrote the seed; it evolves with his feedback) ---\n${context.taste}`,
+    ...(context.profile ? [`--- His own profile (his interests and preferences, in his words; judge what he would find interesting, never stretch a story to fit his projects) ---\n${context.profile}`] : []),
     `--- His feedback on past picks ---\n${feedbackDigest(context.feedback)}`,
     `--- Candidates ---\n${list}`,
   ].join("\n\n");
@@ -642,7 +680,8 @@ function clearPool(dir: string, upTo: Date): void {
 
 function rankContext(dir: string, now: Date, sources: ScoutSource[], mode: "edition" | "watch") {
   return {
-    taste: readNewsInterests(readTaste(dir)),
+    taste: newsTaste(readTaste(dir)),
+    profile: newsProfile(),
     feedback: readFeedback(dir),
     fitnessBySource: Object.fromEntries(sources.map((source) => [source.id, fitness(source)])),
     today: localDay(now),
@@ -692,7 +731,7 @@ function keepsTopic(source: ScoutSource): boolean {
 export async function planTopics(
   complete: (prompt: string) => Promise<string>,
   now: Date,
-  options: { taste?: string; keep?: string[]; count?: number; feedback?: ScoutFeedback[] } = {},
+  options: { taste?: string; profile?: string | null; keep?: string[]; count?: number; feedback?: ScoutFeedback[] } = {},
 ): Promise<ScoutSource[]> {
   const count = options.count ?? TOPICS_PER_EDITION;
   if (count <= 0) return [];
@@ -703,6 +742,7 @@ export async function planTopics(
     ...(options.keep?.length ? [`Already searching (do not repeat): ${options.keep.join(", ")}`] : []),
     'Reply with JSON only: {"topics": [{"topic": "...", "why": "<one line>"}]}',
     `--- George's taste ---\n${options.taste ?? SEED_TASTE}`,
+    ...(options.profile ? [`--- His own profile (interests and preferences) ---\n${options.profile}`] : []),
     `--- His feedback on past picks ---\n${feedbackDigest(options.feedback ?? [])}`,
   ].join("\n\n");
   try {
@@ -720,7 +760,7 @@ export async function planTopics(
 }
 
 export async function planInitialTopics(complete: (prompt: string) => Promise<string>, now: Date, dir = scoutDir()): Promise<ScoutSource[]> {
-  return planTopics(complete, now, { taste: readNewsInterests(readTaste(dir)), feedback: readFeedback(dir) });
+  return planTopics(complete, now, { taste: newsTaste(readTaste(dir)), profile: newsProfile(), feedback: readFeedback(dir) });
 }
 
 // ── Edition, watch, feedback ───────────────────────────────────────────────
@@ -991,7 +1031,7 @@ export function recordScoutFeedback(target: ScoutFeedbackTarget, verdict: "more"
 
 export interface EvolutionChange { kind: "paused" | "added" | "revived" | "taste" | "topics"; detail: string }
 
-export function evolvePrompt(sources: ScoutSource[], feedback: ScoutFeedback[], taste: string, today: string): string {
+export function evolvePrompt(sources: ScoutSource[], feedback: ScoutFeedback[], taste: string, today: string, profile: string | null = null): string {
   const table = sources.filter((source) => source.status !== "reserve").map((source) =>
     `- ${source.id} [${source.status}] fit ${fitness(source).toFixed(2)} (shown ${source.shown}, more ${source.likes}, less ${source.dislikes})`).join("\n");
   return [
@@ -1003,6 +1043,7 @@ export function evolvePrompt(sources: ScoutSource[], feedback: ScoutFeedback[], 
     `--- Current taste ---\n${taste}`,
     `--- Sources and fitness ---\n${table}`,
     `--- His feedback ---\n${feedbackDigest(feedback)}`,
+    ...(profile ? [`--- His own profile (interests and preferences; grow sources from these, never from his code) ---\n${profile}`] : []),
   ].join("\n\n");
 }
 
@@ -1044,13 +1085,14 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
   }
 
   const tasteFile = readTaste(dir);
-  const taste = readNewsInterests(tasteFile);
+  const taste = newsTaste(tasteFile);
+  const profile = newsProfile();
   const feedback = readFeedback(dir);
 
   // Replan search topics from his taste: keep the ones he added or liked, replace the rest.
   const activeTopics = sources.filter((source) => source.kind === "topic" && source.status === "active");
   const kept = activeTopics.filter(keepsTopic);
-  const planned = await planTopics(deps.complete, now, { taste, feedback, keep: kept.map((source) => source.target), count: TOPICS_PER_EDITION - kept.length });
+  const planned = await planTopics(deps.complete, now, { taste, feedback, profile, keep: kept.map((source) => source.target), count: TOPICS_PER_EDITION - kept.length });
   if (planned.length) {
     const plannedIds = new Set(planned.map((source) => source.id));
     sources = sources.map((source) => {
@@ -1065,7 +1107,7 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
     changes.push({ kind: "topics", detail: `now searching ${planned.map((topic) => topic.target).join(", ")}` });
   }
   try {
-    const reply = await deps.complete(evolvePrompt(sources, feedback, tasteFile, localDay(now)));
+    const reply = await deps.complete(evolvePrompt(sources, feedback, tasteFile, localDay(now), profile));
     const parsed = JSON.parse(reply.match(/\{[\s\S]*\}/)?.[0] ?? "{}") as { add?: Array<Record<string, unknown>>; taste?: string; taste_change?: string };
     for (const raw of (parsed.add ?? []).slice(0, NEW_SOURCES_PER_EVOLUTION)) {
       const kind = String(raw.kind) as SourceKind;
