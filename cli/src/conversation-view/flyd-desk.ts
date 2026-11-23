@@ -209,6 +209,8 @@ interface AskRecord {
   acted?: true;
   /** Set once the turn handed its answer to work in hand; it is delivered when that finishes, and the question is never asked again. */
   handedOff?: true;
+  /** Set once the handed-off work was cancelled: nothing more will arrive, so it is no longer looked for. */
+  handedOffEnded?: true;
   /** Where he asked it: a project's conversation or the general chat, kept so asking it again reads it the same way. */
   scope?: ChatScope;
   understanding?: TurnUnderstanding;
@@ -673,9 +675,9 @@ export class FlydDesk {
       this.resumeInterrupted();
     }
     const shown = sessionId === undefined ? this.records() : this.recordsForSession(sessionId);
-    const waitingOn = shown.some((record) => record.handedOff && !record.answer);
+    const waitingOn = shown.some((record) => record.handedOff && !record.handedOffEnded && !record.answer);
     const answers = waitingOn ? this.deferredAnswers() : [];
-    const pending = new Set(waitingOn ? listObjectives().filter((objective) => objective.answerTurn && (objective.status === "intake" || objective.status === "working") && objective.origin.turnId).map((objective) => objective.origin.turnId) : []);
+    const handed = new Map(waitingOn ? listObjectives().filter((objective) => objective.answerTurn && objective.origin.turnId).map((objective) => [objective.origin.turnId!, objective] as const) : []);
     return shown.map((record) => {
       const question: ConversationMessage = { id: `ask:${record.id}`, role: "user", text: record.text, timestamp: record.at, ...(record.images?.length ? { images: record.images } : {}), ...(record.files?.length ? { files: record.files } : {}) };
       const delivered = !record.handedOff ? undefined : answers.find((answer) => answer.turnId === question.id && (answer.sessionId === conversationOf(record) || answer.sessionId === record.sessionId));
@@ -694,7 +696,15 @@ export class FlydDesk {
           waiting: "",
         };
       }
-      if (record.handedOff && pending.has(question.id)) return { question, waiting: "" };
+      if (record.handedOff) {
+        const objective = record.handedOffEnded ? undefined : handed.get(question.id);
+        if (record.handedOffEnded || objective?.status === "cancelled") {
+          if (!record.handedOffEnded) this.write({ ...record, handedOffEnded: true });
+          return { question, waiting: "" };
+        }
+        if (objective?.status === "intake" || objective?.status === "working") return { question, waiting: "" };
+        if (objective?.status === "needs_george") return { question, waiting: `waiting on you: ${objective.waitingOn?.question ?? objective.brief?.outcome ?? objective.words}` };
+      }
       if (this.inFlight.has(record.id) && !record.error) return { question, waiting: this.steps.get(record.id) ?? answeringLine(record.text, Boolean(record.images?.length)) };
       // Flyd has already asked it again itself: what went wrong is Flyd's to read in its own record; he gets one plain line.
       return { question, waiting: COULD_NOT_ANSWER, waitingFailed: true };
