@@ -6,6 +6,7 @@ import { latestEdition, type Edition } from "../../council/scout.js";
 import { readAdvisories, type Advisory } from "../../council/advisors.js";
 import { IntelligenceEventStore, type StoredEvent } from "../../intelligence/event-store.js";
 import type { InitiativeSource } from "./candidates.js";
+import { projectRevision, scoutItemRevision, councilRevision } from "./lineage.js";
 
 export interface CurrentInitiativeEvidence {
   projects: Project[];
@@ -20,18 +21,19 @@ export function initiativeSourcesCurrent(sources: InitiativeSource[], current: C
   return sources.every(s => {
     if (!s.id || !s.revision || !s.evidenceRef) return false;
     if (s.scope === "public") {
-      if (!s.id.startsWith("scout:") || current.edition?.generatedAt !== s.revision) return false;
+      if (!s.id.startsWith("scout:") || !current.edition) return false;
       return current.edition.items.some(item =>
-        "scout:" + (item.storyId ?? item.url) === s.id && item.url === s.evidenceRef);
+        "scout:" + (item.storyId ?? item.url) === s.id && item.url === s.evidenceRef
+        && scoutItemRevision(item) === s.revision);
     }
     if (s.scope !== "local_operational") return false;
     if (s.id.startsWith("project:")) {
       const project = current.projects.find(p => "project:" + p.id === s.id);
-      return !!project && project.updated === s.revision && !["done", "paused"].includes(project.status);
+      return !!project && projectRevision(project) === s.revision && !["done", "paused"].includes(project.status);
     }
     if (s.id.startsWith("council:")) {
       return current.advisories.some(a =>
-        "council:" + a.id === s.id && a.createdAt === s.revision && a.status === "open");
+        "council:" + a.id === s.id && councilRevision(a) === s.revision && a.status === "open");
     }
     if (s.id.startsWith("cos:")) {
       return current.reports.some(e =>
