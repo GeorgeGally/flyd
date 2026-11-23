@@ -80,12 +80,12 @@ describe("Flyd directory configuration", () => {
 
     expect(config.resolveModelConnection("gpt-6-luna")).toMatchObject({
       apiKey: "opencode-key",
-      baseURL: "https://opencode.ai/inference/go/openai/v1",
+      baseURL: "https://opencode.ai/zen/go/v1",
       providerIdentity: "opencode.ai/gpt-6-luna",
     });
     expect(config.resolveModelConnection("opencode:kimi-k3")).toMatchObject({
       apiKey: "opencode-key",
-      baseURL: "https://opencode.ai/inference/openai/v1",
+      baseURL: "https://opencode.ai/zen/v1",
     });
     expect(() => config.resolveModelConnection("opencode-go/deepseek-v4-flash")).toThrow(/no longer uses/);
     const routing = await import("../../runtime/model-routing.js");

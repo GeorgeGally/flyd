@@ -19,9 +19,9 @@ dropping a provider is a one-line edit, picked up on the next call:
   "imagesOnly": ["codex"],
   "jobs": {
     "chat":       [{ "provider": "opencode-go", "model": "gpt-6-luna" }, { "provider": "anthropic", "model": "claude-sonnet-5-5" }],
-    "quick":      [{ "provider": "opencode-go", "model": "gpt-6-luna" }],
-    "background": [{ "provider": "opencode-go", "model": "gpt-6-luna" }],
-    "worker":     [{ "provider": "opencode-go", "model": "gpt-6-luna" }],
+    "quick":      [{ "provider": "opencode-go", "model": "gpt-6-luna" }, { "provider": "anthropic", "model": "claude-haiku-5-5" }],
+    "background": [{ "provider": "opencode-go", "model": "gpt-6-luna" }, { "provider": "anthropic", "model": "claude-haiku-5-5" }],
+    "worker":     [{ "provider": "opencode-go", "model": "gpt-6-luna" }, { "provider": "anthropic", "model": "claude-haiku-5-5" }],
     "crew":       [{ "provider": "claude", "model": "default" }],
     "design":     [{ "provider": "claude", "model": "opus" }],
     "images":     [{ "provider": "codex", "model": "default" }],
@@ -40,7 +40,7 @@ are used. `FLYD_MODELS_PATH` points at another file.
 ## Which providers Flyd may use
 
 OpenCode Go handles Flyd's API text and coding-worker calls by default. Chat
-falls back to Anthropic only if OpenCode Go fails. Anthropic remains available
+and every other text job fall back to Anthropic (Sonnet for chat, Haiku for the rest) only if OpenCode Go fails. Anthropic remains available
 for other jobs when chosen explicitly in `models.json`. The `claude` and
 `cursor` crew/design runners remain their existing CLI subprocesses; the
 OpenCode Go API is not a coding-session adapter. DeepSeek stays banned. George's
@@ -53,9 +53,9 @@ models bill the separate `OPENAI_API_KEY` and are not that allowance.
 | Job (`jobs.<name>`) | Default | Notes |
 | --- | --- | --- |
 | `chat`: Flyd window, TUI, overlay invocations, background agenda runs | OpenCode Go GPT-6 Luna, then Claude Sonnet 5.5 if OpenCode fails | |
-| `quick`: room reading/routing, query rewrites, the view's routing, retold answers, status lines, typing prediction, reply summaries | OpenCode Go GPT-6 Luna | Reply summaries can fall back to xAI Grok (`XAI_API_KEY` or the grok CLI's key) |
-| `background`: learning, synthesis, curation, the news edition, the council, taste | OpenCode Go GPT-6 Luna | |
-| `worker`: overlay questions (fn key, text and voice), LIVE's look-ups and actions, `flyd code` | OpenCode Go GPT-6 Luna | Each entry needs its provider's key; `/free` models are dropped when a paid one is listed |
+| `quick`: room reading/routing, query rewrites, the view's routing, retold answers, status lines, typing prediction, reply summaries | OpenCode Go GPT-6 Luna, then Claude Haiku 5.5 if OpenCode fails | Reply summaries can fall back to xAI Grok (`XAI_API_KEY` or the grok CLI's key) |
+| `background`: learning, synthesis, curation, the news edition, the council, taste | OpenCode Go GPT-6 Luna, then Claude Haiku 5.5 if OpenCode fails | |
+| `worker`: overlay questions (fn key, text and voice), LIVE's look-ups and actions, `flyd code` | OpenCode Go GPT-6 Luna, then Claude Haiku 5.5 if OpenCode fails | Each entry needs its provider's key; `/free` models are dropped when a paid one is listed |
 | `crew`: `flyd crew`, `start_coding_task` | Claude Code (`claude -p`) on George's subscription, its own default model | `claude/<model>` or `cursor/<model>`; later entries are backups a refused crewmate moves to in the same worktree. None by default: a limited Claude waits |
 | `design`: the Creative Director, Flyd's review of a lab, the Designers | Claude Opus through the `claude` CLI on George's subscription, never the metered `CLAUDE_API_KEY` | The first `claude` entry is used; `FLYD_CLAUDE_BIN` names the CLI. A plan limit or missing login stops the lab and George is told why |
 | `images` | Codex (the ChatGPT/Codex allowance) | The only job allowed on `imagesOnly` providers |
@@ -73,7 +73,7 @@ it is tried again.
 With `OPENCODE_API_KEY` in `flyd/.env`, the default text jobs use OpenCode Go.
 Anthropic remains available by adding an `anthropic` route to the relevant job
 in `~/.flyd/models.json`. OpenCode Go uses its OpenAI-compatible API at
-`https://opencode.ai/inference/go/openai/v1`. A **user-level key**
+`https://opencode.ai/zen/go/v1`. A **user-level key**
 (`sk-ant-usr…`, not scoped to a workspace) is rejected by the API unless each
 request names a workspace, so such a key also needs `CLAUDE_WORKSPACE_ID`
 (console.anthropic.com → Settings → Workspaces). A workspace-scoped key needs

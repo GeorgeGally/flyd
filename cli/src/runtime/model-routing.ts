@@ -32,15 +32,15 @@ export interface ModelRouting {
 export const CLAUDE_CHAT_MODEL_ID = "claude-sonnet-5-5";
 export const CLAUDE_QUICK_MODEL_ID = "claude-haiku-5-5";
 
-/** OpenCode Go handles text and code; Claude backs up chat; Codex is for images. */
+/** OpenCode Go handles text and code; Claude (Sonnet for chat, Haiku for the rest) backs up every text job; Codex is for images. */
 export const DEFAULT_MODEL_ROUTING: ModelRouting = {
   banned: ["deepseek"],
   imagesOnly: ["codex"],
   jobs: {
     chat: [{ provider: "opencode-go", model: "gpt-6-luna" }, { provider: "anthropic", model: CLAUDE_CHAT_MODEL_ID }],
-    quick: [{ provider: "opencode-go", model: "gpt-6-luna" }],
-    background: [{ provider: "opencode-go", model: "gpt-6-luna" }],
-    worker: [{ provider: "opencode-go", model: "gpt-6-luna" }],
+    quick: [{ provider: "opencode-go", model: "gpt-6-luna" }, { provider: "anthropic", model: CLAUDE_QUICK_MODEL_ID }],
+    background: [{ provider: "opencode-go", model: "gpt-6-luna" }, { provider: "anthropic", model: CLAUDE_QUICK_MODEL_ID }],
+    worker: [{ provider: "opencode-go", model: "gpt-6-luna" }, { provider: "anthropic", model: CLAUDE_QUICK_MODEL_ID }],
     crew: [{ provider: "claude", model: "default" }],
     design: [{ provider: "claude", model: "opus" }],
     images: [{ provider: "codex", model: "default" }],

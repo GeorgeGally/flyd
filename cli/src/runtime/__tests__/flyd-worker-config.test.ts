@@ -32,7 +32,7 @@ describe("Flyd worker configuration", () => {
       {
         apiKey: "opencode-key",
         model: "gpt-6-luna",
-        baseURL: "https://opencode.ai/inference/go/openai/v1",
+        baseURL: "https://opencode.ai/zen/go/v1",
         providerIdentity: "opencode.ai/gpt-6-luna",
       },
       {

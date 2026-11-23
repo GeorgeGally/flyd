@@ -6,7 +6,7 @@ afterEach(() => {
 });
 
 describe("OpenCode Go model routing", () => {
-  it("uses OpenCode Go defaults and resolves its API connection, with Claude as chat fallback", async () => {
+  it("uses OpenCode Go defaults and resolves its API connection, with Claude as fallback", async () => {
     vi.stubEnv("FLYD_PROVIDER", "");
     vi.stubEnv("OPENCODE_API_KEY", "opencode-key");
     vi.stubEnv("CLAUDE_API_KEY", "claude-key");
@@ -25,12 +25,12 @@ describe("OpenCode Go model routing", () => {
       "opencode-go:gpt-6-luna",
       "anthropic:claude-sonnet-5-5",
     ]);
-    expect(routing.modelRoutes("quick")).toEqual([{ provider: "opencode-go", model: "gpt-6-luna" }]);
-    expect(routing.modelRoutes("background")).toEqual([{ provider: "opencode-go", model: "gpt-6-luna" }]);
+    expect(routing.modelRoutes("quick")).toEqual([{ provider: "opencode-go", model: "gpt-6-luna" }, { provider: "anthropic", model: "claude-haiku-5-5" }]);
+    expect(routing.modelRoutes("background")).toEqual([{ provider: "opencode-go", model: "gpt-6-luna" }, { provider: "anthropic", model: "claude-haiku-5-5" }]);
     expect(config.resolveModelConnection("opencode-go:gpt-6-luna")).toEqual({
       model: "opencode-go:gpt-6-luna",
       apiKey: "opencode-key",
-      baseURL: "https://opencode.ai/inference/go/openai/v1",
+      baseURL: "https://opencode.ai/zen/go/v1",
       providerIdentity: "opencode.ai/gpt-6-luna",
     });
     expect(worker.loadFlydWorkerConfigs({
@@ -39,7 +39,7 @@ describe("OpenCode Go model routing", () => {
     })).toEqual([{
       apiKey: "opencode-key",
       model: "gpt-6-luna",
-      baseURL: "https://opencode.ai/inference/go/openai/v1",
+      baseURL: "https://opencode.ai/zen/go/v1",
       providerIdentity: "opencode.ai/gpt-6-luna",
     }]);
   });

@@ -5,7 +5,7 @@ describe("Flyd worker model fallback", () => {
   it("tries the configured OpenCode model first and stays on the fallback after failover", async () => {
     const primary = {
       apiKey: "primary-secret", model: "gpt-6-luna",
-      baseURL: "https://opencode.ai/inference/go/openai/v1", providerIdentity: "opencode.ai/gpt-6-luna",
+      baseURL: "https://opencode.ai/zen/go/v1", providerIdentity: "opencode.ai/gpt-6-luna",
     };
     const fallback = {
       apiKey: "fallback-secret", model: "openrouter/free",

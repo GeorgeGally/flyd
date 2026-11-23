@@ -322,7 +322,7 @@ describe("providers", () => {
     expect(JSON.parse(String(requests[1]!.init.body))).toMatchObject({ model: "claude-haiku-4-5-20251001", system: SUMMARY_PROMPT });
 
     expect(await opencodeProvider("ok", "gpt-6-luna", fake({ choices: [{ message: { content: "The change is ready." } }] })).summarize("reply", signal)).toBe("The change is ready.");
-    expect(requests[2]!.url).toBe("https://opencode.ai/inference/go/openai/v1/chat/completions");
+    expect(requests[2]!.url).toBe("https://opencode.ai/zen/go/v1/chat/completions");
     expect((requests[2]!.init.headers as Record<string, string>).authorization).toBe("Bearer ok");
     expect(JSON.parse(String(requests[2]!.init.body))).toMatchObject({ model: "gpt-6-luna", messages: [{ role: "system", content: SUMMARY_PROMPT }, { role: "user", content: "reply" }] });
   });
