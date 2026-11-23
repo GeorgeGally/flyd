@@ -442,7 +442,8 @@ export class IntelligenceEventStore {
       const found = rows.flatMap(row => {
         try {
           const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
-          return payload.type === "research_claim" || payload.type === "investigation" ? [row.sequence] : [];
+          return payload.type === "research_claim" || payload.type === "investigation"
+            || payload.type === "initiative_review" ? [row.sequence] : [];
         } catch { return []; }
       });
       const cos = this.linkedCosReportSequences(new Set(this.eventReferences(found)));
