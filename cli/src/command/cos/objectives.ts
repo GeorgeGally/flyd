@@ -109,3 +109,27 @@ export function openVerifiedInitiativeResearch(input: {
   if (!saved) throw new Error("Could not persist initiative research in CoS");
   return { objective: saved, created };
 }
+
+
+/** Revocation removes readable generated work text from CoS's separate JSON
+ * store. Opaque objective IDs remain only for once-only audit and replay.
+ */
+export function purgeInitiativeObjectives(dir = commandDir()): number {
+  let count = 0;
+  for (const objective of listObjectives(dir)) {
+    if (objective.origin.surface !== "initiative") continue;
+    const changed = mutateObjective(objective.id, (current) => {
+      if (!current || current.origin.surface !== "initiative"
+        || (current.words === "(revoked)" && !current.initiative)) return null;
+      count++;
+      return {
+        ...current, status: "cancelled", words: "(revoked)",
+        flydNotes: "", contextRefs: [], project: undefined,
+        initiative: undefined, brief: undefined, plan: undefined,
+        after: undefined, reportIds: [], pendingReport: undefined,
+      };
+    }, dir);
+    void changed;
+  }
+  return count;
+}
