@@ -97,7 +97,7 @@ describe("Claude request shape", () => {
     expect(call.params.model).toBe("claude-haiku-5-5");
     expect(call.params.thinking).toEqual({ type: "disabled" });
     expect(call.params.temperature).toBeUndefined();
-    expect(readSpendLedger().bySource.quick.calls).toBe(1);
+    expect(readSpendLedger().bySource["lib/__tests__/llm-claude.test"].calls).toBe(1);
   });
 
   it("runs quick jobs on Haiku", async () => {

@@ -330,7 +330,8 @@ describe("what the review found still reaching him", () => {
       await scheduleCardWords([source], { path, ask: always, now: () => now });
       now += 31 * 60_000;
     }
-    expect(always).toHaveBeenCalledTimes(MAX_TRIES);
+    // A reply the guard rejects falls back to plain words and is not asked again.
+    expect(always).toHaveBeenCalledTimes(1);
   });
 
   it("never sends a board placeholder to the model, and asks once for a card and its Timeline entry", () => {

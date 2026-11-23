@@ -75,7 +75,7 @@ describe("one-shot model chain", () => {
   });
 
   it("runs on OpenCode Go by default", () => {
-    expect(oneShotModelChain()).toEqual(["opencode-go:gpt-6-luna"]);
+    expect(oneShotModelChain()).toEqual(["opencode-go:gpt-6-luna", "anthropic:claude-haiku-5-5"]);
   });
 
   it("follows the config's order, and drops Claude while it is off and CommandCode without its key", () => {

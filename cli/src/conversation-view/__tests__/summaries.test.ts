@@ -20,6 +20,7 @@ import {
   xaiProvider,
   type SummaryProvider,
 } from "../summaries.js";
+import { setModelRouting } from "../../runtime/model-routing.js";
 import { ABOUT_FIXES, KINSTA_RULES, KINSTA_TABLE } from "./fixtures/replies.js";
 
 let dir: string;
@@ -284,6 +285,9 @@ describe("ReplySummarizer", () => {
 });
 
 describe("providers", () => {
+  beforeEach(() => setModelRouting({}));
+  afterEach(() => setModelRouting(null));
+
   it("tries OpenCode Go, then Claude Haiku, then xAI", () => {
     expect(defaultProviders({ env: { OPENAI_API_KEY: "o" }, home: dir })).toEqual([]);
     expect(defaultProviders({ env: {}, home: dir })).toEqual([]);

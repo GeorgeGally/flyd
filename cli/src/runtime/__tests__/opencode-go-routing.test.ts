@@ -8,6 +8,7 @@ afterEach(() => {
 describe("OpenCode Go model routing", () => {
   it("uses OpenCode Go defaults and resolves its API connection, with Claude as fallback", async () => {
     vi.stubEnv("FLYD_PROVIDER", "");
+    vi.stubEnv("FLYD_MODELS_PATH", "");
     vi.stubEnv("OPENCODE_API_KEY", "opencode-key");
     vi.stubEnv("CLAUDE_API_KEY", "claude-key");
     vi.stubEnv("FLYD_CLAUDE", "1");

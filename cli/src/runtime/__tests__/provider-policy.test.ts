@@ -124,11 +124,11 @@ describe("the Claude coding worker counts against Flyd's monthly Claude cap", ()
 
 describe("one model config", () => {
   it("routes default text jobs to OpenCode Go and keeps Claude Code and Codex assignments", () => {
-    setModelRouting(null);
+    setModelRouting({});
     expect(DEFAULT_MODEL_ROUTING.banned).toEqual(["deepseek"]);
     expect(chatModelChain()).toEqual(["opencode-go:gpt-6-luna", "anthropic:claude-sonnet-5-5"]);
-    expect(quickModelChain()).toEqual(["opencode-go:gpt-6-luna"]);
-    expect(oneShotModelChain()).toEqual(["opencode-go:gpt-6-luna"]);
+    expect(quickModelChain()).toEqual(["opencode-go:gpt-6-luna", "anthropic:claude-haiku-5-5"]);
+    expect(oneShotModelChain()).toEqual(["opencode-go:gpt-6-luna", "anthropic:claude-haiku-5-5"]);
     expect(modelRoutes("images", DEFAULT_MODEL_ROUTING)).toEqual([{ provider: "codex", model: "default" }]);
     expect(modelRoutes("crew", DEFAULT_MODEL_ROUTING)).toEqual([{ provider: "claude", model: "default" }]);
     expect(modelRoutes("design", DEFAULT_MODEL_ROUTING)).toEqual([{ provider: "claude", model: "opus" }]);
@@ -152,7 +152,7 @@ describe("one model config", () => {
     expect(chatModelChain()).toEqual(["opencode-go:gpt-6-luna", "anthropic:claude-sonnet-5-5"]);
     writeFileSync(path, "{ not json");
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(quickModelChain()).toEqual(["opencode-go:gpt-6-luna"]);
+    expect(quickModelChain()).toEqual(["opencode-go:gpt-6-luna", "anthropic:claude-haiku-5-5"]);
     expect(error).toHaveBeenCalled();
     error.mockRestore();
   });
