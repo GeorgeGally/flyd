@@ -47,6 +47,8 @@ export interface ThreadSummary {
   at?: string;
   /** The newest thing said to him here, for the unread mark. */
   replyAt?: string;
+  /** His comment is the latest thing here, so the row sits below projects he has not yet gone through. */
+  commented?: true;
   /** The newest picture in the thread (an image or a kept screenshot), as a same-origin src; a screenshot's still needs the view token. */
   picture?: string;
   count: number;
@@ -61,7 +63,19 @@ export interface ThreadList {
   other?: ThreadSummary;
 }
 
-interface Entry { message: ConversationMessage; at: number; projects: string[] }
+interface Entry { message: ConversationMessage; at: number; projects: string[]; addressed?: string }
+
+const COMMENT_NOTE = /^Comment on (?:a passage|the phone preview)\b/;
+
+function commentNote(text: string): boolean {
+  return COMMENT_NOTE.test(text.trim());
+}
+
+function countsForOrder(entry: Entry, name: string): boolean {
+  const { message, addressed } = entry;
+  if (message.role === "user" && message.waitingFailed && commentNote(message.text)) return false;
+  return addressed === undefined || addressed === name;
+}
 
 interface SessionIndex {
   stamp: string;
@@ -273,7 +287,12 @@ export class ProjectThreads {
           // A resumed session repeats the one it came from.
           if (seen.has(message.id)) continue;
           seen.add(message.id);
-          entries.push({ message: session.shown.get(message.id)!, at: Date.parse(message.timestamp ?? "") || 0, projects: tags.get(message.id) ?? [] });
+          const note = message.role === "user" ? plainNote(message.text) : undefined;
+          const addressed = note && !message.waitingFailed && commentNote(note.words) ? note.project ?? "" : undefined;
+          entries.push({
+            message: session.shown.get(message.id)!, at: Date.parse(message.timestamp ?? "") || 0, projects: tags.get(message.id) ?? [],
+            ...(addressed !== undefined ? { addressed } : {}),
+          });
         }
       }
     }
@@ -339,7 +358,7 @@ export class ProjectThreads {
     };
   }
 
-  /** Every project with something said, newest first. */
+  /** Every project with something said, newest first, except a project he has commented on, which sits below what he has not yet gone through. */
   list(): ThreadList {
     const byName = new Map<string, Entry[]>();
     for (const entry of this.entries) {
@@ -348,8 +367,17 @@ export class ProjectThreads {
         if (entries) entries.push(entry); else byName.set(name, [entry]);
       }
     }
-    const projects = [...byName].map(([name, entries]) => this.summary(threadId(name), name, entries))
-      .sort((a, b) => Date.parse(b.at ?? "") - Date.parse(a.at ?? ""));
+    const stamp = (value: string) => {
+      const time = Date.parse(value);
+      return Number.isNaN(time) ? 0 : time;
+    };
+    const projects = [...byName].map(([name, entries]) => {
+      const summary = this.summary(threadId(name), name, entries);
+      const counting = entries.filter((entry) => countsForOrder(entry, name));
+      const last = counting.at(-1)?.message;
+      const talked = Boolean(last && last.role === "user" && commentNote(last.text));
+      return { summary: talked ? { ...summary, commented: true as const } : summary, talked, sortAt: counting.at(-1)?.message.timestamp ?? "" };
+    }).sort((a, b) => Number(a.talked) - Number(b.talked) || stamp(b.sortAt) - stamp(a.sortAt)).map((row) => row.summary);
     const other = this.entries.filter((entry) => !entry.projects.length);
     return {
       ready: this.ready, projects,

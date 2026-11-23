@@ -4116,6 +4116,27 @@ describe("project threads", () => {
     expect((document.getElementById("rtab-threads-dot") as HTMLElement).hidden).toBe(false);
   });
 
+  it("keeps a commented project under the ones not yet gone through, even when it has the only picture", async () => {
+    listed({
+      ready: true,
+      projects: [
+        { id: "project:logan", name: "Logan", question: "gradients", answer: "In.", at: "2026-11-06T10:00:00.000Z", replyAt: "2026-11-06T10:00:00.000Z", count: 1 },
+        { id: "project:dir", name: "DIR", question: "the ident", answer: "Smaller.", at: "2026-11-06T09:00:00.000Z", replyAt: "2026-11-06T09:00:00.000Z", count: 1 },
+        { id: "project:pierre", name: "Pierre", question: "Keep the radio.", answer: "The board is up.", at: "2026-11-07T12:00:00.000Z", replyAt: "2026-11-06T08:00:00.000Z", count: 2, commented: true, picture: "/api/image?session=project%3Apierre&id=1" },
+      ],
+    });
+    load("");
+    await settle();
+    expect(Array.from(document.querySelectorAll(".thread-name")).map((row) => row.textContent)).toEqual(["Logan", "DIR", "Pierre"]);
+    expect(document.querySelector(".thread-lead")).toBeNull();
+    expect(document.querySelector('[data-thread="project:pierre"]')!.classList.contains("on")).toBe(false);
+    seenFrom("2026-11-06T07:00:00.000Z");
+    load("");
+    await settle();
+    expect(document.querySelector('[data-thread="project:pierre"]')!.classList.contains("unread")).toBe(true);
+    expect(document.querySelector('[data-thread="project:logan"]')!.classList.contains("unread")).toBe(true);
+  });
+
   it("opens every conversation from the line under the list", async () => {
     listed(LIST);
     load("");
