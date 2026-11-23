@@ -4,6 +4,7 @@ import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
 import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
 import { usesOpenAITransport, apiModelId, defaultModel, oneShotModelChain, quickModelChain, resolveModelConnection, type ModelConnection } from "./config.js";
 import { claudeHeaders, compatibleClaudeHeaders, recordClaudeUsage, recordCompatibleClaudeUsage, type ClaudeUsage } from "./claude-spend.js";
+import { opencodeHeaders } from "../runtime/opencode-headers.js";
 
 interface FixtureRule {
   /** Prompt must contain this substring. */
@@ -192,6 +193,7 @@ function openAIClientOptions(apiKey: string, baseURL?: string) {
   return {
     apiKey,
     baseURL: baseURL || undefined,
+    ...(Object.keys(opencodeHeaders(baseURL)).length ? { defaultHeaders: opencodeHeaders(baseURL) } : {}),
   };
 }
 
@@ -562,7 +564,7 @@ async function queryOpenAIWithConfig(
   options: QueryOptions = {}
 ): Promise<string> {
   const { default: OpenAI } = await import("openai");
-  const client = new OpenAI({ ...openAIClientOptions(apiKey, baseURL), defaultHeaders: compatibleClaudeHeaders(baseURL) });
+  const client = new OpenAI({ ...openAIClientOptions(apiKey, baseURL), defaultHeaders: { ...opencodeHeaders(baseURL), ...compatibleClaudeHeaders(baseURL) } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [];
   if (system) messages.push({ role: "system", content: system });

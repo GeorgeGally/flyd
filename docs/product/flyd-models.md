@@ -73,7 +73,7 @@ it is tried again.
 With `OPENCODE_API_KEY` in `flyd/.env`, the default text jobs use OpenCode Go.
 Anthropic remains available by adding an `anthropic` route to the relevant job
 in `~/.flyd/models.json`. OpenCode Go uses its OpenAI-compatible API at
-`https://opencode.ai/zen/go/v1`. A **user-level key**
+`https://opencode.ai/inference/go/v1` (on 2026-11-23 one POST to its `/chat/completions` with model `gpt-6-luna` returned HTTP 200; requests need a flyd user agent plus `x-opencode-session` or the API returns 400 MissingSessionID, so Flyd sends both). A **user-level key**
 (`sk-ant-usr…`, not scoped to a workspace) is rejected by the API unless each
 request names a workspace, so such a key also needs `CLAUDE_WORKSPACE_ID`
 (console.anthropic.com → Settings → Workspaces). A workspace-scoped key needs

@@ -80,7 +80,7 @@ describe("Flyd directory configuration", () => {
 
     expect(config.resolveModelConnection("gpt-6-luna")).toMatchObject({
       apiKey: "opencode-key",
-      baseURL: "https://opencode.ai/zen/go/v1",
+      baseURL: "https://opencode.ai/inference/go/v1",
       providerIdentity: "opencode.ai/gpt-6-luna",
     });
     expect(config.resolveModelConnection("opencode:kimi-k3")).toMatchObject({

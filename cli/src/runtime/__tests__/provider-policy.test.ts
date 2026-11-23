@@ -61,7 +61,7 @@ describe("provider policy: OpenCode Go APIs, Claude Code crews, Codex only for i
     for (const model of ["opencode-go/deepseek-v4.1-flash", "commandcode:deepseek/deepseek-v4-flash", "codex"]) {
       expect(() => resolveModelConnection(model), model).toThrow(/no longer uses|images only/);
     }
-    expect(resolveModelConnection("opencode-go:gpt-6-luna").baseURL).toBe("https://opencode.ai/zen/go/v1");
+    expect(resolveModelConnection("opencode-go:gpt-6-luna").baseURL).toBe("https://opencode.ai/inference/go/v1");
     // With Claude at its cap there is nothing left, and Flyd says so rather than falling back.
     vi.stubEnv("FLYD_CLAUDE", "0");
     expect(() => defaultModel()).toThrow("No model can do Flyd's background jobs");

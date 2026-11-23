@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ClaudeUsage } from "../lib/claude-spend.js";
+import { opencodeHeaders } from "../runtime/opencode-headers.js";
 import { opencodeEndpoint } from "../runtime/flyd-worker-config.js";
 import { namesBackstage } from "../runtime/honesty-check.js";
 import { plainSaid } from "../lib/backstage.js";
@@ -396,7 +397,7 @@ export function opencodeProvider(apiKey: string, model: string, fetchFn: FetchFn
       const response = await fetchFn(`${opencodeEndpoint("opencode-go")}/chat/completions`, {
         method: "POST",
         signal,
-        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}`, ...opencodeHeaders(opencodeEndpoint("opencode-go")) },
         body: JSON.stringify({
           model,
           max_tokens: 320,

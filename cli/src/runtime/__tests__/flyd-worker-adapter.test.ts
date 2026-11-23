@@ -7,7 +7,7 @@ describe("Flyd native worker adapter", () => {
   const config = {
     apiKey: "provider-secret",
     model: "gpt-6-luna",
-    baseURL: "https://opencode.ai/zen/go/v1",
+    baseURL: "https://opencode.ai/inference/go/v1",
     providerIdentity: "opencode.ai/gpt-6-luna",
   };
   const fallbackConfig = {

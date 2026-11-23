@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { apiModelId, FLYD_DIR, getKey, quickModelChain, resolveModelConnection } from "../lib/config.js";
 import { qualifiedModelProvider } from "../runtime/flyd-worker-config.js";
+import { opencodeHeaders } from "../runtime/opencode-headers.js";
 import { claudeHeaders, recordClaudeUsage, type ClaudeUsage } from "../lib/claude-spend.js";
 import { EgressPolicyGateway } from "../intelligence/egress-policy-gateway.js";
 import type { ConversationMessage } from "./types.js";
@@ -120,7 +121,7 @@ export async function completePrediction(prompt: string, model: string, signal: 
   const url = (connection.baseURL ?? "https://api.openai.com/v1").replace(/\/$/, "") + "/chat/completions";
   const outbound = checkEgress(prompt, connection.providerIdentity);
   const response = await fetch(url, {
-    method: "POST", signal, headers: { "content-type": "application/json", authorization: `Bearer ${connection.apiKey}` },
+    method: "POST", signal, headers: { "content-type": "application/json", authorization: `Bearer ${connection.apiKey}`, ...opencodeHeaders(connection.baseURL) },
     body: JSON.stringify({ model: apiModelId(model), messages: [{ role: "system", content: SYSTEM }, { role: "user", content: outbound }], max_tokens: 96, temperature: 0.1,
       ...(model.startsWith("openrouter:") ? { reasoning: { effort: "none", exclude: true }, provider: { sort: "latency", allow_fallbacks: false, data_collection: "deny" } } : {}),
     }),

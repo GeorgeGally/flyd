@@ -13,7 +13,7 @@ export interface FlydWorkerConfig {
 
 const OPENCODE_ENDPOINTS: Record<string, string> = {
   opencode: "https://opencode.ai/zen/v1",
-  "opencode-go": "https://opencode.ai/zen/go/v1",
+  "opencode-go": "https://opencode.ai/inference/go/v1",
 };
 
 const OPENCODE_MODEL_PREFIX = /^(opencode-go|opencode)\//;
