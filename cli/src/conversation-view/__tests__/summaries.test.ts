@@ -284,19 +284,20 @@ describe("ReplySummarizer", () => {
 });
 
 describe("providers", () => {
-  it("uses OpenCode Go by default and requires an explicit quick-job route for Anthropic", () => {
+  it("tries OpenCode Go, then Claude Haiku, then xAI", () => {
     expect(defaultProviders({ env: { OPENAI_API_KEY: "o" }, home: dir })).toEqual([]);
     expect(defaultProviders({ env: {}, home: dir })).toEqual([]);
     expect(defaultProviders({ env: { OPENCODE_API_KEY: "o" }, home: dir }).map((p) => p.name))
       .toEqual(["opencode-go:gpt-6-luna"]);
     expect(defaultProviders({ env: { OPENCODE_API_KEY: "o", XAI_API_KEY: "x", ANTHROPIC_API_KEY: "a" }, home: dir }).map((p) => p.name))
-      .toEqual(["opencode-go:gpt-6-luna", "xai:grok-4-fast-non-reasoning"]);
-    expect(defaultProviders({ env: { CLAUDE_API_KEY: "c" }, home: dir })).toEqual([]);
+      .toEqual(["opencode-go:gpt-6-luna", "anthropic:claude-haiku-5-5", "xai:grok-4-fast-non-reasoning"]);
+    expect(defaultProviders({ env: { CLAUDE_API_KEY: "c" }, home: dir }).map((p) => p.name))
+      .toEqual(["anthropic:claude-haiku-5-5"]);
     expect(defaultProviders({ env: { CLAUDE_API_KEY: "c", FLYD_CLAUDE: "0" }, home: dir })).toEqual([]);
     mkdirSync(join(dir, ".grok"));
     writeFileSync(join(dir, ".grok", "user-settings.json"), JSON.stringify({ apiKey: "from-grok-cli" }));
     expect(defaultProviders({ env: {}, home: dir, anthropicKey: "a" }).map((p) => p.name))
-      .toEqual(["xai:grok-4-fast-non-reasoning"]);
+      .toEqual(["anthropic:claude-haiku-5-5", "xai:grok-4-fast-non-reasoning"]);
     expect(defaultProviders({ env: { FLYD_VIEW_SUMMARIES: "0", XAI_API_KEY: "x" }, home: dir })).toEqual([]);
   });
 
