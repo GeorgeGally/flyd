@@ -128,7 +128,12 @@ export function recordInitiativeReview(input: {
     retentionClass: "local_default", payloadClassification: "operational",
     provenance: "explicit-user:initiative-review", idempotencyKey: "review:" + candidateId + ":" + version,
     correlationId: candidateId, evidenceRefs: ["event:" + research.id],
-    payload: { type: "initiative_review", candidate_id: candidateId, verdict, effect: "unknown" },
+    payload: {
+      type: "initiative_review", candidate_id: candidateId, verdict, effect: "unknown",
+      revision: research.payload?.source_revision,
+      sources: research.payload?.sources,
+      source_keys: (research.payload?.sources as InitiativeSource[]).map(s => s.id),
+    },
   };
   if (!validateEnvelope(envelope, { consentLookup: store }).ok) return "not_eligible";
   return store.append(envelope) ? "recorded" : "not_eligible";
