@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { FLYD_DIR } from "../lib/config.js";
-import { INITIATIVE_CURATED_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
+import { INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
 import { IntelligenceEventStore, defaultIntelligenceDbPath } from "../intelligence/event-store.js";
 import { activityRecordPath } from "../conversation-view/activity.js";
 import { initiativeMode, runInitiativeCycle } from "../runtime/initiative/cycle.js";
@@ -28,6 +28,39 @@ export function erasePreparedInitiativeCards(path = activityRecordPath()): numbe
 export async function runInitiativeCommand(action = "status"): Promise<void> {
   const registry = new SourceContractRegistry();
   registry.register(INITIATIVE_CURATED_CONTRACT);
+  registry.register(INITIATIVE_PUBLIC_RESEARCH_CONTRACT);
+  if (action === "research-enable") {
+    if (registry.status(ID) !== "enabled") throw new Error("Enable local initiative first: flyd initiative enable");
+    if (registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) === "revoked") {
+      throw new Error("Public research was revoked. Run flyd initiative research-renew before enabling it.");
+    }
+    registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "enabled");
+    console.log("Enabled bounded PUBLIC evidence lookup only. Private project facts cannot enter the public query.");
+    return;
+  }
+  if (action === "research-disable" || action === "research-pause") {
+    registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, action === "research-pause" ? "paused" : "disabled");
+    console.log("Background public research stopped.");
+    return;
+  }
+  if (action === "research-revoke") {
+    registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "revoked");
+    // The local hypotheses remain governed by the separate initiative.curated
+    // consent; anything derived from a public research receipt is hidden via
+    // revalidation and erased by the initiative's main revoke command.
+    console.log("Public research permission revoked; no further external lookups may start.");
+    return;
+  }
+  if (action === "research-renew") {
+    registry.renew(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId);
+    console.log("Public research consent reset to disabled. Enable explicitly if needed.");
+    return;
+  }
+  if (action === "research-run") {
+    const { runInitiativeResearchCycle } = await import("../runtime/initiative/research-cycle.js");
+    console.log(JSON.stringify(await runInitiativeResearchCycle({ registry }), null, 2));
+    return;
+  }
   if (action === "enable") {
     if (registry.status(ID) === "revoked") {
       throw new Error("Initiative source was revoked. Run flyd initiative renew, then enable it explicitly.");
@@ -39,6 +72,7 @@ export async function runInitiativeCommand(action = "status"): Promise<void> {
   }
   if (action === "disable" || action === "pause") {
     registry.setStatus(ID, action === "pause" ? "paused" : "disabled");
+    registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "disabled");
     console.log("Proactive investigation " + (action === "pause" ? "paused" : "disabled") + "; previously prepared cards are no longer shown.");
     return;
   }
@@ -48,6 +82,7 @@ export async function runInitiativeCommand(action = "status"): Promise<void> {
       return;
     }
     registry.setStatus(ID, "revoked");
+    registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "revoked");
     let events = 0;
     const dbPath = defaultIntelligenceDbPath();
     if (existsSync(dbPath)) {
@@ -77,19 +112,25 @@ export async function runInitiativeCommand(action = "status"): Promise<void> {
     return;
   }
   if (action === "run") {
-    console.log(JSON.stringify(await runInitiativeCycle(), null, 2));
+    const local = await runInitiativeCycle();
+    const { runInitiativeResearchCycle } = await import("../runtime/initiative/research-cycle.js");
+    const publicResearch = registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) === "enabled"
+      ? await runInitiativeResearchCycle({ registry }) : { held: ["public_research_not_enabled"] };
+    console.log(JSON.stringify({ local, publicResearch }, null, 2));
     return;
   }
   if (action !== "status") {
-    throw new Error("Usage: flyd initiative status | enable | disable | pause | revoke | renew | run");
+    throw new Error("Usage: flyd initiative status|enable|disable|pause|revoke|renew|run|research-enable|research-disable|research-pause|research-revoke|research-renew|research-run");
   }
   console.log([
     "Flyd self-initiated intelligence",
     "Local curated source: " + (registry.status(ID) ?? "disabled"),
     "Presentation mode: " + initiativeMode(),
+    "Public research permission: " + registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId),
     "Inputs: curated projects, Scout discoveries, Council advice, CoS outcome receipts",
-    "Permission: local only. No external model or automatic worker actions.",
+    "Local initiative is private. Separately enabled PUBLIC lookups may use public Scout titles/URLs only.",
     "Output: one quiet source-linked hypothesis a day; original evidence remains authoritative.",
-    "Opt in explicitly with flyd initiative enable. Shadow without cards: FLYD_INITIATIVE=shadow.",
+    "Opt in: flyd initiative enable. Optional public research: flyd initiative research-enable.",
+    "Shadow without cards: FLYD_INITIATIVE=shadow. No private model upload or automatic external effects.",
   ].join("\n"));
 }
