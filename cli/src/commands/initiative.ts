@@ -185,6 +185,8 @@ export async function runInitiativeCommand(action = "status", projectId?: string
       const store = new IntelligenceEventStore({ path: dbPath });
       try {
         events = store.eraseSource(ID).tombstone.eventCount;
+        store.eraseSource(INITIATIVE_MANDATE_CONTRACT.sourceId);
+        store.eraseSource(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId);
         const removed = erasePreparedInitiativeCards(activityRecordPath(FLYD_DIR));
         for (const sweep of store.pendingSweeps(ID).filter(s => s.surface === "legacy_copies")) {
           store.completeSweep(sweep.sweepId);
@@ -199,7 +201,7 @@ export async function runInitiativeCommand(action = "status", projectId?: string
   }
   if (action === "renew") {
     registry.renew(ID);
-    registry.renew(INITIATIVE_MANDATE_CONTRACT.sourceId);
+    // Mandates remain revoked until a separate explicit renew-mandates action.
     const dbPath = defaultIntelligenceDbPath();
     if (existsSync(dbPath)) {
       const store = new IntelligenceEventStore({ path: dbPath });
