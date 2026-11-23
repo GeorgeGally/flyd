@@ -116,7 +116,7 @@ export async function researchInitiative(
   const base = {
     candidateId: candidate.id, sourceRevision: createHash("sha256")
       .update(JSON.stringify(candidate.sources.map(s => [s.id, s.revision]))).digest("hex").slice(0, 24),
-    policyVersion: RESEARCH_POLICY,
+    policyVersion: RESEARCH_POLICY as typeof RESEARCH_POLICY,
     checkedClaim: "What does the cited public reference actually document?",
     citedEvidence: [] as InitiativeResearchReceipt["citedEvidence"],
     counterEvidence: [] as string[], gaps: [] as string[],
