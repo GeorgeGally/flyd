@@ -16,7 +16,7 @@ import { listObjectives } from "../../command/cos/objectives.js";
 
 const now = new Date("2026-11-23T12:00:00Z");
 const project: Project = {
-  id: "flyd-tech", name: "Flyd Technical R&D", what: "Graph engine with visual types",
+  id: "flyd-tech", name: "Visual Graph Rendering Lab", what: "Graph engine with visual types",
   kind: "product", status: "active", now: "Evaluating graph renderers",
   people: [], repos: [], updated: "2026-11-23",
 };
