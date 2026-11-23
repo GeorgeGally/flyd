@@ -365,6 +365,47 @@ export class IntelligenceEventStore {
     });
   }
 
+  /** Retract an obsolete question/revision without removing a newly revised case. */
+  retractInitiativeCases(cases: Array<{ candidateId: string; revision: string }>): number {
+    const match = new Set(cases.map(c => c.candidateId + "@" + c.revision));
+    if (!match.size) return 0;
+    return this.transaction(() => {
+      const rows = this.db.prepare(
+        "SELECT sequence, payload_json FROM personal_events WHERE source_id = 'initiative.curated'" +
+        " AND erased = 0 AND payload_json IS NOT NULL",
+      ).all() as Array<{ sequence: number; payload_json: string }>;
+      const erase = rows.flatMap(row => {
+        try {
+          const p = JSON.parse(row.payload_json) as Record<string, unknown>;
+          const id = p.candidate_id;
+          const rev = p.revision ?? p.source_revision;
+          return typeof id === "string" && typeof rev === "string" && match.has(id + "@" + rev)
+            ? [row.sequence] : [];
+        } catch { return []; }
+      });
+      this.retractSequences(erase);
+      return erase.length;
+    });
+  }
+
+  /** Public research consent is separate from local candidate consent. */
+  retractInitiativeResearch(): number {
+    return this.transaction(() => {
+      const rows = this.db.prepare(
+        "SELECT sequence, payload_json FROM personal_events WHERE source_id = 'initiative.curated'" +
+        " AND erased = 0 AND payload_json IS NOT NULL",
+      ).all() as Array<{ sequence: number; payload_json: string }>;
+      const found = rows.flatMap(row => {
+        try {
+          const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
+          return payload.type === "research_claim" || payload.type === "investigation" ? [row.sequence] : [];
+        } catch { return []; }
+      });
+      this.retractSequences(found);
+      return found.length;
+    });
+  }
+
   /**
    * Source erasure (PRD §3.2): destroy every readable payload for the
    * source, write a non-identifying tombstone (count + time only), queue
