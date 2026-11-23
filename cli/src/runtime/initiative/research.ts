@@ -8,6 +8,8 @@ import {
 } from "../../intelligence/sensors/source-contracts.js";
 import type { ContextEnvelope } from "../../intelligence/context-envelope.js";
 import { scoutItemRevision } from "./lineage.js";
+import { safePublicLocator } from "./public-url.js";
+export { safePublicLocator } from "./public-url.js";
 import { synthesizePublicEvidence, type PublicModelInterpretation } from "./public-synthesis.js";
 import { initiativeRevision, type InitiativeCandidate } from "./candidates.js";
 import type { Edition, EditionItem } from "../../council/scout.js";
@@ -64,17 +66,6 @@ export interface InitiativeResearchDeps {
   publicSynthesis?: typeof synthesizePublicEvidence;
 }
 
-export function safePublicLocator(raw: string): string | null {
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== "https:" || url.username || url.password || url.port && url.port !== "443") return null;
-    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    if (!host || host === "localhost" || host.endsWith(".local") || host.endsWith(".internal")
-      || host.includes(":") || /^\d+\.\d+\.\d+\.\d+$/.test(host)
-      || host === "0.0.0.0") return null;
-    return url.href;
-  } catch { return null; }
-}
 
 function eligibleItem(candidate: InitiativeCandidate, edition: Edition | null): EditionItem | null {
   if (!edition || candidate.origin !== "scout") return null;
