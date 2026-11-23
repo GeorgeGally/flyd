@@ -70,7 +70,6 @@ ${FRONT_HTML}
   <div class="row">
     <p class="unread" id="staff" role="status" hidden></p>
     <ul class="commands" id="commands" role="listbox" aria-label="Skills and commands" hidden></ul>
-    <div class="replying" id="replying" hidden><p class="replying-to">Replying to <span id="replying-title"></span></p><button class="replying-clear" type="button" id="replying-clear" aria-label="Stop replying to this">✕</button></div>
     <p class="notice" id="notice" role="status" aria-live="polite" hidden></p>
     <div class="attachments" id="attachments" hidden></div>
     <div class="article-confirm" id="article-confirm" hidden>
@@ -78,18 +77,19 @@ ${FRONT_HTML}
       <button type="button" id="article-confirm-yes">Remember</button>
       <button type="button" id="article-confirm-no">Not now</button>
     </div>
-    <div class="scope-line"><button class="scope" id="scope" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="scope-menu">To: <span id="scope-name">Flyd</span></button><ul class="scope-menu" id="scope-menu" role="listbox" aria-label="Where this message goes" hidden></ul></div>
+    <div class="scope-line"><button class="scope" id="scope" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="scope-menu"><span id="scope-name">Project</span></button><ul class="scope-menu" id="scope-menu" role="listbox" aria-label="Where this message goes" hidden></ul></div>
     <div class="field">
+      <div class="replying" id="replying" hidden><p class="replying-to">Replying to <span id="replying-title"></span></p><button class="replying-clear" type="button" id="replying-clear" aria-label="Stop replying to this">✕</button></div>
       <button class="attach" id="attach" type="button" aria-label="Attach images or documents" title="Attach images or documents">+</button>
       <input type="file" id="attach-input" multiple hidden tabindex="-1">
       <span class="story-chip" id="story-chip" hidden><span class="story-chip-name" id="story-chip-name"></span><button type="button" id="story-chip-clear" aria-label="Stop asking about this story">✕</button></span>
       <div class="typing">
         <div class="prediction-layer" id="prediction-layer" aria-hidden="true" hidden><span class="prediction-prefix" id="prediction-prefix"></span><span class="prediction-suffix" id="prediction-suffix"></span></div>
-        <textarea id="input" rows="1" placeholder="Message ${label}" aria-label="Message ${label}"></textarea>
+        <textarea id="input" rows="1" placeholder="Message" aria-label="Message"></textarea>
       </div>
       <span class="voice-wait" id="voice-wait" role="status" hidden><span class="spokes" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="voice-wait-said" id="voice-wait-said"></span></span>
       <button class="prediction-toggle" id="prediction-toggle" type="button" aria-label="Toggle typing suggestions" aria-pressed="true">↹</button>
-      <button id="send" type="submit" disabled aria-label="Send to ${label}">Send</button>
+      <button id="send" type="submit" disabled aria-label="Send message">Send</button>
     </div>
     <div class="hint" id="usage"></div>
   </div>

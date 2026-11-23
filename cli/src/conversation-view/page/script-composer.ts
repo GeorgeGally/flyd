@@ -349,12 +349,12 @@ export const COMPOSER_SCRIPT = `
   var scopeSessionId = null;
   var scopeDrawn = null;
   function scopeNow() { return scopeChoice !== null ? scopeChoice : scopeThread; }
-  function scopeLabel(name) { return !name ? "Flyd" : name.toLowerCase() === "flyd" ? "Flyd (project)" : name; }
+  function scopeLabel(name) { return !name ? "Project" : name.toLowerCase() === "flyd" ? "Flyd (project)" : name; }
   function drawScope() {
     var name = scopeNow();
     scopeNameEl.textContent = scopeLabel(name);
     scopeBtn.classList.toggle("project", !!name);
-    scopeBtn.setAttribute("aria-label", name ? "To " + scopeLabel(name) + ". Change where this goes" : "To Flyd, no project. Change where this goes");
+    scopeBtn.setAttribute("aria-label", name ? "Change project: " + scopeLabel(name) : "Choose a project");
     if (scopeDrawn) scopeDrawn();
   }
   // A new conversation starts where it is: a project's thread speaks for that project, anything else is general.
@@ -387,7 +387,7 @@ export const COMPOSER_SCRIPT = `
       choice.setAttribute("role", "option");
       choice.setAttribute("aria-selected", name === now ? "true" : "false");
       choice.dataset.scope = name;
-      choice.textContent = name ? scopeLabel(name) : "Flyd, no project";
+      choice.textContent = name ? scopeLabel(name) : "No project";
       choice.addEventListener("click", function () { pickScope(name); });
       item.appendChild(choice);
       scopeMenu.appendChild(item);
@@ -659,7 +659,7 @@ export const COMPOSER_SCRIPT = `
   function replyTo(title, send, prefill, takesAttachments) {
     replying = title && send ? { title: title, send: send, takes: !!takesAttachments } : null;
     replyingEl.hidden = !replying;
-    document.getElementById("replying-title").textContent = replying ? title : "";
+    document.getElementById("replying-title").textContent = replying ? title.replace(/^Flyd:\\s+/, "") : "";
     if (!replying) return;
     if (prefill && input.value.indexOf(prefill) === -1) input.value = prefill + input.value.replace(/^\s+/, "");
     grow();
