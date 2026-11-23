@@ -47,6 +47,8 @@ export interface DomainRequest {
   source?: "chat" | "self-improvement" | "system" | "view" | "flyd";
   /** The conversation-window session a "view" request was sent from. */
   session?: string;
+  /** The conversation turn for a delegated answer. */
+  turnId?: string;
   project?: { name?: string; root?: string };
   contextRefs?: string[];
   parentRequestId?: string;

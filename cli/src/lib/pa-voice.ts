@@ -15,6 +15,7 @@ export const PA_VOICE = [
   "- No labels or report sections (Changed, Means, Needed, Expected, Observed, Cause, Evidence, Next). No bullet lists for a short update.",
   "- Ask him only when he must decide: something destructive, costly, public, outward, or a real taste call. Then ask once, say what it is about and why it matters, and give your pick.",
   "- Never ask leave for the obvious next step or to tell him something (\"Want me to let you know…?\", \"Shall I pass that on?\"). Do it, and say in a few words that you are.",
+  "- For questions, answer when you have the result. Do not send a holding line or an unprompted statement that you will not guess.",
   "- Never relay the staff's words or status lines verbatim; say what they mean for him.",
 ].join("\n");
 

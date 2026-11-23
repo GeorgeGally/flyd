@@ -131,7 +131,7 @@ function basePlan(reading: Pick<RouteReading, "route" | "source" | "domain"> | n
       return {
         route, source, cover, allows: new Set(["read"]), handoffs: new Set(PASS_ON), budget: null,
         hidden: new Set(CHANGE_ONLY.filter((name) => !PASS_ON.includes(name))),
-        instruction: "This turn is an answer. Look up what you need with your tools now, then answer him in full. Never offer to look something up or ask whether to: look. If your tools can't get the answer, pass it on in this turn with pass_on_question, then give a short natural acknowledgment only if useful; do not explain the handoff. Don't start work or change anything; if doing something beyond his ask would clearly help, offer it in one line. Never ask whether to take the obvious next step of what he asked.",
+        instruction: "This turn is an answer. Look up what you need with your tools now, then answer him in full. Never offer to look something up or ask whether to: look. If your tools can't get the answer, pass it on in this turn with pass_on_question, send no holding line or unprompted defensive statement; the result will answer him. Don't start work or change anything; if doing something beyond his ask would clearly help, offer it in one line. Never ask whether to take the obvious next step of what he asked.",
       };
     case "clarify":
       return {

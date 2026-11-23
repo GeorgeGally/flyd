@@ -60,6 +60,7 @@ export interface CosTickDeps {
   /** Passes a message on to a run (messages.ts `sendRunMessage`). */
   send?: typeof sendRunMessage;
   store?: IntelligenceEventStore;
+  answerDir?: string;
   now?: () => Date;
 }
 
@@ -128,6 +129,12 @@ async function report(objective: Objective, made: CosReport, deps: CosTickDeps, 
   // the fact that this outcome was selected.
   recordCosReport(made, store, now);
   try {
+    if (objective.answerTurn && objective.origin.turnId && objective.origin.sessionId && status === "done") {
+      const refs = planOf(objective).filter((run) => run.ref).map((run) => run.ref!);
+      const result = refs.map((ref) => resultText(ref)).filter(Boolean).join("\n\n") || made.detail || made.outcome;
+      const { deliverDeferredAnswer } = await import("../../conversation-view/deferred-answer.js");
+      deliverDeferredAnswer({ runId: refs.at(-1) ?? objective.id, sessionId: objective.origin.sessionId.replace(/^view:/, ""), turnId: objective.origin.turnId, text: result, at: now.toISOString() }, deps.answerDir);
+    }
     await tell();
   } catch (error) {
     // Keep the durable claim until its lease expires; then the same keyed

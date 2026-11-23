@@ -236,6 +236,8 @@ export interface AssistantToolContext {
   background?: boolean;
   /** The conversation this turn belongs to, recorded on an objective handed off from it. */
   sessionId?: string;
+  turnId?: string;
+  answerTurn?: boolean;
 }
 
 function lines(text: unknown): string[] {
@@ -400,7 +402,8 @@ export async function runAssistantTool(
         const project = handOffProject(context);
         const objective = openObjective({
           words, flydNotes: String(input.notes ?? "").trim(),
-          origin: { surface: "chat", ...(context.sessionId ? { sessionId: context.sessionId } : {}) },
+          origin: { surface: "chat", ...(context.sessionId ? { sessionId: context.sessionId } : {}), ...(context.turnId ? { turnId: context.turnId } : {}) },
+          ...(context.answerTurn && context.turnId && context.sessionId ? { answerTurn: true } : {}),
           ...(urgency ? { urgency } : {}), ...(project ? { project } : {}),
           ...(context.chatScope && !context.chatScope.project ? { general: true } : {}),
         });
@@ -542,11 +545,11 @@ export async function runAssistantTool(
           });
           if (run.status === "refused") return `Coding request refused: ${run.reason}`;
           if (run.run.failure) return run.run.failure;
-          return `Passed on (run ${run.run.id}); the answer comes back to George here when it's ready. Tell him in a line that it's being looked into; don't say who has it or mention the id.`;
+          return `Passed on (run ${run.run.id}); the answer comes back to George here when it's ready. Do not send a holding line or say who has it.`;
         }
         const { dispatchKnowledgeDomain } = await import("../command/librarian.js");
         const run = dispatchKnowledgeDomain({ originalMessage, intendedOutcome: `Answer George's question and change nothing: ${question}`, doneWhen: answerOnly, background: context.background });
-        return `Passed on (run ${run.id}); the answer comes back to George here when it's ready. Tell him in a line that it's being looked into; don't say who has it or mention the id.`;
+        return `Passed on (run ${run.id}); the answer comes back to George here when it's ready. Do not send a holding line or say who has it.`;
       }
       case "background_task": {
         const jobs = await import("./background-jobs.js");

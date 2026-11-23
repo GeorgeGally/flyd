@@ -1,3 +1,5 @@
+import { readDeferredAnswers } from "./deferred-answer.js";
+import { listObjectives } from "../command/cos/objectives.js";
 import { PreparationStore } from "../runtime/preparation-store.js";
 import type { ConversationTurnSource } from "../runtime/conversation-turn.js";
 import { asksToChangeFlyd, isAccountIntent } from "../connectors/invocation.js";
@@ -478,8 +480,13 @@ export class FlydDesk {
       .filter((other) => other.id !== id && Date.parse(other.at) <= Date.parse(record.at));
     const kept = record.images ?? [];
     const scope = record.scope;
+    const delivered = readDeferredAnswers(join(this.dir, "..", "deferred-answers"));
     const earlierAnswered = earlier
-      .filter((earlier) => earlier.answer)
+      .map((item) => {
+        const answer = delivered.find((entry) => entry.turnId === `ask:${item.id}` && (entry.sessionId === conversationOf(item) || entry.sessionId === item.sessionId));
+        return answer ? { ...item, answer: answer.text } : item;
+      })
+      .filter((item) => item.answer)
       .slice(-HISTORY_EXCHANGES);
     const history = earlierAnswered
       .flatMap((earlier) => [
@@ -554,6 +561,7 @@ export class FlydDesk {
     };
     void answering
       .then((answer) => {
+        if (answer === "__FLYD_DEFERRED_ANSWER__") { settle(); return; }
         const body = typeof answer === "string" ? null : answerBody(answer);
         const text = (typeof answer === "string" ? withoutObviousAsk(answer) : plainAnswer(body!)).trim();
         if (!text) throw new Error("no answer came back");
@@ -651,8 +659,12 @@ export class FlydDesk {
       this.resumed = true;
       this.resumeInterrupted();
     }
+    const answers = readDeferredAnswers(join(this.dir, "..", "deferred-answers"));
+    const pending = new Set(listObjectives().filter((objective) => objective.answerTurn && objective.origin.turnId).map((objective) => objective.origin.turnId));
     return (sessionId === undefined ? this.records() : this.recordsForSession(sessionId)).map((record) => {
       const question: ConversationMessage = { id: `ask:${record.id}`, role: "user", text: record.text, timestamp: record.at, ...(record.images?.length ? { images: record.images } : {}), ...(record.files?.length ? { files: record.files } : {}) };
+      const delivered = answers.find((answer) => answer.turnId === question.id && (answer.sessionId === conversationOf(record) || answer.sessionId === record.sessionId));
+      if (delivered) return { question, answer: { id: `answer:${record.id}`, role: "assistant" as const, text: inFlydsVoice(delivered.text), timestamp: delivered.at, answers: question.id }, waiting: "" };
       if (record.answer) {
         const preparation = record.preparationId ? this.preparations.read(record.preparationId) : undefined;
         const prepared = preparation?.status === "prepared" && preparation.content
@@ -667,6 +679,7 @@ export class FlydDesk {
           waiting: "",
         };
       }
+      if (pending.has(question.id)) return { question, waiting: "" };
       if (this.inFlight.has(record.id) && !record.error) return { question, waiting: this.steps.get(record.id) ?? answeringLine(record.text, Boolean(record.images?.length)) };
       // Flyd has already asked it again itself: what went wrong is Flyd's to read in its own record; he gets one plain line.
       return { question, waiting: COULD_NOT_ANSWER, waitingFailed: true };
