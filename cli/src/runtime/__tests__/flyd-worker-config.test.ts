@@ -21,21 +21,27 @@ describe("Flyd worker configuration", () => {
     expect(JSON.stringify({ ...config, apiKey: "[REDACTED]" })).not.toContain("secret-provider-key");
   });
 
-  it("never uses a banned provider, by model or endpoint, even with its key set", () => {
+  it("uses OpenCode Go models and filters banned model families", () => {
     const environment = { OPENCODE_API_KEY: "opencode-key", COMMANDCODE_API_KEY: "cc-key", OPENROUTER_API_KEY: "router-key" };
     const routing = worker(
-      { provider: "opencode-go", model: "deepseek-v4.1-flash" },
+      { provider: "opencode-go", model: "gpt-6-luna" },
       { provider: "commandcode", model: "deepseek/deepseek-v4-flash" },
       { provider: "openrouter", model: "moonshot/kimi-k3" },
     );
-    expect(loadFlydWorkerConfigs({ environment, routing })).toEqual([{
-      apiKey: "router-key",
-      model: "moonshot/kimi-k3",
-      baseURL: "https://openrouter.ai/api/v1",
-      providerIdentity: "openrouter.ai/moonshot/kimi-k3",
-    }]);
-    expect(() => loadFlydWorkerConfigs({ environment: { ...environment, OPENROUTER_BASE_URL: "https://opencode.ai/zen/go/v1" }, routing }))
-      .toThrow("No coding model is available");
+    expect(loadFlydWorkerConfigs({ environment, routing })).toEqual([
+      {
+        apiKey: "opencode-key",
+        model: "gpt-6-luna",
+        baseURL: "https://opencode.ai/inference/go/v1",
+        providerIdentity: "opencode.ai/gpt-6-luna",
+      },
+      {
+        apiKey: "router-key",
+        model: "moonshot/kimi-k3",
+        baseURL: "https://openrouter.ai/api/v1",
+        providerIdentity: "openrouter.ai/moonshot/kimi-k3",
+      },
+    ]);
   });
 
   it("follows a swap in the config, and drops /free when a paid model exists", () => {

@@ -156,7 +156,7 @@ Also generate a scoring rubric — a short paragraph describing what makes a "go
 Return raw JSON only (no markdown, no code fences):
 {"queries": ["query1", "query2", ...], "rubric": "rubric text"}`;
 
-  const raw = await query(prompt, model);
+  const raw = await query(prompt, model, undefined, undefined, undefined, { source: "lib/skill-optimizer" });
   let parsed: { queries?: string[]; rubric?: string };
   try {
     parsed = JSON.parse(raw);
@@ -251,7 +251,7 @@ async function executeTask(skill: Skill, task: Task, model: string): Promise<str
   const prompt = EXECUTOR_PROMPT
     .replace("{{skill}}", skill.content)
     .replace("{{query}}", task.query);
-  return await query(prompt, model);
+  return await query(prompt, model, undefined, undefined, undefined, { source: "lib/skill-optimizer" });
 }
 
 async function judgeResponse(skill: Skill, task: Task, response: string, rubric: string, model: string): Promise<Score> {
@@ -260,7 +260,7 @@ async function judgeResponse(skill: Skill, task: Task, response: string, rubric:
     .replace("{{query}}", task.query)
     .replace("{{response}}", response)
     .replace("{{rubric}}", rubric);
-  const raw = await query(prompt, model);
+  const raw = await query(prompt, model, undefined, undefined, undefined, { source: "lib/skill-optimizer" });
   try {
     const parsed = JSON.parse(raw);
     const tc = Math.max(0, Math.min(1, parsed.taskCompletion ?? 0));
@@ -316,7 +316,7 @@ Rules:
 
 Output ONLY the full skill content including frontmatter.`;
 
-  const content = await query(prompt, optimizerModel);
+  const content = await query(prompt, optimizerModel, undefined, undefined, undefined, { source: "lib/skill-optimizer" });
   // Validate it has valid frontmatter
   const parsed = parse(content);
   if (!parsed.metadata.name) {

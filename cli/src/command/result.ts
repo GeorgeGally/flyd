@@ -230,7 +230,7 @@ export function proseOutcomeByWords(_reply: string): ProseOutcome {
 export async function defaultProseJudge(): Promise<ProseJudge | undefined> {
   if (process.env.VITEST) return undefined;
   const { query } = await import("../lib/llm.js");
-  return modelProseJudge((prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }));
+  return modelProseJudge((prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true, source: "command/result" }));
 }
 
 /** Flyd's model reads what a prose reply says happened; any failure leaves it to proseOutcomeByWords. */

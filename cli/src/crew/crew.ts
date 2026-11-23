@@ -296,10 +296,13 @@ export async function dispatchCrewTask(options: DispatchOptions): Promise<CrewTa
   return readTask(id, dir)!;
 }
 
-/** Start the crewmate on its model: Cursor's agent for a "cursor/…" model, Claude Code for the rest. Never OpenCode, DeepSeek or the ChatGPT allowance. */
+/** Start the crewmate on its model: Cursor's agent for a "cursor/…" model, Claude Code for the rest. */
 export function launchCrewmate(task: CrewTask, brief: string): number | undefined {
   const model = task.model ?? crewModel();
   refuseForText(model, "crew work");
+  if (!model.startsWith(CURSOR_PREFIX) && !CLAUDE_PREFIX.test(model)) {
+    throw new Error(`Crew model ${model} has no session adapter`);
+  }
   return model.startsWith(CURSOR_PREFIX) ? launchCursor(task, brief) : launchClaude(task, brief);
 }
 
@@ -369,7 +372,8 @@ export function launchClaude(task: CrewTask, brief: string): number | undefined 
  */
 export const DEFAULT_CREW_MODEL = "claude/default";
 function crewModels(): string[] {
-  return modelRoutes("crew").map((route) => routeTarget("crew", route)).filter(allowedForText);
+  return modelRoutes("crew").map((route) => routeTarget("crew", route))
+    .filter((model) => (model.startsWith(CURSOR_PREFIX) || CLAUDE_PREFIX.test(model)) && allowedForText(model));
 }
 export function crewModel(): string {
   return crewModels()[0] ?? DEFAULT_CREW_MODEL;
@@ -616,7 +620,7 @@ async function defaultReview(prompt: string, builtBy: string): Promise<string | 
     timer.unref();
   });
   try {
-    return await Promise.race([query(prompt, undefined, undefined, undefined, undefined, { chain }), timeout]);
+    return await Promise.race([query(prompt, undefined, undefined, undefined, undefined, { chain, source: "crew/crew" }), timeout]);
   } finally {
     clearTimeout(timer);
   }

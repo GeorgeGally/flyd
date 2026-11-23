@@ -49,7 +49,7 @@ Topic: "${topic}"
 Correction: "${correction}"
 
 Respond with ONLY the directory name. If uncertain, use "corrections".`;
-    const dir = await query(prompt, m);
+    const dir = await query(prompt, m, undefined, undefined, undefined, { source: "commands/correct" });
     const dirLower = dir.trim().toLowerCase();
     const knownDirs = ["identity", "career", "projects", "skills", "education", "awards", "testimonials", "people", "constraints"];
     const matchedDir = knownDirs.find(d => dirLower.includes(d));

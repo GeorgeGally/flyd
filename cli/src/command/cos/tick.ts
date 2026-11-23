@@ -861,7 +861,7 @@ async function attend(id: string, deps: CosTickDeps, store: IntelligenceEventSto
   });
 }
 
-const defaultComplete: Complete = async (prompt) => (await import("../../lib/llm.js")).quickQuery(prompt, { json: true });
+const defaultComplete: Complete = async (prompt) => (await import("../../lib/llm.js")).quickQuery(prompt, { json: true, source: "command/cos/tick" });
 
 /** The models that built a result, by the team that ran each final step: coding on the crew's, creative on design's, the rest on chat's. */
 async function builders(finals: PlannedRun[]): Promise<string[]> {
@@ -878,7 +878,7 @@ async function builders(finals: PlannedRun[]): Promise<string[]> {
 /** Acceptance on another model family than the builders' when one is configured; otherwise the quick models, as before. */
 const defaultCheck = async (prompt: string, builtBy: string[]): Promise<string> => {
   const [{ quickQuery }, { checkerModelChain, quickModelChain }] = await Promise.all([import("../../lib/llm.js"), import("../../lib/config.js")]);
-  return quickQuery(prompt, { json: true, chain: checkerModelChain(builtBy, quickModelChain) });
+  return quickQuery(prompt, { json: true, chain: checkerModelChain(builtBy, quickModelChain), source: "command/cos/tick" });
 };
 const defaultDecide = async (run: DomainRun): Promise<ExecutiveDecisionRecord> => (await import("../scheduler.js")).decideRun(run, sendRunMessage);
 const defaultTell = async (run: DomainRun, decision: ExecutiveDecisionRecord, key: string): Promise<unknown> => (await import("../scheduler.js")).tellRun(run, decision, { key });

@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import { runFlydWorkerLoop, type FlydCompletionClient } from "./flyd-worker-loop.js";
 import { createFlydWorkerTools } from "./flyd-worker-tools.js";
 import type { FlydWorkerConfig } from "./flyd-worker-config.js";
+import { opencodeHeaders } from "./opencode-headers.js";
 import { compatibleClaudeHeaders, recordCompatibleClaudeUsage } from "../lib/claude-spend.js";
 
 function argumentsMap(argv: string[]): Map<string, string> {
@@ -80,7 +81,7 @@ export function completionClient(
   const performRequest: CompletionRequest = request ?? (async (config, input) => {
     let client = clients.get(config.providerIdentity);
     if (!client) {
-      client = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseURL, defaultHeaders: compatibleClaudeHeaders(config.baseURL) });
+      client = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseURL, defaultHeaders: { ...opencodeHeaders(config.baseURL), ...compatibleClaudeHeaders(config.baseURL) } });
       clients.set(config.providerIdentity, client);
     }
     return client.chat.completions.create({

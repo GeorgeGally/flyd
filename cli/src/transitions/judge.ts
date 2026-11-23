@@ -427,7 +427,7 @@ function buildPrompt(candidates: TransitionCandidate[]): string {
 
 async function defaultModelCall(prompt: string): Promise<string> {
   const connection = resolveModelConnection();
-  return query(prompt, connection.model);
+  return query(prompt, connection.model, undefined, undefined, undefined, { source: "transitions/judge" });
 }
 
 let sweepInFlight = false;

@@ -22,7 +22,7 @@ function fixture(options = {}) {
   return { root, engine, close: () => { engine.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 test('default is non-Meta and serialized client is executable JavaScript', () => {
-  assert.equal(DEFAULT_PREDICTION_MODEL, 'openrouter:inception/mercury-2.5');
+  assert.equal(DEFAULT_PREDICTION_MODEL, 'opencode-go:gpt-6-luna');
   assert.doesNotThrow(() => new Function('return (' + installComposerPredictions.toString() + ')'));
 });
 test('repeated submitted phrases match without a model, survive restart, and are private', async () => {
@@ -84,11 +84,11 @@ test('malformed saved metrics cannot break the composer', async () => {
   const f = fixture(); try { writeFileSync(join(f.root, 'metrics.json'), JSON.stringify({ broken: { latencyMs: 'oops', requests: 'no' } })); const engine = new ComposerPredictions({ root: f.root }); assert.doesNotThrow(() => engine.status()); engine.close(); } finally { f.close(); }
 });
 test('actual transport sends bounded no-reasoning context, propagates abort and parses exact suffix', async () => {
-  const previousFetch = globalThis.fetch; const previousKey = process.env.OPENROUTER_API_KEY;
-  let request; process.env.OPENROUTER_API_KEY = 'test';
+  const previousFetch = globalThis.fetch; const previousKey = process.env.OPENCODE_API_KEY;
+  let request; process.env.OPENCODE_API_KEY = 'test';
   globalThis.fetch = async (url, options) => { request = { url, ...options }; return new Response(JSON.stringify({ choices: [{ message: { content: '{"suffix":" and check the tests"}' } }], usage: { prompt_tokens: 10, completion_tokens: 6, cost: 0.000001 } })); };
   try {
     const controller = new AbortController(); const result = await completePrediction(predictionPrompt(input()), DEFAULT_PREDICTION_MODEL, controller.signal);
-    const body = JSON.parse(request.body); assert.equal(body.model, 'inception/mercury-2.5'); assert.equal(body.max_tokens, 96); assert.equal(body.reasoning.effort, 'none'); assert.equal(body.provider.allow_fallbacks, false); assert.equal(body.provider.data_collection, 'deny'); assert.equal(request.signal, controller.signal); assert.equal(result.text, ' and check the tests'); assert.equal(result.cost, .000001);
-  } finally { globalThis.fetch = previousFetch; if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = previousKey; }
+    const body = JSON.parse(request.body); assert.equal(body.model, 'gpt-6-luna'); assert.equal(body.max_tokens, 96); assert.equal(request.headers.authorization, 'Bearer test'); assert.ok(request.headers['x-opencode-session']); assert.equal(request.signal, controller.signal); assert.equal(result.text, ' and check the tests'); assert.equal(result.cost, .000001);
+  } finally { globalThis.fetch = previousFetch; if (previousKey === undefined) delete process.env.OPENCODE_API_KEY; else process.env.OPENCODE_API_KEY = previousKey; }
 });

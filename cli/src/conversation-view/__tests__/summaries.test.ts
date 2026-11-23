@@ -13,12 +13,14 @@ import {
   isActionable,
   isRoutine,
   isRoutineAnswer,
+  opencodeProvider,
   replyArtefact,
   ReplySummarizer,
   SUMMARY_PROMPT,
   xaiProvider,
   type SummaryProvider,
 } from "../summaries.js";
+import { setModelRouting } from "../../runtime/model-routing.js";
 import { ABOUT_FIXES, KINSTA_RULES, KINSTA_TABLE } from "./fixtures/replies.js";
 
 let dir: string;
@@ -283,12 +285,18 @@ describe("ReplySummarizer", () => {
 });
 
 describe("providers", () => {
-  it("asks Claude Haiku first, then xAI, from env, the grok CLI's settings or Flyd's config; FLYD_VIEW_SUMMARIES=0 turns them off", () => {
+  beforeEach(() => setModelRouting({}));
+  afterEach(() => setModelRouting(null));
+
+  it("tries OpenCode Go, then Claude Haiku, then xAI", () => {
     expect(defaultProviders({ env: { OPENAI_API_KEY: "o" }, home: dir })).toEqual([]);
     expect(defaultProviders({ env: {}, home: dir })).toEqual([]);
-    expect(defaultProviders({ env: { XAI_API_KEY: "x", ANTHROPIC_API_KEY: "a" }, home: dir }).map((p) => p.name))
-      .toEqual(["anthropic:claude-haiku-5-5", "xai:grok-4-fast-non-reasoning"]);
-    expect(defaultProviders({ env: { CLAUDE_API_KEY: "c" }, home: dir }).map((p) => p.name)).toEqual(["anthropic:claude-haiku-5-5"]);
+    expect(defaultProviders({ env: { OPENCODE_API_KEY: "o" }, home: dir }).map((p) => p.name))
+      .toEqual(["opencode-go:gpt-6-luna"]);
+    expect(defaultProviders({ env: { OPENCODE_API_KEY: "o", XAI_API_KEY: "x", ANTHROPIC_API_KEY: "a" }, home: dir }).map((p) => p.name))
+      .toEqual(["opencode-go:gpt-6-luna", "anthropic:claude-haiku-5-5", "xai:grok-4-fast-non-reasoning"]);
+    expect(defaultProviders({ env: { CLAUDE_API_KEY: "c" }, home: dir }).map((p) => p.name))
+      .toEqual(["anthropic:claude-haiku-5-5"]);
     expect(defaultProviders({ env: { CLAUDE_API_KEY: "c", FLYD_CLAUDE: "0" }, home: dir })).toEqual([]);
     mkdirSync(join(dir, ".grok"));
     writeFileSync(join(dir, ".grok", "user-settings.json"), JSON.stringify({ apiKey: "from-grok-cli" }));
@@ -317,5 +325,12 @@ describe("providers", () => {
     expect(requests[1]!.url).toBe("https://api.anthropic.com/v1/messages");
     expect((requests[1]!.init.headers as Record<string, string>)["x-api-key"]).toBe("ak");
     expect(JSON.parse(String(requests[1]!.init.body))).toMatchObject({ model: "claude-haiku-4-5-20251001", system: SUMMARY_PROMPT });
+
+    expect(await opencodeProvider("ok", "gpt-6-luna", fake({ choices: [{ message: { content: "The change is ready." } }] })).summarize("reply", signal)).toBe("The change is ready.");
+    expect(requests[2]!.url).toBe("https://opencode.ai/inference/go/v1/chat/completions");
+    expect((requests[2]!.init.headers as Record<string, string>).authorization).toBe("Bearer ok");
+    expect((requests[2]!.init.headers as Record<string, string>)["x-opencode-session"]).toBeTruthy();
+    expect((requests[2]!.init.headers as Record<string, string>)["user-agent"]).toBe("flyd/1.0");
+    expect(JSON.parse(String(requests[2]!.init.body))).toMatchObject({ model: "gpt-6-luna", messages: [{ role: "system", content: SUMMARY_PROMPT }, { role: "user", content: "reply" }] });
   });
 });

@@ -188,7 +188,8 @@ describe("E4: 'The picture desk isn't shipping, and I'm replacing it', which ask
     expect(source.asks).toBe(false);
     expect(cardSource("Flyd", "Needs you", "Hero", "Hero is live on staging: merge to main", undefined, { wantsAnswer: true }).asks).toBeUndefined();
     const invented = await translateCard(source, async () => JSON.stringify({ title: "Flyd: the picture desk is on hold", body: "Tell me whether to keep that version or drop it." }));
-    expect(invented).toBeNull();
+    expect(invented).toEqual(fallbackWords("Flyd", "needs", "Needs you", false));
+    expect(`${invented?.title} ${invented?.body}`).not.toMatch(/tell me whether/i);
     const told = await translateCard(source, async () => JSON.stringify({ title: "Flyd: the picture desk is being replaced", body: "Flyd today takes its place, and the finished version is kept." }));
     expect(told).not.toBeNull();
     expect(fallbackWords("Flyd", "needs", "Needs you", false).body).not.toMatch(/answer|decide\b(?! here)/i);

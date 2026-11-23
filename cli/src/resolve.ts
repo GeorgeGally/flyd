@@ -1169,9 +1169,10 @@ async function resolveManifest(
 
   try {
     const response = await query(prompt, model, systemPrompt, apiKey, baseURL, {
-      json: true,
-      images: manifest.screenshot ? [manifest.screenshot] : undefined,
-    });
+    json: true,
+    images: manifest.screenshot ? [manifest.screenshot] : undefined,
+    source: "resolve"
+});
     let resolution = parseResolutionResponse(response, invocation_id);
     resolution = enforceRoutePlacement(resolution, route);
     // What George reads is held to chat's voice: no internal narration, no

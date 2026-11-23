@@ -4,6 +4,7 @@ import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
 import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
 import { usesOpenAITransport, apiModelId, defaultModel, oneShotModelChain, quickModelChain, resolveModelConnection, type ModelConnection } from "./config.js";
 import { claudeHeaders, compatibleClaudeHeaders, recordClaudeUsage, recordCompatibleClaudeUsage, type ClaudeUsage } from "./claude-spend.js";
+import { opencodeHeaders } from "../runtime/opencode-headers.js";
 
 interface FixtureRule {
   /** Prompt must contain this substring. */
@@ -192,6 +193,7 @@ function openAIClientOptions(apiKey: string, baseURL?: string) {
   return {
     apiKey,
     baseURL: baseURL || undefined,
+    ...(Object.keys(opencodeHeaders(baseURL)).length ? { defaultHeaders: opencodeHeaders(baseURL) } : {}),
   };
 }
 
@@ -254,7 +256,7 @@ export async function query(
     // A caller that picked a specific non-default model gets exactly that model.
     response = await once(model);
   } else {
-    // Default-model callers fail over like chat, then to Claude's quick model.
+    // Default-model callers follow the configured background-model chain.
     response = (await runWithModelFailover(oneShotModelChain(), once)).result;
   }
   finalizeEvidenceSurface(enriched.surfaceId, response);
@@ -262,13 +264,12 @@ export async function query(
 }
 
 /**
- * A short, latency-sensitive job (routing, a query rewrite, a status line):
- * Claude Haiku while it is on and under its cap, then the models these jobs
- * used before. An explicit model still wins.
+ * A short, latency-sensitive job (routing, a query rewrite, a status line).
+ * An explicit model still wins.
  */
 export async function quickQuery(prompt: string, options: QueryOptions & { model?: string; system?: string } = {}): Promise<string> {
   const { model, system, ...rest } = options;
-  if (model) return query(prompt, model, system, undefined, undefined, rest);
+  if (model) return query(prompt, model, system, undefined, undefined, { ...rest, source: rest.source ?? "quick" });
   return query(prompt, undefined, system, undefined, undefined, { source: "quick", ...rest, chain: rest.chain ?? quickModelChain() });
 }
 
@@ -563,7 +564,7 @@ async function queryOpenAIWithConfig(
   options: QueryOptions = {}
 ): Promise<string> {
   const { default: OpenAI } = await import("openai");
-  const client = new OpenAI({ ...openAIClientOptions(apiKey, baseURL), defaultHeaders: compatibleClaudeHeaders(baseURL) });
+  const client = new OpenAI({ ...openAIClientOptions(apiKey, baseURL), defaultHeaders: { ...opencodeHeaders(baseURL), ...compatibleClaudeHeaders(baseURL) } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [];
   if (system) messages.push({ role: "system", content: system });

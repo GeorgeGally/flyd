@@ -1847,7 +1847,7 @@ export async function startServer(port = 4815, host = "127.0.0.1", options: { so
               undefined,
               config.apiKey,
               config.baseURL,
-              { json: true }
+              { json: true, source: "server" }
             );
             const jsonMatch = raw.trim().match(/\{[\s\S]*\}/);
             const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { verdict: 'failed', summary: 'Unable to verify', unresolved_items: [], next_action: null };

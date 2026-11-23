@@ -27,6 +27,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
 import { agentLoop, agentLoopWithFailover, PROMPT_CACHE_BREAK, quickQuery, resetProviderCooldowns } from "../llm.js";
 import { readSpendLedger } from "../claude-spend.js";
 import { quickModelChain } from "../config.js";
+import { setModelRouting } from "../../runtime/model-routing.js";
 
 const tool = {
   name: "web_search",
@@ -43,12 +44,17 @@ beforeEach(() => {
   vi.stubEnv("CLAUDE_WORKSPACE_ID", "wrkspc_1");
   vi.stubEnv("COMMANDCODE_API_KEY", "");
   vi.stubEnv("FLYD_CLAUDE_CHAT_EFFORT", "");
+  setModelRouting({ jobs: {
+    chat: [{ provider: "anthropic", model: "claude-sonnet-5-5" }],
+    quick: [{ provider: "anthropic", model: "claude-haiku-5-5" }, { provider: "openai", model: "gpt-4o-mini" }],
+  } });
   state.calls.length = 0;
   state.replies.length = 0;
   resetProviderCooldowns();
 });
 
 afterEach(() => {
+  setModelRouting(null);
   vi.unstubAllEnvs();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -86,21 +92,21 @@ describe("Claude request shape", () => {
   });
 
   it("runs quick jobs on Haiku with thinking off", async () => {
-    expect(await quickQuery("route this")).toBe("final answer");
+    expect(await quickQuery("route this", { source: "lib/__tests__/llm-claude.test" })).toBe("final answer");
     const [call] = state.calls;
     expect(call.params.model).toBe("claude-haiku-5-5");
     expect(call.params.thinking).toEqual({ type: "disabled" });
     expect(call.params.temperature).toBeUndefined();
-    expect(readSpendLedger().bySource.quick.calls).toBe(1);
+    expect(readSpendLedger().bySource["lib/__tests__/llm-claude.test"].calls).toBe(1);
   });
 
   it("runs quick jobs on Haiku", async () => {
-    expect(await quickQuery("route this")).toBe("final answer");
+    expect(await quickQuery("route this", { source: "lib/__tests__/llm-claude.test" })).toBe("final answer");
     expect(state.calls[0].params.model).toBe("claude-haiku-5-5");
   });
 
   it("keeps a low temperature for older Claude models", async () => {
-    await quickQuery("x", { model: "anthropic:claude-sonnet-4-6" });
+    await quickQuery("x", { model: "anthropic:claude-sonnet-4-6", source: "lib/__tests__/llm-claude.test" });
     expect(state.calls[0].params.temperature).toBe(0.2);
     expect(state.calls[0].params.thinking).toBeUndefined();
   });
@@ -115,7 +121,7 @@ describe("Claude request shape", () => {
 
   it("stops calling Claude for quick jobs once the month's cap is spent", async () => {
     vi.stubEnv("FLYD_CLAUDE_MONTHLY_CAP_USD", "0.00001");
-    await quickQuery("first");
+    await quickQuery("first", { source: "lib/__tests__/llm-claude.test" });
     expect(state.calls.map((call) => call.params.model)).toEqual(["claude-haiku-5-5"]);
     // At the cap every Claude entry drops out; the test config's OpenAI model is next.
     expect(quickModelChain()).toEqual(["openai:gpt-4o-mini"]);

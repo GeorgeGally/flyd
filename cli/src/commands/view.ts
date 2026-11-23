@@ -28,6 +28,7 @@ import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-v
 import { memoryLookup } from "../conversation-view/living.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
 import { claudeApiKey } from "../lib/claude-spend.js";
+import { getKey } from "../lib/config.js";
 import { readProjects } from "../council/projects.js";
 import { relayMayShow } from "../council/reply-review.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
@@ -115,7 +116,7 @@ export const answerAsFlyd: Answerer = async (question, history, onStep, turn) =>
   const form = await answerForm(question, text);
   if (!form || form === "diagnosis") return text;
   const { quickQuery } = await import("../lib/llm.js");
-  const shaped = await reshapeAnswer(question, text, form, (prompt) => quickQuery(prompt, { json: true }));
+  const shaped = await reshapeAnswer(question, text, form, (prompt) => quickQuery(prompt, { json: true, source: "commands/view" }));
   return shaped ? withAskedWhy(shaped, question) : text;
 };
 
@@ -173,7 +174,7 @@ const screenshotsSeen: Seer = async (question, images, onStep) => {
     `George attached ${images.length === 1 ? "this screenshot" : "these screenshots"} to his question: "${question.slice(0, 1_000)}"`,
     "Say exactly what they show that bears on it: any text, errors, numbers and names word for word, and what is on screen. Describe only; do not answer.",
   ].join("\n\n");
-  const seen = await quickQuery(prompt, { images: images.map((image) => `data:${image.mediaType};base64,${image.data}`) })
+  const seen = await quickQuery(prompt, { images: images.map((image) => `data:${image.mediaType};base64,${image.data}`), source: "commands/view" })
     .then((text) => text.trim())
     .catch(() => "");
   return seen
@@ -269,7 +270,7 @@ export function feedChecks(inbox: Pick<FirstmateInbox, "available" | "home" | "s
           ...(listDomainRuns().some((run) => run.id === task) ? { parentRequestId: task } : {}),
         }),
         // An old call the staff never closed is weighed against the repo and his project list (FLYD_STALE_CALLS=0 off).
-        ...(process.env.FLYD_STALE_CALLS !== "0" ? { stale: new StaleCallJudge({ complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }) }) } : {}),
+        ...(process.env.FLYD_STALE_CALLS !== "0" ? { stale: new StaleCallJudge({ complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true, source: "stale-call-judge" }) }) } : {}),
       }),
     } : {}),
   };
@@ -304,7 +305,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   if (options.port !== undefined && !(Number.isInteger(options.port) && options.port > 0 && options.port < 65536)) {
     throw new Error("--port must be an integer between 1 and 65535");
   }
-  const complete: Complete = async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt);
+  const complete: Complete = async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { source: "commands/view" });
   const inbox = new FirstmateInbox();
   const resolveDecision = async (decisionId: string, taskId: string, answer: string, question?: string, options?: string[], update = false): Promise<void> => {
     const store = new IntelligenceEventStore({ path: join(FLYD_DIR, "intelligence.sqlite") });
@@ -379,10 +380,10 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     throw new Error(`No session ${options.session} in ${transcriptProjectDir}`);
   }
 
-  // Plain-English summaries: Claude Haiku, then xAI Grok, from whichever keys
+  // Plain-English summaries: OpenCode Go, then the configured fallback
   // exist; with neither, a long reply leads with Flyd's whole briefing of it
   // (engineering stubs out, a status card for several pieces of work, every sentence kept).
-  const providers = defaultProviders({ anthropicKey: claudeApiKey() });
+  const providers = defaultProviders({ anthropicKey: claudeApiKey(), opencodeKey: getKey("OPENCODE_API_KEY") });
   const summarizer = new ReplySummarizer({ providers, cacheFile: defaultSummaryCache() });
   // The plan's usage limits, from quota-axi when it can read them without prompting.
   const plan = new PlanUsageReader();
@@ -418,7 +419,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       return { ...change, ...(stopped.length ? { stopped } : {}), ...(authority.length ? { authority } : {}), ...(sentToBoss.length ? { sentToBoss } : {}), ...(standing !== undefined && change.kind === "decision" ? { standing } : {}), ...(openCalls.length ? { openCalls } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
     });
     return processFirstmateChanges(prepared, {
-      complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }),
+      complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true, source: "commands/view" }),
       jev: { ...(process.env.FLYD_JEV_MODEL ? { model: process.env.FLYD_JEV_MODEL } : {}) },
       executeInternalAction: async (action) => {
         const run = listDomainRuns().find((item) => item.id === action.target && item.transport.kind === "firstmate"

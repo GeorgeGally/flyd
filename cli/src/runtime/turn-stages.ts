@@ -45,7 +45,7 @@ export async function defaultRouteTurn(message: string, history: TurnHistory, no
 export async function defaultReadRoom(input: RoomInput): Promise<RoomRead | null> {
   if (process.env.FLYD_ROOM === "0" || process.env.VITEST) return null;
   const { quickQuery } = await import("../lib/llm.js");
-  return readTheRoom(input, (prompt) => quickQuery(prompt, { model: process.env.FLYD_ROUTING_FALLBACK_MODEL, json: true }));
+  return readTheRoom(input, (prompt) => quickQuery(prompt, { model: process.env.FLYD_ROUTING_FALLBACK_MODEL, json: true, source: "runtime/turn-stages" }));
 }
 
 /** Stage 1: what Flyd could draw on this turn — who he is, the knowledge pool, backstage notes. */

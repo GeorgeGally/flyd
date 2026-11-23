@@ -85,7 +85,7 @@ Captures (${captures.length} total):
 ${captureText.slice(0, 5000)}`;
 
     try {
-      const raw = await query(prompt, m);
+      const raw = await query(prompt, m, undefined, undefined, undefined, { source: "commands/distill" });
       if (!raw || raw === "No significant memory." || raw.trim().length < 20) {
         skipped++;
         continue;

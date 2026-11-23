@@ -12,7 +12,7 @@ async function bootstrap(): Promise<void> {
   const { query } = await import("../lib/llm.js");
   const model = profileBootstrapModel();
   process.stdout.write(`Reading your captures and conversations with ${model}…\n`);
-  const { facts, sources } = await draftProfileFromMemory({ complete: (prompt) => query(prompt, model) });
+  const { facts, sources } = await draftProfileFromMemory({ complete: (prompt) => query(prompt, model, undefined, undefined, undefined, { source: "commands/profile" }) });
   ensureUserProfile();
   let added = 0;
   for (const { section, fact } of facts) {

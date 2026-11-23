@@ -54,7 +54,7 @@ export async function extractEntities(body: string): Promise<{ triples: EntityTr
   const text = bodyTrimmed.slice(0, 2000);
 
   try {
-    const response = await query(`${EXTRACTION_PROMPT}\n\nText:\n${text}`, defaultModel());
+    const response = await query(`${EXTRACTION_PROMPT}\n\nText:\n${text}`, defaultModel(), undefined, undefined, undefined, { source: "lib/entity-extractor" });
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return { triples: [], entities: [] };
 
@@ -116,7 +116,7 @@ Rules:
 export async function enrichCaptureWithLLM(body: string): Promise<EventMetadata> {
   const text = body.slice(0, 2500);
   try {
-    const response = await query(`${EVENT_ENRICH_PROMPT}\n\nText:\n${text}`, defaultModel());
+    const response = await query(`${EVENT_ENRICH_PROMPT}\n\nText:\n${text}`, defaultModel(), undefined, undefined, undefined, { source: "lib/entity-extractor" });
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return enrichCaptureLocal(body);
 

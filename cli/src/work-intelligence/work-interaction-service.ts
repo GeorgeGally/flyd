@@ -175,7 +175,7 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
     undefined,
     params.modelConfig.apiKey,
     params.modelConfig.baseURL,
-    { json: true }
+    { json: true, source: "work-intelligence/work-interaction-service" }
   );
 
   const result = parseWorkIntelligenceResponse(responseText);

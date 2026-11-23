@@ -41,7 +41,7 @@ export async function runResearch(topic: string, model?: string): Promise<void> 
 
   console.log(`researching: "${topic}"\n`);
 
-  const result = await query(prompt, m);
+  const result = await query(prompt, m, undefined, undefined, undefined, { source: "commands/research" });
 
   // Capture the research result
   mkdirSync(RAW_DIR, { recursive: true });

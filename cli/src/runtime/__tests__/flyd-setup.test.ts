@@ -111,8 +111,8 @@ describe("Flyd's own setup", () => {
   };
 
   it("shows the model each listed setting names, whichever one is set", async () => {
-    // Environment settings only: "models.json jobs.<job>" entries are covered by the tests above.
-    const settings = [...new Set((await flydModelAssignments()).flatMap((assignment) => assignment.settings))].filter((name) => !name.includes(" "));
+    // Environment model settings only (API keys name no model): "models.json jobs.<job>" entries are covered by the tests above.
+    const settings = [...new Set((await flydModelAssignments()).flatMap((assignment) => assignment.settings))].filter((name) => !name.includes(" ") && !name.endsWith("_API_KEY"));
     const missing: string[] = [];
     for (const name of settings) {
       vi.unstubAllEnvs();

@@ -78,7 +78,7 @@ async function extractCards(
   text: string,
 ): Promise<Array<{ question: string; answer: string }>> {
   try {
-    const response = await query(`${GENERATION_PROMPT}\n\nText:\n${text}`, defaultModel());
+    const response = await query(`${GENERATION_PROMPT}\n\nText:\n${text}`, defaultModel(), undefined, undefined, undefined, { source: "lib/review-generator" });
     const jsonMatch = response.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return [];
     const parsed = JSON.parse(jsonMatch[0]);

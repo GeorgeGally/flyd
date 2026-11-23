@@ -326,7 +326,7 @@ describe("FlydDesk", () => {
     expect(desk.exchanges()[0]!.waiting).toBe("Checking my own setup");
     step!("Searching the web: gpt-realtime-2.1 release notes…");
     expect(desk.exchanges()[0]!.waiting).toBe("Searching the web: gpt-realtime-2.1 release notes");
-    resolve("Chat runs on opencode-go/deepseek-v4.1-flash.");
+    resolve("Chat runs on opencode-go/gpt-6-luna.");
     const [exchange] = await until(() => (desk.exchanges()[0]?.answer ? desk.exchanges() : undefined));
     expect(exchange!.waiting).toBe("");
     // A step that arrives after the answer is not shown anywhere.
