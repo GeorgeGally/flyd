@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Project } from "../../council/projects.js";
 import { validateEnvelope, type ContextEnvelope } from "../../intelligence/context-envelope.js";
 import type { IntelligenceEventStore } from "../../intelligence/event-store.js";
-import { INITIATIVE_MANDATE_CONTRACT } from "../../intelligence/sensors/source-contracts.js";
+import { INITIATIVE_MANDATE_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
 import { projectRevision } from "./lineage.js";
 
 const SOURCE = INITIATIVE_MANDATE_CONTRACT.sourceId;
@@ -39,9 +39,12 @@ function parseMandate(raw: unknown, sourceEventId: string): InitiativeResearchMa
 export function acceptReadOnlyInitiativeMandate(
   store: IntelligenceEventStore,
   project: Project,
-  input: { explicitUserAction: true; now?: Date; ttlMs?: number },
+  input: { explicitUserAction: true; now?: Date; ttlMs?: number; registry?: SourceContractRegistry },
 ): InitiativeResearchMandate {
   if (!input.explicitUserAction) throw new Error("Cannot infer authorization from an initiative or model");
+  const registry = input.registry ?? new SourceContractRegistry();
+  registry.register(INITIATIVE_MANDATE_CONTRACT);
+  if (registry.status(SOURCE) !== "enabled") throw new Error("No enabled explicit read-only mandate source consent");
   if (store.isRevoked(SOURCE)) throw new Error("Mandate source was revoked; explicitly renew first");
   if (project.status === "done" || project.status === "paused" || project.kind === "personal") {
     throw new Error("Only active, nonpersonal projects may receive a read-only initiative remit");
