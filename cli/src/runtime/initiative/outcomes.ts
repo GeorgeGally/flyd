@@ -3,6 +3,8 @@ import { activityRecordPath, type ActivityRecord } from "../../conversation-view
 import type { IntelligenceEventStore, StoredEvent } from "../../intelligence/event-store.js";
 import { validateEnvelope, type ContextEnvelope } from "../../intelligence/context-envelope.js";
 import { INITIATIVE_CURATED_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
+import { currentInitiativeEvidence, initiativeSourcesCurrent } from "./source-validity.js";
+import type { InitiativeSource } from "./candidates.js";
 
 export type InitiativeReviewVerdict = "helpful" | "not_helpful";
 export interface InitiativeReview {
@@ -19,7 +21,8 @@ export interface InitiativeOutcomeItem {
   verifiedExternalImpact: false;
   researchCalls: number;
   reviewed?: InitiativeReviewVerdict;
-  resurfaced: boolean;
+  /** The activity writer is not a verified display/acknowledgment receipt. */
+  delivery: "unknown";
 }
 
 const SOURCE = INITIATIVE_CURATED_CONTRACT.sourceId;
@@ -35,7 +38,7 @@ function lastResearchByCandidate(events: StoredEvent[]): Map<string, StoredEvent
 }
 export function initiativeReviews(events: StoredEvent[]): Map<string, InitiativeReview> {
   const result = new Map<string, InitiativeReview>();
-  for (const event of events) {
+  for (const event of [...events].sort((a, b) => a.sequence - b.sequence)) {
     const p = event.payload;
     if (event.erased || p?.type !== "initiative_review") continue;
     if (!validCandidateId(p.candidate_id as string)
@@ -61,7 +64,7 @@ export function initiativeOutcomeProjection(events: StoredEvent[]): InitiativeOu
       verifiedExternalImpact: false as const,
       researchCalls: typeof p?.research_calls === "number" && Number.isFinite(p.research_calls) ? p.research_calls : 0,
       ...(reviews.has(candidateId) ? { reviewed: reviews.get(candidateId)!.verdict } : {}),
-      resurfaced: Boolean(p?.presented),
+      delivery: "unknown" as const,
     };
   });
 }
@@ -90,6 +93,7 @@ export function recordInitiativeReview(input: {
   verdict: InitiativeReviewVerdict;
   now?: Date;
   activityPath?: string;
+  currentSources?: (refs: InitiativeSource[]) => boolean;
 }): "recorded" | "already_recorded" | "not_eligible" {
   const { store, registry, candidateId, verdict } = input;
   if (!validCandidateId(candidateId) || (verdict !== "helpful" && verdict !== "not_helpful")
@@ -98,7 +102,9 @@ export function recordInitiativeReview(input: {
   const events = store.readSourcePage(SOURCE, { limit: 1000 });
   const research = events.find(e => e.kind === "inferred_belief" && e.payload?.type === "investigation"
     && e.payload.candidate_id === candidateId && Date.parse(e.capturedAt) >= now.getTime() - 14 * 86_400_000);
-  if (!research) return "not_eligible";
+  if (!research || !Array.isArray(research.payload?.sources)) return "not_eligible";
+  const live = input.currentSources ?? ((refs: InitiativeSource[]) => initiativeSourcesCurrent(refs, currentInitiativeEvidence()));
+  if (!live(research.payload.sources as InitiativeSource[])) return "not_eligible";
   let prepared = false;
   try {
     prepared = readFileSync(input.activityPath ?? activityRecordPath(), "utf8")
@@ -113,8 +119,9 @@ export function recordInitiativeReview(input: {
   if (!prepared) return "not_eligible";
   const previous = initiativeReviews(events).get(candidateId);
   if (previous?.verdict === verdict) return "already_recorded";
-  const version = events.filter(e => e.payload?.type === "initiative_review"
+  let version = events.filter(e => e.payload?.type === "initiative_review"
     && e.payload.candidate_id === candidateId).length + 1;
+  while (store.findByIdempotencyKey(SOURCE, "review:" + candidateId + ":" + version)) version++;
   const envelope: ContextEnvelope = {
     pathKind: "interface", kind: "observation", sourceId: SOURCE,
     consent: { grantedAt: now.toISOString(), scopes: [...INITIATIVE_CURATED_CONTRACT.scopes] },
