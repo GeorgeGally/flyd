@@ -627,9 +627,12 @@ describe("what reaches an edition", () => {
       : new Response(rss([{ title: "A clamp meter runs DOOM", link: "https://hackaday.test/doom", date: recent }]), { status: 200 })) as typeof fetch;
     await runScout({ complete: vi.fn(async (prompt: string) => prompt.startsWith("Plan ") ? '{"topics": []}' : '{"picks": []}'), fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-11-14T07:00:00Z") });
     expect(readSourceHealth(dir)).toMatchObject({ attempted: 3, answered: 1, rateLimited: 2, failed: 0, ingested: 1, active: 3 });
-    await watchScout({ complete: vi.fn(async () => '{"picks": []}'), fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-11-14T09:00:00Z") });
-    expect(readSourceHealth(dir)).toMatchObject({ attempted: 3, answered: 1, rateLimited: 2, active: 3 });
-    expect(readSourceHealth(dir, "watch")).not.toBeNull();
+    const downFetch = (async () => new Response("nope", { status: 500 })) as typeof fetch;
+    await watchScout({ complete: vi.fn(async () => '{"picks": []}'), fetchFn: downFetch, dir, redditSpacingMs: 0, now: () => at("2026-11-14T09:00:00Z") });
+    expect(readSourceHealth(dir)).toMatchObject({ attempted: 3, answered: 1, rateLimited: 2, failed: 0, ingested: 1, active: 3 });
+    const watch = readSourceHealth(dir, "watch");
+    expect(watch?.answered).toBe(0);
+    expect(watch?.failed).toBeGreaterThan(0);
   });
 });
 
