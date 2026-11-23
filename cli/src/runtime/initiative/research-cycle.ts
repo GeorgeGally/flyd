@@ -8,9 +8,9 @@ import { readProjects, type Project } from "../../council/projects.js";
 import { latestEdition, type Edition } from "../../council/scout.js";
 import { openAdvisories, type Advisory } from "../../council/advisors.js";
 import { localDay } from "../../council/memory-store.js";
-import { activityRecordPath, recordActivity, type ActivityRecord } from "../../conversation-view/activity.js";
+import { recordActivity, type ActivityRecord } from "../../conversation-view/activity.js";
 import { deriveInitiatives, initiativeRevision, type InitiativeCandidate } from "./candidates.js";
-import { initiativeSourcesCurrent, currentInitiativeEvidence, type CurrentInitiativeEvidence } from "./source-validity.js";
+import { initiativeSourcesCurrent, type CurrentInitiativeEvidence } from "./source-validity.js";
 import {
   researchInitiative, safeResearchPayload, type InitiativeResearchReceipt,
 } from "./research.js";
@@ -173,7 +173,7 @@ export async function runInitiativeResearchCycle(deps: ResearchCycleDeps = {}): 
       if (!created) continue;
       if (research.status === "source_confirmed") summary.confirmed++;
       else summary.inconclusive++;
-      const modeOn = deps.on ?? process.env.FLYD_INITIATIVE === "on" || process.env.FLYD_INITIATIVE === undefined;
+      const modeOn = deps.on ?? (process.env.FLYD_INITIATIVE === "on" || process.env.FLYD_INITIATIVE === undefined);
       if (modeOn && research.citedEvidence.length >= 2
         && (deps.countPublished ?? countInitiativeCards)(localDay(now)) < 1
         && registry.status(SOURCE) === "enabled"
