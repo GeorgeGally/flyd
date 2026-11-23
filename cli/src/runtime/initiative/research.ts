@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { EvidenceEngine } from "../../evidence/evidence-engine.js";
 import { createDefaultEvidenceRegistry } from "../../evidence/default-registry.js";
 import type { EvidenceBundle, EvidenceItem, ResearchDepth } from "../../evidence/types.js";
@@ -9,7 +8,7 @@ import {
 } from "../../intelligence/sensors/source-contracts.js";
 import type { ContextEnvelope } from "../../intelligence/context-envelope.js";
 import { scoutItemRevision } from "./lineage.js";
-import type { InitiativeCandidate } from "./candidates.js";
+import { initiativeRevision, type InitiativeCandidate } from "./candidates.js";
 import type { Edition, EditionItem } from "../../council/scout.js";
 
 const PURPOSE = "initiative-background-research";
@@ -114,8 +113,7 @@ export async function researchInitiative(
   const now = deps.now?.() ?? new Date();
   const started = Date.now();
   const base = {
-    candidateId: candidate.id, sourceRevision: createHash("sha256")
-      .update(JSON.stringify(candidate.sources.map(s => [s.id, s.revision]))).digest("hex").slice(0, 24),
+    candidateId: candidate.id, sourceRevision: initiativeRevision(candidate.sources),
     policyVersion: RESEARCH_POLICY as typeof RESEARCH_POLICY,
     checkedClaim: "What does the cited public reference actually document?",
     citedEvidence: [] as InitiativeResearchReceipt["citedEvidence"],
