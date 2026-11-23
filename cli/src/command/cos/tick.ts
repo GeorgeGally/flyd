@@ -60,6 +60,7 @@ export interface CosTickDeps {
   /** Passes a message on to a run (messages.ts `sendRunMessage`). */
   send?: typeof sendRunMessage;
   store?: IntelligenceEventStore;
+  answerDir?: string;
   now?: () => Date;
 }
 
@@ -107,7 +108,7 @@ function workOf(objective: Objective): string {
  * One report, recorded on the objective and told; nothing when it was told already. A report that leaves the objective
  * waiting on George records what it waits on (`wait`), so his reply resumes it; any other ends the wait.
  */
-async function report(objective: Objective, made: CosReport, deps: CosTickDeps, store: IntelligenceEventStore, tell: () => Promise<unknown>, status: Objective["status"], wait?: { kind: WaitKind; question?: string }): Promise<void> {
+async function report(objective: Objective, made: CosReport, deps: CosTickDeps, store: IntelligenceEventStore, tell: () => Promise<unknown>, status: Objective["status"], wait?: { kind: WaitKind; question?: string }, answerNote?: string): Promise<void> {
   if (objective.reportIds.includes(made.id)) return;
   const options = made.options?.length ? made.options : wait ? [...WAIT_ANSWERS[wait.kind]] : [];
   // A durable claim prevents concurrent schedulers from sending the same report.
@@ -128,7 +129,15 @@ async function report(objective: Objective, made: CosReport, deps: CosTickDeps, 
   // the fact that this outcome was selected.
   recordCosReport(made, store, now);
   try {
-    await tell();
+    const answering = objective.answerTurn && objective.origin.turnId && objective.origin.sessionId && (status === "done" || status === "working");
+    if (answering) {
+      const refs = planOf(objective).filter((run) => run.ref).map((run) => run.ref!);
+      const finished = status === "done";
+      const said = finished ? await answerFrom(objective, refs.map((ref) => resultText(ref)).filter(Boolean).join("\n\n") || made.detail || made.outcome, deps) : made.outcome;
+      const { deliverDeferredAnswer } = await import("../../conversation-view/deferred-answer.js");
+      deliverDeferredAnswer({ runId: finished ? refs.at(-1) ?? objective.id : `${objective.id}:${made.id}`, sessionId: objective.origin.sessionId!.replace(/^view:/, ""), turnId: objective.origin.turnId!, text: finished && answerNote ? `${said}\n\n${answerNote}` : said, at: now.toISOString() }, deps.answerDir);
+    }
+    if (!answering || status !== "done") await tell();
   } catch (error) {
     // Keep the durable claim until its lease expires; then the same keyed
     // delivery is retried. Never mark a failed send as reported.
@@ -145,6 +154,16 @@ async function report(objective: Objective, made: CosReport, deps: CosTickDeps, 
       reportIds: current.reportIds.includes(made.id) ? current.reportIds : [...current.reportIds, made.id],
     };
   });
+}
+
+/** The result as George's answer: status lines dropped, then said briefly in Flyd's voice; the trimmed text when the rewrite fails. */
+async function answerFrom(objective: Objective, raw: string, deps: CosTickDeps): Promise<string> {
+  const trimmed = raw.split("\n").filter((line) => !/^\s*(?:status|run(?: id)?|team|owner)\s*[:\-]/i.test(line)).join("\n").trim().slice(0, 6000);
+  try {
+    const said = JSON.parse((await (deps.complete ?? defaultComplete)(`Say this result to George as the answer to his question, in a few plain sentences in Flyd's own first-person voice. Keep every fact, name and number; drop status lines, team names and process. Reply as JSON: {"answer": "..."}.\n\nHis question: ${objective.words}\n\nResult:\n${trimmed}`)).replace(/^```(?:json)?\s*|\s*```$/g, "")) as Record<string, unknown>;
+    const answer = typeof said.answer === "string" ? said.answer.trim() : "";
+    return answer || trimmed;
+  } catch { return trimmed; }
 }
 
 /** The wait for work that couldn't start: his words brief it again. */
@@ -666,7 +685,7 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
     };
     const seen = finals.length === 1 && finals[0]!.ref && !finals[0]!.ref.includes(":") ? readDomainRun(finals[0]!.ref) : null;
     const told = (seen && shownLine(seen)) || finals.every((run) => run.ref?.startsWith("crew:"));
-    await report(objective, made, deps, store, async () => told ? undefined : (deps.say ?? defaultSay)(made), "done");
+    await report(objective, made, deps, store, async () => told ? undefined : (deps.say ?? defaultSay)(made), "done", undefined, "I couldn't double-check it against what you asked for, so give it a look.");
     return;
   }
   if (!verdict.met) {

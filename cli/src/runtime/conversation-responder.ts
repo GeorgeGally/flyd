@@ -63,6 +63,8 @@ import { chatScopeLine, type ChatScope } from "./chat-scope.js";
 interface ConversationInput {
   source?: ConversationTurnSource;
   onPreparation?: (id: string) => void;
+  /** Called when the turn handed its answer off: the result lands in the conversation when it is ready, and this turn returns nothing. */
+  onDeferred?: () => void;
   onInteraction?: (kind: "conversation" | "work_status" | "decision" | "deliverable") => void;
   /** Server adapter: never exposes desktop, shell or coding capabilities. */
   surface?: "mobile";
@@ -1326,6 +1328,7 @@ export async function respondToConversation(
   const facts = projectTurn ? gatherProjectFacts(projectRoot) : "";
   const evidence = projectTurn ? gatherProjectEvidence(projectRoot) : "";
   const prompt = `${facts ? facts : ""}${evidence}\n${request.prompt}`;
+  let deferredAnswer = false;
   const toolCalls: TurnToolCall[] = [];
   const toolOutputs: string[] = [];
   const knownRepos = input.crossRepo?.map((r) => r.root) ?? [];
@@ -1338,6 +1341,8 @@ export async function respondToConversation(
     situation: input.situation ? { project: input.situation.project, projectRoot: input.situation.projectRoot } : null,
     ...(input.chatScope ? { chatScope: input.chatScope } : {}),
     userMessage: input.message,
+    ...(source?.turnId ? { turnId: source.turnId } : {}),
+    answerTurn: Boolean(input.onDeferred) && plan?.route === "answer" && source?.surface === "view",
     skill: skill ? { name: skill.name, body: skill.body } : null,
     onCodingHandoff: input.onCodingHandoff,
     background: Boolean(personalToolDeps.background),
@@ -1377,6 +1382,7 @@ export async function respondToConversation(
       const succeeded = !TOOL_FAILURE.test(result);
       toolCalls.push({ name, input: toolInput, succeeded, ...(succeeded ? {} : { error: result }) });
       if (succeeded) toolOutputs.push(result);
+      if (succeeded && name === "hand_off" && input.onDeferred && plan?.route === "answer" && source?.surface === "view") deferredAnswer = true;
       // Only a real change makes an old failure stale; `ls` or `git status` doesn't.
       const changedWorld = name === "bash" ? !isReadOnlyCommand(String(toolInput.command ?? "")) : isMutatingToolCall(name, toolInput);
       if (succeeded && changedWorld) repeats.changed();
@@ -1438,6 +1444,7 @@ export async function respondToConversation(
       },
       dependencies.runAgentLoop ?? agentLoop,
     );
+    if (deferredAnswer) { input.onDeferred?.(); return ""; }
     const connection = connectionFor(usedModel);
     // Grounding is demanded of claims about code and work state, not of a
     // conversation that happens to name a project (or Flyd itself).
@@ -1493,6 +1500,7 @@ export async function respondToConversation(
     }
     return final;
   } catch (error) {
+    if (deferredAnswer) { input.onDeferred?.(); return ""; }
     const message = error instanceof Error ? error.message : String(error);
     await record(connectionFor(model), toolCalls, "", "failed", message);
     throw error;

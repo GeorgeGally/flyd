@@ -117,6 +117,7 @@ export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domai
     // tell_work passes his word on to work under way; it changes nothing of his, so every route may use it.
     handoffs: new Set([...(plan.handoffs.size ? ["hand_off"] : []), "tell_work"]),
     instruction: plan.instruction
+      .replace("pass it on in this turn with pass_on_question, then give a short natural acknowledgment only if useful; do not explain the handoff", "hand it off in this turn with hand_off, send no holding line or unprompted defensive statement; the result will answer him")
       .replace("pass it on in this turn with pass_on_question", "hand it off in this turn with hand_off")
       .replace("goes to start_coding_task or background_task instead", "goes to hand_off instead"),
   };

@@ -81,6 +81,8 @@ export interface Objective {
   createdAt: string;
   updatedAt: string;
   origin: { surface: "chat" | "view" | "agenda" | "live"; sessionId?: string; turnId?: string };
+  /** This objective answers a conversation turn rather than announcing work. */
+  answerTurn?: true;
   /** George's exact words; never rewritten. */
   words: string;
   /** What Flyd knew and judged at handoff (project, people, taste, urgency). */

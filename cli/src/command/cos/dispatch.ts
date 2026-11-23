@@ -39,6 +39,8 @@ export const dispatchBrief: Dispatch = async (objective, brief, requestId, optio
     doneWhen: brief.doneWhen,
     requestId,
     objectiveId: objective.id,
+    ...(objective.answerTurn && objective.origin.sessionId ? { session: objective.origin.sessionId } : {}),
+    ...(objective.answerTurn && objective.origin.turnId ? { turnId: objective.origin.turnId } : {}),
     decisions: brief.decisions,
     ...(contextRefs.length ? { contextRefs } : {}),
   };
