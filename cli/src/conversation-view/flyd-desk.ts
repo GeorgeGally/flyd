@@ -487,7 +487,7 @@ export class FlydDesk {
       .filter((other) => other.id !== id && Date.parse(other.at) <= Date.parse(record.at));
     const kept = record.images ?? [];
     const scope = record.scope;
-    const delivered = earlier.some((item) => item.handedOff) ? this.deferredAnswers() : [];
+    const delivered = earlier.some((item) => item.handedOff && !item.answer) ? this.deferredAnswers() : [];
     const earlierAnswered = earlier
       .map((item) => {
         const answer = delivered.find((entry) => entry.turnId === `ask:${item.id}` && (entry.sessionId === conversationOf(item) || entry.sessionId === item.sessionId));
@@ -680,8 +680,11 @@ export class FlydDesk {
     const handed = new Map(waitingOn ? listObjectives().filter((objective) => objective.answerTurn && objective.origin.turnId).map((objective) => [objective.origin.turnId!, objective] as const) : []);
     return shown.map((record) => {
       const question: ConversationMessage = { id: `ask:${record.id}`, role: "user", text: record.text, timestamp: record.at, ...(record.images?.length ? { images: record.images } : {}), ...(record.files?.length ? { files: record.files } : {}) };
-      const delivered = !record.handedOff ? undefined : answers.find((answer) => answer.turnId === question.id && (answer.sessionId === conversationOf(record) || answer.sessionId === record.sessionId));
-      if (delivered) return { question, answer: { id: `answer:${record.id}`, role: "assistant" as const, text: inFlydsVoice(delivered.text), timestamp: delivered.at, answers: question.id }, waiting: "" };
+      const delivered = !record.handedOff || record.answer ? undefined : answers.find((answer) => answer.turnId === question.id && (answer.sessionId === conversationOf(record) || answer.sessionId === record.sessionId));
+      if (delivered) {
+        this.write({ ...record, answer: delivered.text, answeredAt: delivered.at });
+        return { question, answer: { id: `answer:${record.id}`, role: "assistant" as const, text: inFlydsVoice(delivered.text), timestamp: delivered.at, answers: question.id }, waiting: "" };
+      }
       if (record.answer) {
         const preparation = record.preparationId ? this.preparations.read(record.preparationId) : undefined;
         const prepared = preparation?.status === "prepared" && preparation.content
