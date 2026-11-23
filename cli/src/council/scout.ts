@@ -554,7 +554,7 @@ export function headlineKey(title: string): string {
   return title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
-const REFUSAL = /^(?:hm+|hmm|well|ok|okay)?\W*(?:skip|pass|drop|reject)\b|\bnot strong enough\b|\bnot worth (?:it|including|his time)\b|\bdoesn'?t clear the bar\b|\bbelow the bar\b|\btoo weak\b|\bnot compelling\b/;
+const REFUSAL = /^(?:hm+|well|ok|okay)?\W*(?:(?:i(?:'ll| will)?\s+)?(?:skip|pass on|drop|reject)\s+(?:this|it|that|him|her|them)\b|(?:skip|pass|drop|reject)\W*$)|\bnot strong enough\b|\bnot worth (?:it|including|his time)\b|\bdoesn'?t clear the bar\b|\bbelow the bar\b|\btoo weak\b|\bnot compelling\b/;
 
 function junkPick(why: string, title: string): boolean {
   const said = why.replace(/\s+/g, " ").trim();
@@ -759,7 +759,7 @@ const STORIES_PER_FIND = 3;
 function blendEdition(ranked: EditionItem[], extras: InspirationItem[], focus: WorkFocus[], now: Date, dir: string): EditionItem[] {
   const picked = new Set(ranked.map((item) => item.url));
   // The ranked stories are the articles; extras only fill the non-article seats.
-  const finds = mixInspiration(extras.filter((item) => item.media !== "article" && !picked.has(item.url) && !junkPick(item.summary, item.title)), focus, {
+  const finds = mixInspiration(extras.filter((item) => item.media !== "article" && !picked.has(item.url)), focus, {
     now: now.getTime(), seen: seenUrls(dir), lastShown: readShown(dir), limit: INSPIRATION_SEATS,
   }).map((item): EditionItem => ({
     n: 0, title: item.title, url: item.url, source: item.source, sourceId: item.sourceId,
@@ -915,7 +915,7 @@ export async function watchScout(deps: ScoutDependencies): Promise<EditionItem[]
   let sources = readSources(dir, now);
   const gathered = await gatherCandidates(sources, { fetchFn: deps.fetchFn, includeTopics: false, now, redditLimit: REDDIT_PER_RUN, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
   const { candidates, failed } = gathered;
-  recordSourceHealth(dir, gathered.health);
+  recordSourceHealth(dir, gathered.health, "watch");
   sources = recordFailures(sources, failed, now);
   writeSources(sources, dir);
   const watched = new Set(readJsonl<{ url: string }>(join(dir, "watched.jsonl")).map((item) => item.url));

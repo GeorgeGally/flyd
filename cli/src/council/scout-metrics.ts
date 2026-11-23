@@ -66,23 +66,25 @@ export interface ScoutSourceHealth {
   active: number;
 }
 
-export function sourceHealthPath(dir: string): string {
-  return join(dir, "source-health.json");
+export type ScoutRunKind = "edition" | "watch";
+
+export function sourceHealthPath(dir: string, kind: ScoutRunKind = "edition"): string {
+  return join(dir, kind === "watch" ? "source-health-watch.json" : "source-health.json");
 }
 
-export function recordSourceHealth(dir: string, health: ScoutSourceHealth): void {
+export function recordSourceHealth(dir: string, health: ScoutSourceHealth, kind: ScoutRunKind = "edition"): void {
   try {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const path = sourceHealthPath(dir);
+    const path = sourceHealthPath(dir, kind);
     const temp = path + "." + process.pid + ".tmp";
     writeFileSync(temp, JSON.stringify(health, null, 2) + "\n", { mode: 0o600 });
     renameSync(temp, path);
   } catch {}
 }
 
-export function readSourceHealth(dir: string): ScoutSourceHealth | null {
+export function readSourceHealth(dir: string, kind: ScoutRunKind = "edition"): ScoutSourceHealth | null {
   try {
-    const parsed: unknown = JSON.parse(readFileSync(sourceHealthPath(dir), "utf8"));
+    const parsed: unknown = JSON.parse(readFileSync(sourceHealthPath(dir, kind), "utf8"));
     return parsed && typeof (parsed as ScoutSourceHealth).at === "string" && typeof (parsed as ScoutSourceHealth).attempted === "number"
       ? parsed as ScoutSourceHealth : null;
   } catch { return null; }

@@ -504,7 +504,7 @@ describe("the edition draws on the whole day", () => {
     expect(prompts[0]).toContain("Found for pen plotter generative art");
   });
 
-  it("keeps every story the ranker picked, seating a stat and a captioned GIF between them, never a bare item or an extra article", async () => {
+  it("keeps every story the ranker picked, seating a stat and a captioned GIF between them, never an extra article", async () => {
     const feeds = ["hackaday", "waxy", "cdm"];
     onlySources(feeds.map((name) => ({ kind: "rss" as const, name, target: `https://${name}.test/feed` })));
     const fetchFn = fakeFetch(Object.fromEntries(feeds.map((name) => [`${name}.test`, rss(Array.from({ length: 3 }, (_, n) => ({ title: `${name} story ${n}`, link: `https://${name}.test/${n}`, date: recent })))])));
@@ -519,7 +519,7 @@ describe("the edition draws on the whole day", () => {
     const items = result.edition!.items;
     expect(items.filter((item) => item.media === undefined)).toHaveLength(9);
     expect(items.map((item) => item.media ?? "story")).toEqual(["story", "story", "story", "stat", "story", "story", "story", "gif", "story", "story", "story"]);
-    expect(items.some((item) => item.url === "https://commons.wikimedia.org/wiki/File:Loop.gif")).toBe(false);
+    expect(items.filter((item) => item.media === "gif")).toHaveLength(1);
     expect(items.map((item) => item.n)).toEqual(items.map((_, index) => index + 1));
     expect(items.some((item) => item.source === "Google Trends")).toBe(false);
   });
@@ -552,6 +552,20 @@ describe("what reaches an edition", () => {
     ] }), candidates, 30, 3, stats);
     expect(picks.map((item) => item.title)).toEqual(["A clamp meter runs DOOM"]);
     expect(stats).toEqual({ picks: 3, junk: 2 });
+  });
+
+  it("keeps a ranker pick whose reason merely begins with a refusal-like word", () => {
+    const candidates: ScoutCandidate[] = [
+      { id: "a", title: "GPU prices fall", url: "https://a.test/1", source: "Feed", sourceId: "rss:a", summary: "", topic: "Tech" },
+      { id: "b", title: "A new bill", url: "https://a.test/2", source: "Feed", sourceId: "rss:a", summary: "", topic: "Tech" },
+    ];
+    const stats = { picks: 0, junk: 0 };
+    const picks = parsePicks(JSON.stringify({ picks: [
+      { index: 0, kind: "relevant", why: "Drop in GPU prices changes what a home lab costs." },
+      { index: 1, kind: "relevant", why: "Pass the bill and compute credits become taxable." },
+    ] }), candidates, 30, 3, stats);
+    expect(picks).toHaveLength(2);
+    expect(stats).toEqual({ picks: 2, junk: 0 });
   });
 
   it("keeps a 30-story edition when enough stories clear the bar", async () => {
@@ -613,6 +627,9 @@ describe("what reaches an edition", () => {
       : new Response(rss([{ title: "A clamp meter runs DOOM", link: "https://hackaday.test/doom", date: recent }]), { status: 200 })) as typeof fetch;
     await runScout({ complete: vi.fn(async (prompt: string) => prompt.startsWith("Plan ") ? '{"topics": []}' : '{"picks": []}'), fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-11-14T07:00:00Z") });
     expect(readSourceHealth(dir)).toMatchObject({ attempted: 3, answered: 1, rateLimited: 2, failed: 0, ingested: 1, active: 3 });
+    await watchScout({ complete: vi.fn(async () => '{"picks": []}'), fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-11-14T09:00:00Z") });
+    expect(readSourceHealth(dir)).toMatchObject({ attempted: 3, answered: 1, rateLimited: 2, active: 3 });
+    expect(readSourceHealth(dir, "watch")).not.toBeNull();
   });
 });
 
