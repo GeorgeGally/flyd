@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { FLYD_DIR } from "../lib/config.js";
-import { INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT, INITIATIVE_MANDATE_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
+import { INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT, INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT, INITIATIVE_MANDATE_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
 import { readProjects } from "../council/projects.js";
 import { acceptReadOnlyInitiativeMandate } from "../runtime/initiative/mandate.js";
 import { recordInitiativeReview, summarizeInitiativeOutcomes } from "../runtime/initiative/outcomes.js";
@@ -36,6 +36,40 @@ export async function runInitiativeCommand(action = "status", projectId?: string
   registry.register(INITIATIVE_CURATED_CONTRACT);
   registry.register(INITIATIVE_PUBLIC_RESEARCH_CONTRACT);
   registry.register(INITIATIVE_MANDATE_CONTRACT);
+  registry.register(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT);
+  if (action === "synthesis-enable") {
+    if (registry.status(ID) !== "enabled"
+      || registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) !== "enabled") {
+      throw new Error("Enable local initiative and public research before public-only model synthesis.");
+    }
+    if (registry.status(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId) === "revoked") {
+      throw new Error("Public synthesis was revoked; use synthesis-renew first.");
+    }
+    registry.setStatus(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId, "enabled");
+    console.log("Enabled one bounded quick-model interpretation per public research case. Only public evidence is sent.");
+    return;
+  }
+  if (["synthesis-disable", "synthesis-revoke", "synthesis-renew"].includes(action)) {
+    const source = INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId;
+    if (action === "synthesis-renew") {
+      registry.renew(source);
+      console.log("Public synthesis reset to disabled; explicit opt-in required.");
+    } else {
+      registry.setStatus(source, action === "synthesis-revoke" ? "revoked" : "disabled");
+      const path = defaultIntelligenceDbPath();
+      if (existsSync(path)) {
+        const store = new IntelligenceEventStore({ path });
+        try {
+          store.retractInitiativeResearch();
+          if (action === "synthesis-revoke") store.eraseSource(source);
+        } finally { store.close(); }
+      }
+      erasePreparedInitiativeCards(activityRecordPath(FLYD_DIR), true);
+      purgeInitiativeObjectives();
+      console.log("Public model interpretation stopped; related derived research and follow-through cleared.");
+    }
+    return;
+  }
   if (action === "review") {
     if (!projectId || (verdict !== "helpful" && verdict !== "not_helpful")) {
       throw new Error("Usage: flyd initiative review <candidate-id> helpful|not_helpful");
@@ -61,6 +95,7 @@ export async function runInitiativeCommand(action = "status", projectId?: string
       console.log(JSON.stringify({
         localConsent: registry.status(ID),
         publicResearchConsent: registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId),
+        publicSynthesisConsent: registry.status(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId),
         mandateConsent: registry.status(INITIATIVE_MANDATE_CONTRACT.sourceId),
         mode: initiativeMode(),
         sourceStatus: store.isRevoked(ID) ? "erased" : "available",
@@ -133,6 +168,7 @@ export async function runInitiativeCommand(action = "status", projectId?: string
   }
   if (action === "research-revoke") {
     registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "revoked");
+    registry.setStatus(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId, "disabled");
     const dbPath = defaultIntelligenceDbPath();
     let derived = 0;
     if (existsSync(dbPath)) {
@@ -166,6 +202,7 @@ export async function runInitiativeCommand(action = "status", projectId?: string
   if (action === "disable" || action === "pause") {
     registry.setStatus(ID, action === "pause" ? "paused" : "disabled");
     registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "disabled");
+    registry.setStatus(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId, "disabled");
     registry.setStatus(INITIATIVE_MANDATE_CONTRACT.sourceId, "disabled");
     console.log("Proactive investigation " + (action === "pause" ? "paused" : "disabled") + "; previously prepared cards are no longer shown.");
     return;
@@ -177,6 +214,7 @@ export async function runInitiativeCommand(action = "status", projectId?: string
     }
     registry.setStatus(ID, "revoked");
     registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "revoked");
+    registry.setStatus(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId, "revoked");
     registry.setStatus(INITIATIVE_MANDATE_CONTRACT.sourceId, "revoked");
     purgeInitiativeObjectives();
     let events = 0;
@@ -187,6 +225,7 @@ export async function runInitiativeCommand(action = "status", projectId?: string
         events = store.eraseSource(ID).tombstone.eventCount;
         store.eraseSource(INITIATIVE_MANDATE_CONTRACT.sourceId);
         store.eraseSource(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId);
+        store.eraseSource(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId);
         const removed = erasePreparedInitiativeCards(activityRecordPath(FLYD_DIR));
         for (const sweep of store.pendingSweeps(ID).filter(s => s.surface === "legacy_copies")) {
           store.completeSweep(sweep.sweepId);
@@ -219,13 +258,14 @@ export async function runInitiativeCommand(action = "status", projectId?: string
     return;
   }
   if (action !== "status") {
-    throw new Error("Usage: flyd initiative status|stats|doctor|review <candidate-id> helpful|not_helpful|enable|disable|pause|revoke|renew|run|research-enable|research-disable|research-pause|research-revoke|research-renew|research-run|authorize-readonly <project-id>|revoke-mandates|renew-mandates");
+    throw new Error("Usage: flyd initiative status|stats|doctor|review <candidate-id> helpful|not_helpful|enable|disable|pause|revoke|renew|run|research-enable|research-disable|research-pause|research-revoke|research-renew|research-run|authorize-readonly <project-id>|revoke-mandates|renew-mandates|synthesis-enable|synthesis-disable|synthesis-revoke|synthesis-renew");
   }
   console.log([
     "Flyd self-initiated intelligence",
     "Local curated source: " + (registry.status(ID) ?? "disabled"),
     "Presentation mode: " + initiativeMode(),
     "Public research permission: " + registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId),
+    "Public-only model synthesis: " + registry.status(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId),
     "Read-only research mandates: " + registry.status(INITIATIVE_MANDATE_CONTRACT.sourceId),
     "Inputs: curated projects, Scout discoveries, Council advice, CoS outcome receipts",
     "Local initiative is private. Separately enabled PUBLIC lookups may use public Scout titles/URLs only.",
