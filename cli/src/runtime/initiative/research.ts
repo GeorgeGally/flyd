@@ -16,6 +16,17 @@ const DESTINATION = "evidence:public";
 const MAX_QUERY = 160;
 const MAX_PUBLIC_EVIDENCE = 5;
 const RESEARCH_POLICY = "initiative.research.v1";
+const PUBLIC_RESEARCH_GRANT_MS = 90 * 86_400_000;
+
+/** A standing public-only grant is time-bounded, not indefinite. */
+export function publicResearchConsentCurrent(registry: SourceContractRegistry, now = new Date()): boolean {
+  const grant = registry.list().find(item => item.contract.sourceId === INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId);
+  if (!grant || grant.state.status !== "enabled") return false;
+  const at = Date.parse(grant.state.changedAt);
+  return Number.isFinite(at) && at <= now.getTime() + 60_000
+    && now.getTime() - at <= PUBLIC_RESEARCH_GRANT_MS;
+}
+
 
 export type InitiativeResearchStatus =
   | "source_confirmed" | "inconclusive" | "no_evidence"
@@ -131,8 +142,8 @@ export async function researchInitiative(
   });
   const registry = deps.registry ?? new SourceContractRegistry();
   registry.register(INITIATIVE_PUBLIC_RESEARCH_CONTRACT);
-  if (registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) !== "enabled") {
-    return finish("not_permitted", "Public research is disabled.", "source_consent_required");
+  if (!publicResearchConsentCurrent(registry, now)) {
+    return finish("not_permitted", "Public research opt-in is disabled or expired.", "source_consent_required_or_expired");
   }
   const input = publicResearchInput(candidate, edition);
   if (!input) return finish("stale", "Public source is missing, unsafe, or its revision changed.", "invalid_public_source");
@@ -190,8 +201,8 @@ export async function researchInitiative(
       error instanceof Error ? error.message.slice(0, 120) : "research_error",
       { researchCalls: 1 });
   }
-  if (registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) !== "enabled") {
-    return finish("not_permitted", "Public source permission was revoked before completion.", "consent_revoked_after_fetch",
+  if (!publicResearchConsentCurrent(registry, new Date())) {
+    return finish("not_permitted", "Public research permission was revoked or expired before completion.", "consent_revoked_after_fetch",
       { researchCalls: 1 });
   }
   const item = eligibleItem(candidate, edition);
