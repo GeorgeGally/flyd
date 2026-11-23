@@ -221,6 +221,18 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       },
     },
     {
+      // A separate explicit, project-scoped accepted mandate is required
+      // before a source-confirmed finding may become a CoS work receipt.
+      name: "initiative-follow-through", usesModel: false,
+      run: async () => {
+        if (process.env.FLYD_COS !== "1" || process.env.FLYD_INITIATIVE === "off"
+          || process.env.FLYD_INITIATIVE === "0") return;
+        const { runInitiativeFollowThrough } = await import("./initiative/follow-through.js");
+        const result = await runInitiativeFollowThrough({ ...(options.now ? { now: options.now } : {}) });
+        return result.reported ? `Completed ${result.reported} accepted read-only research follow-ups` : undefined;
+      },
+    },
+    {
       // Have the morning ready before George is up (council/morning.ts).
       name: "morning", usesModel: true,
       run: async () => {
