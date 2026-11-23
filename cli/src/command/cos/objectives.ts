@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { commandDir, withFileLock, writeJsonFile } from "../store.js";
@@ -60,4 +60,52 @@ export function openObjective(input: Pick<Objective, "words" | "flydNotes" | "or
     status: "intake", runs: [], reportIds: [],
   };
   return mutateObjective(id, () => objective, dir)!;
+}
+
+
+/**
+ * CoS records an already-performed, independently sourced READ-ONLY research
+ * follow-up under a real, user-created mandate. This creates no worker,
+ * FirstMate task, network call or privileged effect. Workers require a
+ * separate runtime-enforced execution capability, not a model-suggested task.
+ */
+export function openVerifiedInitiativeResearch(input: {
+  candidateId: string;
+  sourceRevision: string;
+  acceptedMandateEventId: string;
+  researchEventId: string;
+  projectName: string;
+  publicEvidenceRefs: string[];
+}, dir = commandDir(), now = new Date()): { objective: Objective; created: boolean } {
+  if (!input.acceptedMandateEventId || !input.researchEventId || !input.publicEvidenceRefs.length) {
+    throw new Error("Refusing ungrounded or unaccepted initiative work");
+  }
+  const digest = createHash("sha256").update(JSON.stringify([
+    input.candidateId, input.sourceRevision, input.acceptedMandateEventId,
+  ])).digest("hex").slice(0, 24);
+  const id = "obj-initiative-" + digest;
+  let created = false;
+  const saved = mutateObjective(id, (existing) => {
+    if (existing) return null;
+    created = true;
+    const at = now.toISOString();
+    return {
+      id, revision: 0, createdAt: at, updatedAt: at,
+      origin: { surface: "initiative" },
+      words: "Flyd-initiated read-only evidence review for " + input.projectName,
+      flydNotes: "Source-checked public evidence, no implementation claim and no new authority.",
+      contextRefs: [...input.publicEvidenceRefs, "event:" + input.researchEventId],
+      urgency: "whenever",
+      project: { name: input.projectName },
+      initiative: {
+        candidateId: input.candidateId, sourceRevision: input.sourceRevision,
+        mandateEventId: input.acceptedMandateEventId,
+        researchEventId: input.researchEventId, readOnly: true,
+      },
+      status: "done",
+      runs: [], reportIds: [id + ":research"],
+    };
+  }, dir);
+  if (!saved) throw new Error("Could not persist initiative research in CoS");
+  return { objective: saved, created };
 }
