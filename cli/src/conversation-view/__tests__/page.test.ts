@@ -1240,10 +1240,13 @@ describe("conversation page", () => {
     expect(routine!.classList.contains("routine")).toBe(true);
   });
 
-  it("asks for a message to Flyd in Flyd's window", () => {
+  it("uses a plain message placeholder without naming Flyd", () => {
     document.body.innerHTML = /<body[^>]*>([\s\S]*)<\/body>/.exec(renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) }))![1]!.replace(/<script>[\s\S]*<\/script>/, "");
     const input = document.getElementById("input") as HTMLTextAreaElement;
-    expect(input.placeholder).toBe("Message Flyd");
+    expect(input.placeholder).toBe("Message");
+    expect(input.getAttribute("aria-label")).toBe("Message");
+    expect(document.getElementById("scope")!.textContent).toBe("Project");
+    expect(document.body.textContent).not.toContain("To: Flyd");
     expect(document.getElementById("rail")!.textContent).not.toMatch(/firstmate/i);
   });
 
@@ -1293,7 +1296,7 @@ describe("conversation page", () => {
     await settle();
     open("latest", []);
     const scope = document.getElementById("scope") as HTMLButtonElement;
-    expect(scope.textContent).toBe("To: Flyd");
+    expect(scope.textContent).toBe("Project");
     const sentScope = () => JSON.parse(String((vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)![1] as RequestInit).body)).scope;
     await type("Preferences should be full-page");
     expect(sentScope()).toBe("");
@@ -1303,24 +1306,24 @@ describe("conversation page", () => {
     await settle();
     const menu = document.getElementById("scope-menu")!;
     expect(menu.hidden).toBe(false);
-    expect([...menu.querySelectorAll("button")].map((choice) => choice.textContent)).toEqual(["Flyd, no project", "HFTW", "Flyd (project)"]);
+    expect([...menu.querySelectorAll("button")].map((choice) => choice.textContent)).toEqual(["No project", "HFTW", "Flyd (project)"]);
     menu.querySelector<HTMLButtonElement>('[data-scope="HFTW"]')!.click();
     expect(menu.hidden).toBe(true);
-    expect(scope.textContent).toBe("To: HFTW");
+    expect(scope.textContent).toBe("HFTW");
     await type("swap the hero image");
     expect(sentScope()).toBe("HFTW");
 
     // The stream reconnecting to the same conversation keeps his pick.
     FakeEventSource.instances.at(-1)!.emit("session", { id: "latest", title: "latest", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
-    expect(scope.textContent).toBe("To: HFTW");
+    expect(scope.textContent).toBe("HFTW");
     await type("and the footer");
     expect(sentScope()).toBe("HFTW");
 
     // A project's thread speaks for that project; leaving it is general again.
     FakeEventSource.instances.at(-1)!.emit("session", { id: "project:dir", title: "DIR", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
-    expect(scope.textContent).toBe("To: DIR");
+    expect(scope.textContent).toBe("DIR");
     FakeEventSource.instances.at(-1)!.emit("session", { id: "latest", title: "latest", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
-    expect(scope.textContent).toBe("To: Flyd");
+    expect(scope.textContent).toBe("Project");
   });
 
   it("recalls earlier messages with Shift+Up and restores the draft with Shift+Down", async () => {
@@ -1398,7 +1401,7 @@ describe("conversation page", () => {
     await settle();
     const send = document.getElementById("send") as HTMLButtonElement;
     expect(send.textContent).toBe("Send");
-    expect(send.getAttribute("aria-label")).toBe("Send to firstmate");
+    expect(send.getAttribute("aria-label")).toBe("Send message");
   });
 
   it("attaches a native Scrawl to the unsent composer and removes its context with the thumbnail", async () => {
@@ -1660,6 +1663,7 @@ describe("header and artefact view", () => {
     expect(pop.hidden).toBe(true);
     expect(document.getElementById("replying")!.hidden).toBe(false);
     expect(document.getElementById("replying-title")!.textContent).toBe("“island”");
+    expect(document.getElementById("replying")!.parentElement).toBe(document.querySelector(".field"));
     const input = document.getElementById("input") as HTMLTextAreaElement;
     input.value = "Faster";
     document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
@@ -3174,7 +3178,7 @@ describe("the front page", () => {
     const input = document.getElementById("input") as HTMLTextAreaElement;
     // No story is talked about until he picks one: the box is the conversation's.
     expect(chip()).toBe("");
-    expect(input.placeholder).toBe("Message firstmate");
+    expect(input.placeholder).toBe("Message");
     // "Chat about this" under the source puts that story in the box, by name.
     shown[1]!.querySelector<HTMLElement>(".story-chat")!.click();
     expect(chip()).toBe("Infinite Mac adds support for BeOS");
@@ -3199,7 +3203,7 @@ describe("the front page", () => {
     expect([...talk.children].map((line) => [line.className, line.textContent])).toEqual([["q", "Which tab?"], ["a", "Any browser tab."]]);
     // Back on Today the box is the conversation's again.
     document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
-    expect(input.placeholder).toBe("Message firstmate");
+    expect(input.placeholder).toBe("Message");
   });
 
   it("keeps an in-flight News reply live and closes it after completion", async () => {
@@ -3280,7 +3284,7 @@ describe("the front page", () => {
     document.getElementById("news-page")!.dispatchEvent(new Event("scroll"));
     expect(chip()).toBe("Second updated");
     update([]);
-    expect(input.placeholder).toBe("Message firstmate");
+    expect(input.placeholder).toBe("Message");
   });
 
   it("shows a quote on News once, with who said it and where it came from", async () => {
@@ -3319,7 +3323,7 @@ describe("the front page", () => {
     expect(chip()).toBe("Right");
     document.getElementById("story-chip-clear")!.click();
     expect(chip()).toBe("");
-    expect((document.getElementById("input") as HTMLTextAreaElement).placeholder).toBe("Message firstmate");
+    expect((document.getElementById("input") as HTMLTextAreaElement).placeholder).toBe("Message");
     expect(document.querySelector('#news-cols .story-chat[aria-pressed="true"]')).toBeNull();
   });
 
@@ -3330,14 +3334,14 @@ describe("the front page", () => {
     showNews(null);
     const input = document.getElementById("input") as HTMLTextAreaElement;
     stream.emit("session", { id: "project:dir", title: "DIR", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
-    expect(input.placeholder).toBe("Message firstmate about DIR");
-    expect(input.getAttribute("aria-label")).toBe("Message firstmate about DIR");
+    expect(input.placeholder).toBe("Message about DIR");
+    expect(input.getAttribute("aria-label")).toBe("Message about DIR");
     showNews(0);
     expect(input.placeholder).toBe("Ask about this story");
     document.getElementById("story-chip-clear")!.click();
-    expect(input.placeholder).toBe("Message firstmate about DIR");
+    expect(input.placeholder).toBe("Message about DIR");
     document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
-    expect(input.placeholder).toBe("Message firstmate");
+    expect(input.placeholder).toBe("Message");
   });
 
   it("sends a News attachment without text to the article session", async () => {
