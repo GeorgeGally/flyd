@@ -13,7 +13,7 @@ import { runInitiativeResearchCycle } from "../initiative/research-cycle.js";
 
 const now = new Date("2026-11-23T12:00:00Z");
 const project: Project = {
-  id: "visual-work", name: "Visual Motion Lab", what: "Creative code for interactive typography",
+  id: "visual-work", name: "Interactive Typography Studio", what: "Creative code for interactive typography",
   kind: "creative", status: "active", now: "Testing interactive animation",
   people: [], repos: [], updated: "2026-11-23",
 };
