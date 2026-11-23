@@ -12,7 +12,7 @@ import { recordActivity, type ActivityRecord } from "../../conversation-view/act
 import { deriveInitiatives, initiativeRevision, type InitiativeCandidate } from "./candidates.js";
 import { initiativeSourcesCurrent, type CurrentInitiativeEvidence } from "./source-validity.js";
 import {
-  researchInitiative, safeResearchPayload, type InitiativeResearchReceipt,
+  researchInitiative, safeResearchPayload, publicResearchConsentCurrent, type InitiativeResearchReceipt,
 } from "./research.js";
 import { countInitiativeCards, initiativeCardRecorded } from "./cycle.js";
 import { projectInitiativeQuietUntil } from "./outcomes.js";
@@ -94,12 +94,11 @@ export async function runInitiativeResearchCycle(deps: ResearchCycleDeps = {}): 
   const registry = deps.registry ?? new SourceContractRegistry();
   registry.register(INITIATIVE_CURATED_CONTRACT);
   registry.register(INITIATIVE_PUBLIC_RESEARCH_CONTRACT);
-  if (registry.status(SOURCE) !== "enabled"
-    || registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) !== "enabled") {
+  const now = deps.now?.() ?? new Date();
+  if (registry.status(SOURCE) !== "enabled" || !publicResearchConsentCurrent(registry, now)) {
     summary.held.push("source_or_public_research_consent_required");
     return summary;
   }
-  const now = deps.now?.() ?? new Date();
   const owns = !deps.store;
   const store = deps.store ?? new IntelligenceEventStore();
   try {
@@ -120,9 +119,10 @@ export async function runInitiativeResearchCycle(deps: ResearchCycleDeps = {}): 
     const maxDaily = Math.max(0, Math.min(4, deps.maxDaily ?? 2));
     for (const candidate of selected) {
       const generation = store.latestTombstone(SOURCE)?.erasedAt ?? "initial";
-      const caseKey = generation + ":" + candidate.id + ":" + initiativeRevision(candidate.sources);
+      const publicGeneration = registry.list().find(item => item.contract.sourceId === INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId)?.state.changedAt ?? "missing";
+      const caseKey = generation + ":" + publicGeneration + ":" + candidate.id + ":" + initiativeRevision(candidate.sources);
       const resultKey = "research-result:" + caseKey;
-      if (registry.status(SOURCE) !== "enabled" || registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) !== "enabled") {
+      if (registry.status(SOURCE) !== "enabled" || !publicResearchConsentCurrent(registry, new Date())) {
         summary.held.push("consent_revoked");
         break;
       }
@@ -160,7 +160,7 @@ export async function runInitiativeResearchCycle(deps: ResearchCycleDeps = {}): 
       // A callback can return while the source/mandate has changed.
       if (!initiativeSourcesCurrent(candidate.sources, current())
         || registry.status(SOURCE) !== "enabled"
-        || registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) !== "enabled") {
+        || !publicResearchConsentCurrent(registry, new Date())) {
         summary.held.push("source_changed_or_revoked");
         continue;
       }
