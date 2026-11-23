@@ -232,11 +232,12 @@ program
 
 program
   .command("initiative")
-  .description("Opt-in local self-initiated intelligence: status | enable | disable | pause | revoke | renew | run")
-  .argument("[action]", "status, enable, disable, pause, revoke, renew, run")
-  .action(async (action?: string) => {
+  .description("Self-initiated intelligence, public research, read-only project mandates, and revocation")
+  .argument("[action]", "initiative control action")
+  .argument("[projectId]", "project id for authorize-readonly")
+  .action(async (action?: string, projectId?: string) => {
     const { runInitiativeCommand } = await import("./commands/initiative.js");
-    await runInitiativeCommand(action);
+    await runInitiativeCommand(action, projectId);
   });
 
 program
