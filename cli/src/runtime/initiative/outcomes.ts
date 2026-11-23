@@ -1,0 +1,128 @@
+import { readFileSync } from "node:fs";
+import { activityRecordPath, type ActivityRecord } from "../../conversation-view/activity.js";
+import type { IntelligenceEventStore, StoredEvent } from "../../intelligence/event-store.js";
+import { validateEnvelope, type ContextEnvelope } from "../../intelligence/context-envelope.js";
+import { INITIATIVE_CURATED_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
+
+export type InitiativeReviewVerdict = "helpful" | "not_helpful";
+export interface InitiativeReview {
+  candidateId: string;
+  verdict: InitiativeReviewVerdict;
+  at: string;
+  /** An explicit human reaction is NOT a verified external effect. */
+  effect: "unknown";
+}
+export interface InitiativeOutcomeItem {
+  candidateId: string;
+  researched: boolean;
+  evidenceStatus?: string;
+  verifiedExternalImpact: false;
+  researchCalls: number;
+  reviewed?: InitiativeReviewVerdict;
+  resurfaced: boolean;
+}
+
+const SOURCE = INITIATIVE_CURATED_CONTRACT.sourceId;
+function validCandidateId(id: string): boolean { return /^[a-f0-9]{24}$/.test(id); }
+function lastResearchByCandidate(events: StoredEvent[]): Map<string, StoredEvent> {
+  const seen = new Map<string, StoredEvent>();
+  for (const event of [...events].reverse()) {
+    if (event.erased || event.kind !== "inferred_belief" || event.payload?.type !== "investigation") continue;
+    const id = event.payload.candidate_id;
+    if (typeof id === "string" && validCandidateId(id)) seen.set(id, event);
+  }
+  return seen;
+}
+export function initiativeReviews(events: StoredEvent[]): Map<string, InitiativeReview> {
+  const result = new Map<string, InitiativeReview>();
+  for (const event of events) {
+    const p = event.payload;
+    if (event.erased || p?.type !== "initiative_review") continue;
+    if (!validCandidateId(p.candidate_id as string)
+      || (p.verdict !== "helpful" && p.verdict !== "not_helpful")) continue;
+    result.set(p.candidate_id as string, {
+      candidateId: p.candidate_id as string, verdict: p.verdict,
+      at: event.capturedAt, effect: "unknown",
+    });
+  }
+  return result;
+}
+export function initiativeOutcomeProjection(events: StoredEvent[]): InitiativeOutcomeItem[] {
+  const found = lastResearchByCandidate(events);
+  const reviews = initiativeReviews(events);
+  const cases = new Set([...found.keys(), ...reviews.keys()]);
+  return [...cases].map(candidateId => {
+    const e = found.get(candidateId);
+    const p = e?.payload;
+    return {
+      candidateId,
+      researched: Boolean(e),
+      ...(typeof p?.epistemic_status === "string" ? { evidenceStatus: p.epistemic_status } : {}),
+      verifiedExternalImpact: false as const,
+      researchCalls: typeof p?.research_calls === "number" && Number.isFinite(p.research_calls) ? p.research_calls : 0,
+      ...(reviews.has(candidateId) ? { reviewed: reviews.get(candidateId)!.verdict } : {}),
+      resurfaced: Boolean(p?.presented),
+    };
+  });
+}
+export function summarizeInitiativeOutcomes(events: StoredEvent[]) {
+  const items = initiativeOutcomeProjection(events);
+  return {
+    candidatesWithResearch: items.filter(x => x.researched).length,
+    independentlyCorroboratedPublicTopics: items.filter(x => x.evidenceStatus === "source_confirmed").length,
+    inconclusiveOrContradicted: items.filter(x => x.researched && x.evidenceStatus !== "source_confirmed").length,
+    explicitHelpfulReviews: items.filter(x => x.reviewed === "helpful").length,
+    explicitNotHelpfulReviews: items.filter(x => x.reviewed === "not_helpful").length,
+    unknownExternalImpact: items.length,
+    verifiedExternalImpact: 0,
+    reportedPublicResearchCalls: items.reduce((sum, x) => sum + x.researchCalls, 0),
+  };
+}
+
+/**
+ * Explicit user-triggered CLI review; only a recent, actually prepared
+ * research card can be reviewed. Prepared ≠ read ≠ independently useful.
+ */
+export function recordInitiativeReview(input: {
+  store: IntelligenceEventStore;
+  registry: SourceContractRegistry;
+  candidateId: string;
+  verdict: InitiativeReviewVerdict;
+  now?: Date;
+  activityPath?: string;
+}): "recorded" | "already_recorded" | "not_eligible" {
+  const { store, registry, candidateId, verdict } = input;
+  if (!validCandidateId(candidateId) || (verdict !== "helpful" && verdict !== "not_helpful")
+    || registry.status(SOURCE) !== "enabled" || store.isRevoked(SOURCE)) return "not_eligible";
+  const now = input.now ?? new Date();
+  const events = store.readSourcePage(SOURCE, { limit: 1000 });
+  const research = events.find(e => e.kind === "inferred_belief" && e.payload?.type === "investigation"
+    && e.payload.candidate_id === candidateId && Date.parse(e.capturedAt) >= now.getTime() - 14 * 86_400_000);
+  if (!research) return "not_eligible";
+  let prepared = false;
+  try {
+    prepared = readFileSync(input.activityPath ?? activityRecordPath(), "utf8")
+      .split("\n").some(line => {
+        try {
+          const rec = JSON.parse(line) as ActivityRecord;
+          return rec.key?.startsWith("initiative:research:" + candidateId + ":")
+            && typeof rec.at === "string" && Date.parse(rec.at) <= now.getTime();
+        } catch { return false; }
+      });
+  } catch { /* no prepared card */ }
+  if (!prepared) return "not_eligible";
+  const previous = initiativeReviews(events).get(candidateId);
+  if (previous?.verdict === verdict) return "already_recorded";
+  const version = events.filter(e => e.payload?.type === "initiative_review"
+    && e.payload.candidate_id === candidateId).length + 1;
+  const envelope: ContextEnvelope = {
+    pathKind: "interface", kind: "observation", sourceId: SOURCE,
+    consent: { grantedAt: now.toISOString(), scopes: [...INITIATIVE_CURATED_CONTRACT.scopes] },
+    retentionClass: "local_default", payloadClassification: "operational",
+    provenance: "explicit-user:initiative-review", idempotencyKey: "review:" + candidateId + ":" + version,
+    correlationId: candidateId, evidenceRefs: ["event:" + research.id],
+    payload: { type: "initiative_review", candidate_id: candidateId, verdict, effect: "unknown" },
+  };
+  if (!validateEnvelope(envelope, { consentLookup: store }).ok) return "not_eligible";
+  return store.append(envelope) ? "recorded" : "not_eligible";
+}
