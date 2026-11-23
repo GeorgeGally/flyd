@@ -62,7 +62,7 @@ function fixture() {
 
 describe("v10 accepted CoS research follow-through", () => {
   it("rejects fabricated mandates and does not accept requests inferred from an idea", () => {
-    const { db } = fixture();
+    const { db, registry } = fixture();
     try {
       expect(() => acceptReadOnlyInitiativeMandate(db, project,
         { explicitUserAction: false as true, now, registry })).toThrow(/infer authorization/);
