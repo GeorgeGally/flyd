@@ -258,12 +258,13 @@ export function visibleCareRecords(
 /** Additional per-read revocation gate for self-started initiative cards. */
 export function visibleInitiativeRecords(
   records: unknown[],
-  policy: { enabled: boolean; publicResearchEnabled?: boolean; current: (sources: InitiativeSource[]) => boolean },
+  policy: { enabled: boolean; publicResearchEnabled?: boolean; mandateEnabled?: boolean; current: (sources: InitiativeSource[]) => boolean },
 ): unknown[] {
   return records.filter(raw => {
     const rec = raw as Partial<ActivityRecord> | null;
     if (!rec || typeof rec.key !== "string" || !rec.key.startsWith("initiative:")) return true;
-    if (!policy.enabled || (rec.key.startsWith("initiative:research:") && !policy.publicResearchEnabled)) return false;
+    if (!policy.enabled || (rec.key.startsWith("initiative:research:") && !policy.publicResearchEnabled)
+      || (rec.key.startsWith("initiative:cos:") && (!policy.publicResearchEnabled || !policy.mandateEnabled))) return false;
     return Array.isArray(rec.sourceRefs) && policy.current(rec.sourceRefs);
   });
 }
@@ -769,6 +770,8 @@ export class ActivityReader {
       records: visibleInitiativeRecords(careRecords, {
         publicResearchEnabled: new SourceContractRegistry({ path: join(this.dir, "intelligence", "source-consents.json") })
           .status("initiative.public-research") === "enabled",
+        mandateEnabled: new SourceContractRegistry({ path: join(this.dir, "intelligence", "source-consents.json") })
+          .status("initiative.mandate") === "enabled",
         enabled: process.env.FLYD_INITIATIVE !== "0" && process.env.FLYD_INITIATIVE !== "off"
           && process.env.FLYD_INITIATIVE !== "shadow"
           && new SourceContractRegistry({ path: join(this.dir, "intelligence", "source-consents.json") })
