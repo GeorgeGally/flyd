@@ -20,6 +20,7 @@ export interface InitiativeOutcomeItem {
   evidenceStatus?: string;
   verifiedExternalImpact: false;
   researchCalls: number;
+  modelCalls: number;
   reviewed?: InitiativeReviewVerdict;
   /** The activity writer is not a verified display/acknowledgment receipt. */
   delivery: "unknown";
@@ -63,6 +64,7 @@ export function initiativeOutcomeProjection(events: StoredEvent[]): InitiativeOu
       ...(typeof p?.epistemic_status === "string" ? { evidenceStatus: p.epistemic_status } : {}),
       verifiedExternalImpact: false as const,
       researchCalls: typeof p?.research_calls === "number" && Number.isFinite(p.research_calls) ? p.research_calls : 0,
+      modelCalls: typeof p?.model_calls === "number" && Number.isFinite(p.model_calls) ? p.model_calls : 0,
       ...(reviews.has(candidateId) ? { reviewed: reviews.get(candidateId)!.verdict } : {}),
       delivery: "unknown" as const,
     };
@@ -79,6 +81,8 @@ export function summarizeInitiativeOutcomes(events: StoredEvent[]) {
     unknownExternalImpact: items.length,
     verifiedExternalImpact: 0,
     reportedPublicResearchCalls: items.reduce((sum, x) => sum + x.researchCalls, 0),
+    reportedPublicSynthesisModelCalls: items.reduce((sum, x) => sum + x.modelCalls, 0),
+    modelMonetarySpend: "unknown_without_provider_metering" as const,
   };
 }
 
