@@ -29,7 +29,8 @@
 
 - `flyd initiative enable`: permits deriving local hypotheses from already curated projects, Council, Scout and CoS records. This is a **local-only LEARN grant**.
 - `FLYD_INITIATIVE=shadow flyd initiative run`: a local inspection with no ambient result. Observe `triaged` rather than the misleading “investigated.”
-- `flyd initiative research-enable`: **independent** opt-in for public Scout research. It does not authorize private model egress. Run `flyd initiative research-run` and verify only the public article title/URL reaches the Evidence Engine.
+- `flyd initiative research-enable`: **independent 90-day renewable** opt-in for public Scout research. It does not authorize private model egress. Run `flyd initiative research-run` and verify only the public article title/URL reaches the Evidence Engine.
+- Optional: `flyd initiative synthesis-enable` separately permits one bounded quick-model interpretation of **public source excerpts only**. Check the actual configured provider, the outbound redacted payload and that the model text is labeled an **unverified hypothesis**, not a verified implementation or business outcome. `synthesis-disable` and `synthesis-revoke` stop this path and retract any affected derived public-research cards/reports.
 - With `FLYD_INITIATIVE=on` (or unset) and both permissions enabled, at most one source-linked initiative card should appear per local day. A public finding must state whether it is single-source, contradicted, absent or backed by different domains, and must **not** claim the technique has already improved a project.
 - Test a relevant Creative/technical topic and an unrelated headline. The latter must not create a new job or notification.
 
