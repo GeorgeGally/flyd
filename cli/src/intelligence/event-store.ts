@@ -342,6 +342,32 @@ export class IntelligenceEventStore {
     });
   }
 
+  /** CoS research reports inherit the research/mandate source's privacy. */
+  private linkedCosReportSequences(keys: ReadonlySet<string>): number[] {
+    if (!keys.size) return [];
+    const rows = this.db.prepare(
+      "SELECT sequence, payload_json FROM personal_events WHERE source_id = 'cos.report'" +
+      " AND erased = 0 AND payload_json IS NOT NULL",
+    ).all() as Array<{ sequence: number; payload_json: string }>;
+    return rows.flatMap(row => {
+      try {
+        const p = JSON.parse(row.payload_json) as { report?: { evidenceRefs?: unknown } };
+        const refs = p.report?.evidenceRefs;
+        return Array.isArray(refs) && refs.some(ref => typeof ref === "string" && keys.has(ref))
+          ? [row.sequence] : [];
+      } catch { return []; }
+    });
+  }
+
+  private eventReferences(sequences: number[]): string[] {
+    if (!sequences.length) return [];
+    const lookup = this.db.prepare("SELECT id FROM personal_events WHERE sequence = ?");
+    return sequences.flatMap(sequence => {
+      const row = lookup.get(sequence) as { id: string } | undefined;
+      return row ? ["event:" + row.id] : [];
+    });
+  }
+
   private retractSequences(sequences: number[]): void {
     const update = this.db.prepare(
       "UPDATE personal_events SET erased = 1, payload_json = NULL, evidence_refs = '[]'," +
@@ -360,8 +386,9 @@ export class IntelligenceEventStore {
     if (!keys.size) return 0;
     return this.transaction(() => {
       const sequences = this.derivedInitiativeSequences(keys);
-      this.retractSequences(sequences);
-      return sequences.length;
+      const cos = this.linkedCosReportSequences(new Set(this.eventReferences(sequences)));
+      this.retractSequences([...sequences, ...cos]);
+      return sequences.length + cos.length;
     });
   }
 
@@ -383,8 +410,9 @@ export class IntelligenceEventStore {
             ? [row.sequence] : [];
         } catch { return []; }
       });
-      this.retractSequences(erase);
-      return erase.length;
+      const cos = this.linkedCosReportSequences(new Set(this.eventReferences(erase)));
+      this.retractSequences([...erase, ...cos]);
+      return erase.length + cos.length;
     });
   }
 
@@ -401,8 +429,9 @@ export class IntelligenceEventStore {
           return payload.type === "research_claim" || payload.type === "investigation" ? [row.sequence] : [];
         } catch { return []; }
       });
-      this.retractSequences(found);
-      return found.length;
+      const cos = this.linkedCosReportSequences(new Set(this.eventReferences(found)));
+      this.retractSequences([...found, ...cos]);
+      return found.length + cos.length;
     });
   }
 
@@ -431,7 +460,10 @@ export class IntelligenceEventStore {
     ]);
     const impacted = this.transaction(() => {
       const dependent = this.derivedInitiativeSequences(keys, family);
-      this.retractSequences([...own, ...dependent]);
+      const cos = this.linkedCosReportSequences(new Set([
+        ...this.eventReferences(own), ...this.eventReferences(dependent),
+      ]));
+      this.retractSequences([...own, ...dependent, ...cos]);
       const now = new Date().toISOString();
       this.db.prepare(
         "INSERT INTO erasure_tombstones (source_id, erased_at, event_count) VALUES (?, ?, ?)",
@@ -443,7 +475,7 @@ export class IntelligenceEventStore {
           "INSERT INTO erasure_sweeps (sweep_id, source_id, surface) VALUES (?, ?, ?, 'pending')",
         ).run(crypto.randomUUID(), sourceId, surface);
       }
-      return [...new Set([...own, ...dependent])];
+      return [...new Set([...own, ...dependent, ...cos])];
     });
     return {
       tombstone: this.latestTombstone(sourceId) as ErasureTombstone,
