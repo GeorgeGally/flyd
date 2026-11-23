@@ -41,7 +41,8 @@ export interface InitiativeRunDeps {
 export interface InitiativeRunResult {
   mode: InitiativeMode;
   generated: number;
-  investigated: number;
+  /** A question was formulated and evaluated, not yet researched. */
+  triaged: number;
   published: number;
   skipped: number;
   reasons: string[];
@@ -113,7 +114,7 @@ export function initiativeActivity(candidate: InitiativeCandidate): ActivityReco
 
 export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<InitiativeRunResult> {
   const mode = deps.mode ?? initiativeMode();
-  const result: InitiativeRunResult = { mode, generated: 0, investigated: 0, published: 0, skipped: 0, reasons: [] };
+  const result: InitiativeRunResult = { mode, generated: 0, triaged: 0, published: 0, skipped: 0, reasons: [] };
   if (mode === "off") return result;
   // The LEARN contract is disabled unless the user explicitly opts in. Do
   // not even read local projects or create a SQLite db when it is missing.
@@ -177,7 +178,7 @@ export async function runInitiativeCycle(deps: InitiativeRunDeps = {}): Promise<
         }
         return true;
       });
-      if (created && decision.disposition === "investigate") result.investigated++;
+      if (created && decision.disposition === "investigate") result.triaged++;
       if (created && decision.disposition !== "investigate") result.reasons.push(decision.reason);
       if (!created) { result.skipped++; continue; }
     }
