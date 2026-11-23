@@ -127,12 +127,14 @@ export async function runInitiativeFollowThrough(deps: FollowThroughDeps = {}): 
         shape: "words", artefacts: [], urgency: "whenever",
       };
       if (registry.status(INITIATIVE_MANDATE_CONTRACT.sourceId) !== "enabled"
+        || registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) !== "enabled"
+        || registry.status(INITIATIVE_CURATED_CONTRACT.sourceId) !== "enabled"
         || !initiativeSourcesCurrent(research.sources, current())) {
         mutateObjective(objective.id, old => old && ({ ...old, status: "cancelled" }), objectiveDir);
         summary.held.push("mandate_or_source_changed");
         continue;
       }
-      if (recordCosReport(report, store, now)) summary.reported++;
+      if (store.transaction(() => recordCosReport(report, store, now))) summary.reported++;
       // Existing Activity is the quiet presentation layer. A CoS report here
       // is not sent as a notification, and a report that was only recorded
       // must not be represented as already shown to George.
