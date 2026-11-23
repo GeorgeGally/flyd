@@ -83,6 +83,40 @@ export function summarizeInitiativeOutcomes(events: StoredEvent[]) {
 }
 
 /**
+ * Three different explicit negative reviews of findings about the SAME
+ * project quiet only that project's optional future insight cards for seven
+ * days. This is a subject-specific attention preference, NOT a new source
+ * fact, a changed authorization, or proof of low external impact.
+ *
+ * A later explicitly helpful review resets the sequence. Ignoring a card
+ * creates no review event and can never mute a project.
+ */
+export function projectInitiativeQuietUntil(
+  events: StoredEvent[], projectId: string, now = new Date(),
+): string | null {
+  if (!projectId || !/^[a-zA-Z0-9-]{1,90}$/.test(projectId)) return null;
+  const key = "project:" + projectId;
+  const last = new Map<string, { verdict: InitiativeReviewVerdict; at: number }>();
+  for (const event of [...events].sort((a, b) => a.sequence - b.sequence)) {
+    const p = event.payload;
+    if (event.erased || p?.type !== "initiative_review"
+      || typeof p.candidate_id !== "string"
+      || !Array.isArray(p.source_keys) || !p.source_keys.includes(key)
+      || (p.verdict !== "helpful" && p.verdict !== "not_helpful")) continue;
+    const at = Date.parse(event.capturedAt);
+    if (Number.isFinite(at) && at <= now.getTime() && at >= now.getTime() - 30 * 86_400_000) {
+      last.set(p.candidate_id, { verdict: p.verdict, at });
+    }
+  }
+  const reviews = [...last.values()].sort((a, b) => a.at - b.at);
+  const lastHelpful = reviews.filter(r => r.verdict === "helpful").at(-1)?.at ?? -Infinity;
+  const negatives = reviews.filter(r => r.verdict === "not_helpful" && r.at > lastHelpful);
+  if (negatives.length < 3) return null;
+  const until = new Date(negatives[2]!.at + 7 * 86_400_000);
+  return until.getTime() > now.getTime() ? until.toISOString() : null;
+}
+
+/**
  * Explicit user-triggered CLI review; only a recent, actually prepared
  * research card can be reviewed. Prepared ≠ read ≠ independently useful.
  */
