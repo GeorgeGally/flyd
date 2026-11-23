@@ -77,7 +77,7 @@ Respond with ONLY this JSON:
 {"verdict": "contradictory|consistent|uncertain", "reason": "one sentence explanation"}`;
 
     try {
-      const response = await query(prompt, defaultModel());
+      const response = await query(prompt, defaultModel(), undefined, undefined, undefined, { source: "commands/consolidate" });
       const jsonMatch = response.match(/\{[\s\S]*?\}/);
       if (jsonMatch) {
         const verdict = JSON.parse(jsonMatch[0]);

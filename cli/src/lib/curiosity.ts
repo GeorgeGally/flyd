@@ -96,7 +96,7 @@ export async function generateQuestions(
     .replace("{tensionContext}", tensionContext);
 
   try {
-    const response = await query(prompt, defaultModel());
+    const response = await query(prompt, defaultModel(), undefined, undefined, undefined, { source: "lib/curiosity" });
     const match = response.match(/\[[\s\S]*\]/);
     if (match) {
       const parsed = JSON.parse(match[0]);
@@ -123,7 +123,7 @@ export async function investigateQuestion(
     .replace("{evidence}", evidence);
 
   try {
-    const response = await query(prompt, defaultModel());
+    const response = await query(prompt, defaultModel(), undefined, undefined, undefined, { source: "lib/curiosity" });
     const match = response.match(/\{[\s\S]*\}/);
     if (match) {
       const parsed = JSON.parse(match[0]);

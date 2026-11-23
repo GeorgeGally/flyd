@@ -207,7 +207,7 @@ Respond ONLY with the JSON object, no other text.`;
 
   let plan: IngestPlan;
   try {
-    const response = await query(prompt, defaultModel(), system);
+    const response = await query(prompt, defaultModel(), system, undefined, undefined, { source: "lib/ingest" });
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
 

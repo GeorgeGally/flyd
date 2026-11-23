@@ -361,7 +361,7 @@ export async function runAssistantTool(
             ]);
             const feedback = String(input.feedback ?? "").trim();
             const result = await runSelfImprovement({
-              complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
+              complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true, source: "runtime/assistant-tools" }),
               notify: notifyMac,
               force: true,
               extraEvidence: feedback ? [{ id: `chat:${Date.now().toString(36)}`, kind: "pushback", at: new Date().toISOString(), text: `George said directly: "${feedback}"` }] : [],

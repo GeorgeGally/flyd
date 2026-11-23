@@ -16,6 +16,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
 }));
 
 import { ComposerPredictions, completePrediction, predictionModel, predictionPrompt, type PredictionInput } from "../composer-predictions.js";
+import { setModelRouting } from "../../runtime/model-routing.js";
 import type { ConversationMessage } from "../types.js";
 
 const conversation: ConversationMessage[] = [
@@ -30,19 +31,21 @@ beforeEach(() => {
   vi.stubEnv("FLYD_CLAUDE", "1");
   vi.stubEnv("CLAUDE_API_KEY", "claude-key");
   vi.stubEnv("FLYD_PREDICTION_MODEL", "");
+  setModelRouting({});
   sent.length = 0;
 });
 
 afterEach(() => {
+  setModelRouting(null);
   vi.unstubAllEnvs();
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe("typing prediction on Claude", () => {
-  it("predicts with Claude Haiku while Claude is on, the open model otherwise", () => {
-    expect(predictionModel()).toBe("anthropic:claude-haiku-5-5");
+describe("typing prediction routing", () => {
+  it("uses the OpenCode Go quick model regardless of Claude availability", () => {
+    expect(predictionModel()).toBe("opencode-go:gpt-6-luna");
     vi.stubEnv("FLYD_CLAUDE", "0");
-    expect(predictionModel()).toBe("openrouter:inception/mercury-2.5");
+    expect(predictionModel()).toBe("opencode-go:gpt-6-luna");
   });
 
   it("sends the conversation as a cached block and only the draft as new text", async () => {

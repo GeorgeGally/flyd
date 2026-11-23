@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { CLAUDE_QUICK_MODEL_ID, modelRoutes } from "../runtime/model-routing.js";
+import { modelRoutes } from "../runtime/model-routing.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ClaudeUsage } from "../lib/claude-spend.js";
+import { opencodeEndpoint } from "../runtime/flyd-worker-config.js";
 import { namesBackstage } from "../runtime/honesty-check.js";
 import { plainSaid } from "../lib/backstage.js";
 
@@ -17,7 +18,7 @@ import { plainSaid } from "../lib/backstage.js";
 //
 // A reply can carry its own summary: its leading lines that start with "» "
 // (up to about three sentences). Any other long reply gets a short summary
-// from a cheap model (xAI Grok, then Claude Haiku), cached on disk and asked
+// from OpenCode Go, then a configured fallback, cached on disk and asked
 // for at most once per reply; until then, and without a provider,
 // digestReply() builds one locally from the reply's lead sentence and every
 // point or paragraph it reports. FLYD_SUMMARY_ALWAYS=1 also asks the model for
@@ -388,6 +389,28 @@ export function anthropicProvider(apiKey: string, model: string, fetchFn: FetchF
   };
 }
 
+export function opencodeProvider(apiKey: string, model: string, fetchFn: FetchFn = fetch): SummaryProvider {
+  return {
+    name: `opencode-go:${model}`,
+    async summarize(text, signal) {
+      const response = await fetchFn(`${opencodeEndpoint("opencode-go")}/chat/completions`, {
+        method: "POST",
+        signal,
+        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          max_tokens: 320,
+          temperature: 0.2,
+          messages: [{ role: "system", content: SUMMARY_PROMPT }, { role: "user", content: text }],
+        }),
+      });
+      if (!response.ok) throw new Error(`OpenCode Go ${response.status}`);
+      const body = (await response.json()) as { choices?: Array<{ message?: { content?: unknown } }> };
+      return tidySummary(body.choices?.[0]?.message?.content);
+    },
+  };
+}
+
 /** xAI key: XAI_API_KEY, else the grok CLI's stored key (~/.grok/user-settings.json). */
 export function findXaiKey(env: NodeJS.ProcessEnv = process.env, home = homedir()): string | undefined {
   if (env.XAI_API_KEY?.trim()) return env.XAI_API_KEY.trim();
@@ -402,15 +425,19 @@ export function findXaiKey(env: NodeJS.ProcessEnv = process.env, home = homedir(
 }
 
 /** The summary models to try, in order, from whatever keys this machine has; the keys never leave this function. */
-export function summaryModels(options: { env?: NodeJS.ProcessEnv; home?: string; anthropicKey?: string } = {}): Array<{ provider: "xai" | "anthropic"; model: string; key: string }> {
+export function summaryModels(options: { env?: NodeJS.ProcessEnv; home?: string; anthropicKey?: string } = {}): Array<{ provider: "xai" | "anthropic" | "opencode-go"; model: string; key: string }> {
   const env = options.env ?? process.env;
   if (env.FLYD_VIEW_SUMMARIES === "0") return [];
-  const models: Array<{ provider: "xai" | "anthropic"; model: string; key: string }> = [];
-  // Claude Haiku first (Flyd's quick-job model), xAI Grok when Claude is off or capped.
+  const models: Array<{ provider: "xai" | "anthropic" | "opencode-go"; model: string; key: string }> = [];
+  const openCode = modelRoutes("quick").find((route) => route.provider === "opencode-go");
+  if (openCode && env.OPENCODE_API_KEY?.trim()) {
+    models.push({ provider: "opencode-go", model: openCode.model, key: env.OPENCODE_API_KEY.trim() });
+  }
   const anthropic = env.CLAUDE_API_KEY?.trim() || env.ANTHROPIC_API_KEY?.trim() || options.anthropicKey?.trim();
   if (anthropic && env.FLYD_CLAUDE !== "0") {
-    const model = env.FLYD_VIEW_ANTHROPIC_MODEL?.trim() || modelRoutes("quick").find((route) => route.provider === "anthropic")?.model || CLAUDE_QUICK_MODEL_ID;
-    models.push({ provider: "anthropic", model, key: anthropic });
+    const route = modelRoutes("quick").find((candidate) => candidate.provider === "anthropic");
+    const model = env.FLYD_VIEW_ANTHROPIC_MODEL?.trim() || route?.model;
+    if (model) models.push({ provider: "anthropic", model, key: anthropic });
   }
   const xai = findXaiKey(env, options.home);
   if (xai) models.push({ provider: "xai", model: env.FLYD_VIEW_XAI_MODEL?.trim() || "grok-4-fast-non-reasoning", key: xai });
@@ -421,7 +448,7 @@ export function summaryModels(options: { env?: NodeJS.ProcessEnv; home?: string;
 export function defaultProviders(options: { env?: NodeJS.ProcessEnv; home?: string; anthropicKey?: string; fetchFn?: FetchFn } = {}): SummaryProvider[] {
   return summaryModels(options).map(({ provider, model, key }) => provider === "xai"
     ? xaiProvider(key, model, options.fetchFn)
-    : anthropicProvider(key, model, options.fetchFn));
+    : provider === "anthropic" ? anthropicProvider(key, model, options.fetchFn) : opencodeProvider(key, model, options.fetchFn));
 }
 
 export function defaultSummaryCache(): string {

@@ -12,8 +12,8 @@ export interface FlydWorkerConfig {
 }
 
 const OPENCODE_ENDPOINTS: Record<string, string> = {
-  opencode: "https://opencode.ai/zen/v1",
-  "opencode-go": "https://opencode.ai/zen/go/v1",
+  opencode: "https://opencode.ai/inference/openai/v1",
+  "opencode-go": "https://opencode.ai/inference/go/openai/v1",
 };
 
 const OPENCODE_MODEL_PREFIX = /^(opencode-go|opencode)\//;
@@ -112,6 +112,9 @@ export function loadFlydWorkerConfigs(input: {
         return withKey(values.OPENAI_API_KEY?.trim(), "https://api.openai.com/v1");
       case "commandcode":
         return withKey(values.COMMANDCODE_API_KEY?.trim() || values.CMD_API_KEY?.trim(), values.COMMANDCODE_BASE_URL?.trim() || COMMANDCODE_BASE_URL);
+      case "opencode":
+      case "opencode-go":
+        return withKey(values.OPENCODE_API_KEY?.trim(), opencodeEndpoint(route.provider));
       default:
         return null;
     }

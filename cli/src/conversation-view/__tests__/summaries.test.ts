@@ -13,6 +13,7 @@ import {
   isActionable,
   isRoutine,
   isRoutineAnswer,
+  opencodeProvider,
   replyArtefact,
   ReplySummarizer,
   SUMMARY_PROMPT,
@@ -283,17 +284,19 @@ describe("ReplySummarizer", () => {
 });
 
 describe("providers", () => {
-  it("asks Claude Haiku first, then xAI, from env, the grok CLI's settings or Flyd's config; FLYD_VIEW_SUMMARIES=0 turns them off", () => {
+  it("uses OpenCode Go by default and requires an explicit quick-job route for Anthropic", () => {
     expect(defaultProviders({ env: { OPENAI_API_KEY: "o" }, home: dir })).toEqual([]);
     expect(defaultProviders({ env: {}, home: dir })).toEqual([]);
-    expect(defaultProviders({ env: { XAI_API_KEY: "x", ANTHROPIC_API_KEY: "a" }, home: dir }).map((p) => p.name))
-      .toEqual(["anthropic:claude-haiku-5-5", "xai:grok-4-fast-non-reasoning"]);
-    expect(defaultProviders({ env: { CLAUDE_API_KEY: "c" }, home: dir }).map((p) => p.name)).toEqual(["anthropic:claude-haiku-5-5"]);
+    expect(defaultProviders({ env: { OPENCODE_API_KEY: "o" }, home: dir }).map((p) => p.name))
+      .toEqual(["opencode-go:gpt-6-luna"]);
+    expect(defaultProviders({ env: { OPENCODE_API_KEY: "o", XAI_API_KEY: "x", ANTHROPIC_API_KEY: "a" }, home: dir }).map((p) => p.name))
+      .toEqual(["opencode-go:gpt-6-luna", "xai:grok-4-fast-non-reasoning"]);
+    expect(defaultProviders({ env: { CLAUDE_API_KEY: "c" }, home: dir })).toEqual([]);
     expect(defaultProviders({ env: { CLAUDE_API_KEY: "c", FLYD_CLAUDE: "0" }, home: dir })).toEqual([]);
     mkdirSync(join(dir, ".grok"));
     writeFileSync(join(dir, ".grok", "user-settings.json"), JSON.stringify({ apiKey: "from-grok-cli" }));
     expect(defaultProviders({ env: {}, home: dir, anthropicKey: "a" }).map((p) => p.name))
-      .toEqual(["anthropic:claude-haiku-5-5", "xai:grok-4-fast-non-reasoning"]);
+      .toEqual(["xai:grok-4-fast-non-reasoning"]);
     expect(defaultProviders({ env: { FLYD_VIEW_SUMMARIES: "0", XAI_API_KEY: "x" }, home: dir })).toEqual([]);
   });
 
@@ -317,5 +320,10 @@ describe("providers", () => {
     expect(requests[1]!.url).toBe("https://api.anthropic.com/v1/messages");
     expect((requests[1]!.init.headers as Record<string, string>)["x-api-key"]).toBe("ak");
     expect(JSON.parse(String(requests[1]!.init.body))).toMatchObject({ model: "claude-haiku-4-5-20251001", system: SUMMARY_PROMPT });
+
+    expect(await opencodeProvider("ok", "gpt-6-luna", fake({ choices: [{ message: { content: "The change is ready." } }] })).summarize("reply", signal)).toBe("The change is ready.");
+    expect(requests[2]!.url).toBe("https://opencode.ai/inference/go/openai/v1/chat/completions");
+    expect((requests[2]!.init.headers as Record<string, string>).authorization).toBe("Bearer ok");
+    expect(JSON.parse(String(requests[2]!.init.body))).toMatchObject({ model: "gpt-6-luna", messages: [{ role: "system", content: SUMMARY_PROMPT }, { role: "user", content: "reply" }] });
   });
 });

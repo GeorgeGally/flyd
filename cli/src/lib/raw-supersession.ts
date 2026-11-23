@@ -129,7 +129,7 @@ export function supersedeInBackground(notePath: string, text: string): void {
     await supersedeOnCapture(notePath, text, {
       // Lexical search ANDs its words: one word at a time, merged, finds notes that share most of them.
       search: async (keywords) => mergeSearchResults(await Promise.all(keywords.slice(0, 5).map((word) => searchLexical(word, QMD_RAW_COLLECTION, 10)))),
-      complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
+      complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true, source: "lib/raw-supersession" }),
     });
   })().catch(() => undefined);
 }

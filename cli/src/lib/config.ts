@@ -6,6 +6,7 @@ import { parseEnvFile } from "../runtime/flyd-worker-config.js";
 import {
   apiModelId,
   COMMANDCODE_BASE_URL,
+  opencodeEndpoint,
   opencodeProviderFor,
   qualifiedModelProvider,
 } from "../runtime/flyd-worker-config.js";
@@ -260,8 +261,10 @@ function qualifiedConnection(provider: string, model: string): ModelConnection {
         return { apiKey: getKey("OPENROUTER_API_KEY")?.trim(), keyName: "OPENROUTER_API_KEY", baseURL: OPENROUTER_BASE_URL };
       case "anthropic":
         return { apiKey: claudeApiKey(), keyName: "CLAUDE_API_KEY", baseURL: undefined };
+      case "opencode":
+      case "opencode-go":
+        return { apiKey: getKey("OPENCODE_API_KEY")?.trim(), keyName: "OPENCODE_API_KEY", baseURL: opencodeEndpoint(provider) };
       default:
-        // opencode:/opencode-go: never get here: resolveModelConnection refuses them first.
         throw new Error(`Flyd provider "${provider}" is not supported for model ${model}`);
     }
   })();
@@ -300,14 +303,14 @@ export function resolveModelConnection(model = defaultChatModel()): ModelConnect
   const canonicalKey = getKey("FLYD_MODEL_API_KEY")?.trim();
   const canonicalBaseURL = getKey("FLYD_MODEL_BASE_URL")?.trim().replace(/\/+$/, "");
   const provider = getKey("FLYD_PROVIDER")?.trim().toLowerCase() ?? "";
-  // FLYD_PROVIDER=opencode-go would send a bare id to OpenCode Go.
   const opencode = opencodeProviderFor(model, provider);
   if (opencode) refuseForText(opencode, "this call");
+  if (opencode) return qualifiedConnection(opencode, model);
   const useOpenAI = provider === "openai" || isOpenAIModel(model);
   const useAnthropic = !useOpenAI && (provider === "anthropic" || !provider);
   if (!useOpenAI && !useAnthropic) {
     throw new Error(
-      `Flyd provider "${provider}" is not supported for chat model ${model}. Supported providers: openai, anthropic`,
+      `Flyd provider "${provider}" is not supported for chat model ${model}. Supported providers: openai, anthropic, commandcode, openrouter, opencode, opencode-go`,
     );
   }
 
@@ -347,7 +350,7 @@ export function usesOpenAITransport(model: string): boolean {
   if (qualified === "commandcode") return !commandCodeUsesMessages(model);
   if (qualified) return qualified !== "anthropic";
   const provider = getKey("FLYD_PROVIDER")?.trim().toLowerCase() ?? "";
-  return isOpenAIModel(model) || provider === "openai";
+  return Boolean(opencodeProviderFor(model, provider)) || isOpenAIModel(model) || provider === "openai";
 }
 
 export function isOpenAIModel(model: string): boolean {

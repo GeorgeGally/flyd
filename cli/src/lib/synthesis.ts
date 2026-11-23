@@ -176,7 +176,7 @@ export async function synthesizeProject(projectName: string): Promise<boolean> {
   const prompt = buildSynthesisPrompt(projectName, projectPath, nextVersion, newCaptures, previousSynthesis);
 
   try {
-    const result = await query(prompt, defaultModel());
+    const result = await query(prompt, defaultModel(), undefined, undefined, undefined, { source: "lib/synthesis" });
     const cleanBody = formatSynthesisBody(result);
 
     const ts = new Date().toISOString().replace("T", " ").slice(0, 19);

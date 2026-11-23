@@ -42,7 +42,7 @@ export async function runCouncilCommand(action = "status", options: { all?: bool
       process.stdout.write(`Reprocessing ${sources.length} sources (${stage}), ${sources.reduce((n, source) => n + source.text.length, 0)} chars…\n`);
       const started = Date.now();
       const result = await reprocessSources(sources, {
-        complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
+        complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true, source: "commands/council" }),
         progressPath: join(FLYD_DIR, "council", "reprocess.json"),
         onSkip: (ids) => process.stdout.write(`  skipped (unreadable reply twice, will retry next run): ${ids.join(", ")}\n`),
         onBatch: (done, total, receipt) => process.stdout.write(`  batch ${done}/${total}: memory +${receipt.memory.added} ~${receipt.memory.updated} notes +${receipt.memory.notes}, profile +${receipt.profileAdded}, projects ${receipt.projects.upserted} (${Math.round((Date.now() - started) / 1000)}s)\n`),
@@ -67,7 +67,7 @@ export async function runCouncilCommand(action = "status", options: { all?: bool
       const { notifyMacOutcome } = await import("../runtime/agenda.js");
       // --all works through a backlog pass by pass (each pass takes a bounded slice).
       for (let pass = 1; pass <= (options.all ? 30 : 1); pass += 1) {
-        const result = await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMacOutcome, force: true });
+        const result = await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true, source: "commands/council" }), notify: notifyMacOutcome, force: true });
         if (result.skipped) { process.stdout.write(`Council pass skipped: ${result.skipped}\n`); return; }
         const receipt = result.librarian?.memory;
         process.stdout.write(`Pass ${pass}: ${result.librarian?.turns ?? 0} turns, ${result.librarian?.captures ?? 0} captures → memory +${receipt?.added ?? 0} ~${receipt?.updated ?? 0} ✓${receipt?.reinforced ?? 0} ↓${receipt?.archived ?? 0}, profile +${result.librarian?.profileAdded ?? 0}, advisories +${result.advisories.length}\n`);
@@ -88,7 +88,7 @@ export async function runCouncilCommand(action = "status", options: { all?: bool
         import("../council/investigator.js"), import("../runtime/personal-tools.js"), import("../lib/llm.js"),
       ]);
       const result = await investigate({
-        complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
+        complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true, source: "commands/council" }),
         calendar: (from, days) => runPersonalTool("calendar_events", { from, days }, { background: true }),
         reminders: () => runPersonalTool("reminders", { action: "list" }, { background: true }),
         recall: (text) => runPersonalTool("recall", { query: text }),
@@ -105,7 +105,7 @@ export async function runCouncilCommand(action = "status", options: { all?: bool
     }
     case "backfill": {
       const [{ backfillArchive }, { query }] = await Promise.all([import("../council/investigator.js"), import("../lib/llm.js")]);
-      const result = await backfillArchive({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }) });
+      const result = await backfillArchive({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true, source: "commands/council" }) });
       process.stdout.write(`${result.status}: read ${result.read}, learned ${result.added}\n`);
       return;
     }

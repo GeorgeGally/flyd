@@ -61,7 +61,7 @@ export async function runCompound(topic: string, model?: string): Promise<void> 
 
   console.log(`compounding knowledge on: "${topic}"\n`);
 
-  const result = await query(prompt, m);
+  const result = await query(prompt, m, undefined, undefined, undefined, { source: "commands/compound" });
 
   const now = new Date();
   const timestamp = now

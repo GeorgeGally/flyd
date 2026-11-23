@@ -254,7 +254,7 @@ export async function query(
     // A caller that picked a specific non-default model gets exactly that model.
     response = await once(model);
   } else {
-    // Default-model callers fail over like chat, then to Claude's quick model.
+    // Default-model callers follow the configured background-model chain.
     response = (await runWithModelFailover(oneShotModelChain(), once)).result;
   }
   finalizeEvidenceSurface(enriched.surfaceId, response);
@@ -262,13 +262,12 @@ export async function query(
 }
 
 /**
- * A short, latency-sensitive job (routing, a query rewrite, a status line):
- * Claude Haiku while it is on and under its cap, then the models these jobs
- * used before. An explicit model still wins.
+ * A short, latency-sensitive job (routing, a query rewrite, a status line).
+ * An explicit model still wins.
  */
 export async function quickQuery(prompt: string, options: QueryOptions & { model?: string; system?: string } = {}): Promise<string> {
   const { model, system, ...rest } = options;
-  if (model) return query(prompt, model, system, undefined, undefined, rest);
+  if (model) return query(prompt, model, system, undefined, undefined, { ...rest, source: rest.source ?? "quick" });
   return query(prompt, undefined, system, undefined, undefined, { source: "quick", ...rest, chain: rest.chain ?? quickModelChain() });
 }
 

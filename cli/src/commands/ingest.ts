@@ -83,7 +83,7 @@ ${captures.join("\n\n---\n\n")}
 
 Respond with the proposed wiki page content, starting with a title (# Title) and including [[wiki links]] to related pages.`;
 
-    const result = await query(prompt, m);
+    const result = await query(prompt, m, undefined, undefined, undefined, { source: "commands/ingest" });
 
     if (opts.write) {
       const slug = source.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);

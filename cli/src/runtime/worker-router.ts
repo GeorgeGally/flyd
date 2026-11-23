@@ -10,7 +10,7 @@ export function routeWorker(input: {
   const excluded = new Set(input.excludedAdapters);
   const candidates = input.adapters.filter((adapter) => (
     adapter.healthy &&
-    // Every routed job is text, code or review work: never OpenCode, DeepSeek or the ChatGPT/Codex allowance.
+    !adapter.name.toLowerCase().includes("opencode") &&
     allowedForText(adapter.name) &&
     !excluded.has(adapter.name) &&
     input.requirements.every((requirement) => adapter.capabilities.includes(requirement))

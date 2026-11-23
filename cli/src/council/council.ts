@@ -166,6 +166,6 @@ export function runCouncilInBackground(options: { force?: boolean } = {}): void 
   if (process.env.VITEST || process.env.FLYD_COUNCIL === "0") return;
   void (async () => {
     const [{ query }, { notifyMacOutcome }] = await Promise.all([import("../lib/llm.js"), import("../runtime/agenda.js")]);
-    await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMacOutcome, force: options.force });
+    await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true, source: "council/council" }), notify: notifyMacOutcome, force: options.force });
   })().catch(() => undefined);
 }

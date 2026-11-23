@@ -70,7 +70,7 @@ describe("Flyd directory configuration", () => {
     });
   });
 
-  it("refuses OpenCode Go and DeepSeek, bare under FLYD_PROVIDER or prefixed, even with their key set", async () => {
+  it("resolves OpenCode Go and still refuses DeepSeek, bare under FLYD_PROVIDER or prefixed", async () => {
     vi.stubEnv("FLYD_PROVIDER", "opencode-go");
     vi.stubEnv("OPENCODE_API_KEY", "opencode-key");
     vi.stubEnv("FLYD_CLAUDE", "0");
@@ -78,9 +78,16 @@ describe("Flyd directory configuration", () => {
 
     const config = await import("../config.js");
 
-    for (const model of ["gpt-6-luna", "opencode-go/deepseek-v4-flash", "opencode:kimi-k3"]) {
-      expect(() => config.resolveModelConnection(model), model).toThrow(/no longer uses/);
-    }
+    expect(config.resolveModelConnection("gpt-6-luna")).toMatchObject({
+      apiKey: "opencode-key",
+      baseURL: "https://opencode.ai/inference/go/openai/v1",
+      providerIdentity: "opencode.ai/gpt-6-luna",
+    });
+    expect(config.resolveModelConnection("opencode:kimi-k3")).toMatchObject({
+      apiKey: "opencode-key",
+      baseURL: "https://opencode.ai/inference/openai/v1",
+    });
+    expect(() => config.resolveModelConnection("opencode-go/deepseek-v4-flash")).toThrow(/no longer uses/);
     const routing = await import("../../runtime/model-routing.js");
     routing.setModelRouting({ jobs: { chat: [{ provider: "opencode-go", model: "deepseek-v4-flash" }] } });
     expect(() => config.resolveModelConnection()).toThrow(/No model can do Flyd's chat jobs/);

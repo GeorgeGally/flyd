@@ -48,7 +48,7 @@ export async function defaultRoutingJudge(prompt: string): Promise<string> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      query(String(receipt.outboundPayload.prompt), model, undefined, undefined, undefined, { json: true }),
+      query(String(receipt.outboundPayload.prompt), model, undefined, undefined, undefined, { json: true, source: "runtime/routing-audit-runner" }),
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Routing judge timed out")), 12_000); }),
     ]);
   } finally { if (timer) clearTimeout(timer); }

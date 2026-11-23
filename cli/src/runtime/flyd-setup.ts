@@ -195,12 +195,13 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
 
   const summaryChain = summaryModels({ anthropicKey: claudeApiKey() });
   const summaries = summaryChain.map(({ model }) => model);
-  const summarySettings = summaryChain[0]?.provider === "anthropic" ? ["FLYD_VIEW_ANTHROPIC_MODEL"] : ["FLYD_VIEW_XAI_MODEL"];
+  const summarySettings = summaryChain[0]?.provider === "anthropic" ? ["FLYD_VIEW_ANTHROPIC_MODEL"]
+    : summaryChain[0]?.provider === "opencode-go" ? ["OPENCODE_API_KEY", "models.json jobs.quick"] : ["FLYD_VIEW_XAI_MODEL"];
   add({
     job: "Summaries of long replies in the window",
-    model: process.env.FLYD_VIEW_SUMMARIES === "0" ? "off (FLYD_VIEW_SUMMARIES=0)" : summaries[0] ?? "none (no CLAUDE_API_KEY or XAI_API_KEY): long replies lead with Flyd's own briefing",
+    model: process.env.FLYD_VIEW_SUMMARIES === "0" ? "off (FLYD_VIEW_SUMMARIES=0)" : summaries[0] ?? "none (no OpenCode Go or xAI key): long replies lead with Flyd's own briefing",
     ...(summaries.length > 1 ? { fallbacks: summaries.slice(1) } : {}),
-    settings: ["FLYD_VIEW_ANTHROPIC_MODEL", "models.json jobs.quick", "FLYD_VIEW_XAI_MODEL"],
+    settings: ["OPENCODE_API_KEY", "models.json jobs.quick", "FLYD_VIEW_ANTHROPIC_MODEL", "FLYD_VIEW_XAI_MODEL"],
     setBy: decidedBy(summarySettings),
   });
   add({

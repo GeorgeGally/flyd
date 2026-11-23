@@ -154,7 +154,7 @@ export async function verifyEvidence(
 
   let response: string;
   try {
-    response = await withTimeout(query(prompt, defaultModel(), SYSTEM, undefined, undefined, { json: true }), VERIFY_TIMEOUT_MS);
+    response = await withTimeout(query(prompt, defaultModel(), SYSTEM, undefined, undefined, { json: true, source: "lib/librarian-verifier" }), VERIFY_TIMEOUT_MS);
   } catch (error) {
     console.error(`librarian: verification unavailable, using heuristics — ${error instanceof Error ? error.message : "unknown error"}`);
     return fallback;
@@ -231,7 +231,7 @@ Think step by step, then respond with ONLY this JSON:
 
   let response: string;
   try {
-    response = await withTimeout(query(prompt, defaultModel(), SYSTEM, undefined, undefined, { json: true }), VERIFY_TIMEOUT_MS);
+    response = await withTimeout(query(prompt, defaultModel(), SYSTEM, undefined, undefined, { json: true, source: "lib/librarian-verifier" }), VERIFY_TIMEOUT_MS);
   } catch {
     return pages;
   }

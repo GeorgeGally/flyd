@@ -6,9 +6,9 @@ import { createFlydWorkerAdapter, parseFlydWorkerEvent } from "../flyd-worker-ad
 describe("Flyd native worker adapter", () => {
   const config = {
     apiKey: "provider-secret",
-    model: "deepseek-v4-pro",
-    baseURL: "https://opencode.ai/zen/v1",
-    providerIdentity: "opencode.ai/deepseek-v4-pro",
+    model: "gpt-6-luna",
+    baseURL: "https://opencode.ai/inference/go/openai/v1",
+    providerIdentity: "opencode.ai/gpt-6-luna",
   };
   const fallbackConfig = {
     apiKey: "fallback-secret",

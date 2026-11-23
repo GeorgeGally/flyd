@@ -177,7 +177,7 @@ async function main(): Promise<void> {
       try {
         const { query } = await import("../../lib/llm.js");
         const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-        const verdict = parseJudgeVerdict(await query(buildJudgePrompt(testCase, observed.answer, today), judgeModel));
+        const verdict = parseJudgeVerdict(await query(buildJudgePrompt(testCase, observed.answer, today), judgeModel, undefined, undefined, undefined, { source: "evals/chat/run" }));
         if (verdict) {
           observed.judgeScore = verdict.score;
           observed.judgeReason = verdict.reason;
@@ -264,14 +264,14 @@ async function runDeliverySuite(options: { only?: string[]; judgeModel: string; 
     const started = Date.now();
     const observed: import("./delivery-scoring.js").DeliveryObservation = { text: null, shape: "words", seconds: 0 };
     try {
-      Object.assign(observed, await produceDelivery(testCase, (prompt) => quickQuery(prompt), options.sandbox));
+      Object.assign(observed, await produceDelivery(testCase, (prompt) => quickQuery(prompt, { source: "evals/chat/run" }), options.sandbox));
     } catch (error) {
       observed.error = error instanceof Error ? error.message : String(error);
     }
     observed.seconds = (Date.now() - started) / 1000;
     if (testCase.expect.judge && observed.text) {
       try {
-        const verdict = parseJudgeVerdict(await query(buildDeliveryJudgePrompt(testCase, observed.text), options.judgeModel));
+        const verdict = parseJudgeVerdict(await query(buildDeliveryJudgePrompt(testCase, observed.text), options.judgeModel, undefined, undefined, undefined, { source: "evals/chat/run" }));
         if (verdict) { observed.judgeScore = verdict.score; observed.judgeReason = verdict.reason; }
       } catch (error) {
         observed.judgeReason = `judge failed: ${error instanceof Error ? error.message : String(error)}`;

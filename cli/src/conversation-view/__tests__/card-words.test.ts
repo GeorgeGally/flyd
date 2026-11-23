@@ -407,8 +407,21 @@ describe("a card with answer buttons", () => {
     expect(cardWordsPrompt(cardSource("Easel", "Needs you", "Easel", "Merge PR #41 into main? Yes or no"))).not.toContain("answer buttons");
     const statement = JSON.stringify({ title: "Easel: the new page", body: "The new page is ready for you." });
     const question = JSON.stringify({ title: "Easel: the new page", body: "Shall I put the new page live?" });
-    expect(await translateCard(source, async () => statement)).toBeNull();
+    expect(await translateCard(source, async () => statement)).toEqual(fallbackWords("Easel", "needs", "Needs you"));
     expect(await translateCard(source, async () => question)).toEqual({ title: "Easel: the new page", body: "Shall I put the new page live?" });
+  });
+
+  it("keeps a plain fallback after a deterministic rejection instead of retrying the model", async () => {
+    const source = cardSource("Easel", "Needs you", "Easel", "Merge PR #41 into main? Yes or no", ["Yes", "No"]);
+    const path = pathFor();
+    const ask = vi.fn(async () => JSON.stringify({ title: "Easel: the new page", body: "The new page is ready for you." }));
+
+    await scheduleCardWords([source], { path, ask, now: () => NOW });
+    await scheduleCardWords([source], { path, ask, now: () => NOW + 60 * 60_000 });
+
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(readCardWords(path).has(source.key)).toBe(false);
+    expect(exhaustedCardWords(path)).toContain(source.key);
   });
 });
 
@@ -537,4 +550,3 @@ describe("a plain question whose card line the model gave up on", () => {
     expect(card.ask).toBe("Which price should ship?");
   });
 });
-

@@ -4,8 +4,7 @@ import { isBanned, isImagesOnly } from "./model-routing.js";
  * Which providers Flyd may send work to. The lists live in the model-routing config
  * (runtime/model-routing.ts, ~/.flyd/models.json), so these checks follow it:
  *
- * - `banned` providers (default OpenCode, OpenCode Go and DeepSeek) are never used, not
- *   even as a fallback: their accounts ran dry and every silent retry billed George a 402.
+ * - `banned` providers and model families are never used, not even as a fallback.
  * - `imagesOnly` providers (default Codex, George's ChatGPT/Codex allowance) do images
  *   only. An OpenCode-style "openai/…" id is that allowance's ChatGPT login too.
  *
@@ -19,7 +18,7 @@ export function spendsChatGptAllowance(target: string | undefined): boolean {
 /** Throws before any text, code, review or chat work is sent to the ChatGPT/Codex allowance. */
 export function refuseChatGptAllowance(target: string | undefined, work: string): void {
   if (!spendsChatGptAllowance(target)) return;
-  throw new Error(`${target} runs on George's ChatGPT/Codex allowance, which is kept for images only; ${work} runs on Claude`);
+  throw new Error(`${target} runs on George's ChatGPT/Codex allowance, which is kept for images only; ${work} needs another provider`);
 }
 
 /** A provider the model-routing config bans, by provider prefix or by model name, through any route. */
@@ -35,5 +34,5 @@ export function allowedForText(target: string | undefined): boolean {
 /** Throws before text, code, review or chat work goes anywhere but an allowed provider. */
 export function refuseForText(target: string | undefined, work: string): void {
   refuseChatGptAllowance(target, work);
-  if (isRetiredProvider(target)) throw new Error(`${target} is a provider Flyd no longer uses (banned in its model config); ${work} runs on Claude`);
+  if (isRetiredProvider(target)) throw new Error(`${target} is a provider Flyd no longer uses (banned in its model config); ${work} needs another provider`);
 }

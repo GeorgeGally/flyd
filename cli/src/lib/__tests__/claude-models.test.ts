@@ -83,10 +83,10 @@ describe("model chains with Claude", () => {
     expect(claudeHeaders()).toEqual({ "anthropic-workspace-id": "wrkspc_123" });
   });
 
-  it("runs on Claude alone by default", () => {
+  it("uses OpenCode Go by default while keeping Claude available by explicit config", () => {
     setModelRouting({});
-    expect(quickModelChain()).toEqual(["anthropic:claude-haiku-5-5"]);
-    expect(chatModelChain()).toEqual(["anthropic:claude-sonnet-5-5"]);
+    expect(quickModelChain()).toEqual(["opencode-go:gpt-6-luna"]);
+    expect(chatModelChain()).toEqual(["opencode-go:gpt-6-luna", "anthropic:claude-sonnet-5-5"]);
   });
 });
 
