@@ -15,6 +15,7 @@ import {
   researchInitiative, safeResearchPayload, type InitiativeResearchReceipt,
 } from "./research.js";
 import { countInitiativeCards, initiativeCardRecorded } from "./cycle.js";
+import { projectInitiativeQuietUntil } from "./outcomes.js";
 
 const SOURCE = INITIATIVE_CURATED_CONTRACT.sourceId;
 const LEASE_MS = 15 * 60_000;
@@ -174,7 +175,10 @@ export async function runInitiativeResearchCycle(deps: ResearchCycleDeps = {}): 
       if (research.status === "source_confirmed") summary.confirmed++;
       else summary.inconclusive++;
       const modeOn = deps.on ?? (process.env.FLYD_INITIATIVE === "on" || process.env.FLYD_INITIATIVE === undefined);
-      if (modeOn && research.citedEvidence.length >= 2
+      const projectId = candidate.sources.find(s => s.id.startsWith("project:"))?.id.slice("project:".length);
+      const quietUntil = projectId && projectInitiativeQuietUntil(
+        store.readSourcePage(SOURCE, { limit: 1000 }), projectId, now);
+      if (modeOn && !quietUntil && research.citedEvidence.length >= 2
         && (deps.countPublished ?? countInitiativeCards)(localDay(now)) < 1
         && registry.status(SOURCE) === "enabled"
         && initiativeSourcesCurrent(candidate.sources, current())) {
