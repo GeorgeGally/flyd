@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { EvidenceItem } from "../../evidence/types.js";
 import {
-  INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT, SourceContractRegistry,
+  INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT,
+  INITIATIVE_CURATED_CONTRACT, SourceContractRegistry,
 } from "../../intelligence/sensors/source-contracts.js";
 import { synthesizePublicEvidence } from "../initiative/public-synthesis.js";
 
@@ -14,6 +15,10 @@ afterEach(() => vi.unstubAllEnvs());
 function registry() {
   const r = new SourceContractRegistry({ path: join(dir, "consent-" + Math.random() + ".json") });
   r.register(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT);
+  r.register(INITIATIVE_CURATED_CONTRACT);
+  r.register(INITIATIVE_PUBLIC_RESEARCH_CONTRACT);
+  r.setStatus(INITIATIVE_CURATED_CONTRACT.sourceId, "enabled");
+  r.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "enabled");
   return r;
 }
 const evidence: EvidenceItem[] = [{
