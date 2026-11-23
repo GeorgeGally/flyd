@@ -2,10 +2,11 @@ import type { EvidenceItem } from "../../evidence/types.js";
 import { EgressPolicyGateway } from "../../intelligence/egress-policy-gateway.js";
 import type { ContextEnvelope } from "../../intelligence/context-envelope.js";
 import {
-  INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT, SourceContractRegistry,
+  INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT,
+  INITIATIVE_CURATED_CONTRACT, SourceContractRegistry,
 } from "../../intelligence/sensors/source-contracts.js";
 import { readModelBackoff } from "../model-backoff.js";
-import { safePublicLocator } from "./research.js";
+import { safePublicLocator } from "./public-url.js";
 
 const SOURCE = INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId;
 const DESTINATION = "configured.quick.model";
@@ -53,10 +54,16 @@ export async function synthesizePublicEvidence(
 ): Promise<PublicSynthesisResult> {
   const registry = deps.registry ?? new SourceContractRegistry();
   registry.register(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT);
+  registry.register(INITIATIVE_PUBLIC_RESEARCH_CONTRACT);
+  registry.register(INITIATIVE_CURATED_CONTRACT);
   const now = deps.now?.() ?? new Date();
   const reject = (reason: string): PublicSynthesisResult =>
     ({ interpretation: null, modelCalls: 0, stopReason: reason });
   if (!publicSynthesisEnabled(registry, now)) return reject("synthesis_not_consented");
+  if (registry.status(INITIATIVE_CURATED_CONTRACT.sourceId) !== "enabled"
+    || registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) !== "enabled") {
+    return reject("local_and_public_source_consents_required");
+  }
   if (!(deps.modelAllowed ?? (() => !readModelBackoff(now)))()) return reject("model_backoff");
   if (process.env.VITEST && !deps.complete) return reject("test_no_model");
 
@@ -107,7 +114,9 @@ export async function synthesizePublicEvidence(
   let response: string;
   try { response = await complete(prompt); }
   catch { return { interpretation: null, modelCalls: 1, stopReason: "model_unavailable" }; }
-  if (!publicSynthesisEnabled(registry, new Date())) {
+  if (!publicSynthesisEnabled(registry, new Date())
+    || registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) !== "enabled"
+    || registry.status(INITIATIVE_CURATED_CONTRACT.sourceId) !== "enabled") {
     return { interpretation: null, modelCalls: 1, stopReason: "consent_revoked_after_model" };
   }
   let item: Record<string, unknown>;
