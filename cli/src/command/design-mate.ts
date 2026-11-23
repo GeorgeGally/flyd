@@ -6,7 +6,7 @@ import { basename, dirname, extname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { HEADLESS_CHROME_ARGS } from "../lib/headless-chrome.js";
 import { readTaste } from "../council/taste.js";
-import { armedTasteChecks, cssSpacingTrips, SPACING_MEASURE_SCRIPT, spacingCritique, spacingTrips, type SpacingMetrics, type SpacingTrip } from "../council/taste-checks.js";
+import { armedTasteChecks, cssSpacingTrips, SPACING_MEASURE_SCRIPT, spacingCritique, spacingTrips, snappingCritique, snappingTrips, type SpacingMetrics, type SpacingTrip } from "../council/taste-checks.js";
 import { BoardWatcher, putLabOnBoard, type BoardFeedback, type BoardInput, type BoardWatch, type LabBoard } from "./design-board.js";
 import { completeWithClaude, DesignModelError, makeWithClaude } from "./design-claude.js";
 import { DESIGN_LAB_DONE_WHEN, designLabSkill, designTeamSkills } from "./design.js";
@@ -289,6 +289,13 @@ async function judgeVersion(run: DomainRun, lab: Lab, version: LabVersion, taste
   version.critique = String(reply?.critique ?? "").trim();
   const trips = await spacingCheck(deps, [join(labDir(run.id, root), `v${version.n}.html`)], lab.log, `V${version.n}`);
   if (trips.length) failRound(version, trips);
+  if (snappingArmed()) {
+    const page = join(labDir(run.id, root), `v${version.n}.html`);
+    try {
+      const snapTrips = snappingTrips(readFileSync(page, "utf8"));
+      if (snapTrips.length) failRound(version, snapTrips, snappingCritique);
+    } catch { lab.log.push(`V${version.n}: the snapping check could not read the page.`); }
+  }
   version.judged = true;
   lab.log.push(`Round ${lab.round}: V${version.n} scored ${version.score}/10.`);
   if (version.best === undefined || version.score >= version.best) {
@@ -310,6 +317,37 @@ function spacingArmed(): boolean {
   try { return armedTasteChecks(readTaste()).some((armed) => armed.check === "spacing"); } catch { return false; }
 }
 
+const SOURCE_FILE = /\.(?:[cm]?[jt]sx?|css|scss|html?|vue|svelte|astro)$/i;
+
+/** The changed files plus the local modules they import, two hops deep, so snapping code in an untouched module still counts. */
+function toolSource(root: string, files: string[]): string {
+  const seen = new Set<string>();
+  let frontier = files.map((path) => join(root, path));
+  for (let hop = 0; hop <= 2 && frontier.length && seen.size < 40; hop += 1) {
+    const next: string[] = [];
+    for (const path of frontier) {
+      if (seen.has(path) || !SOURCE_FILE.test(path)) continue;
+      seen.add(path);
+      let text = "";
+      try { text = readFileSync(path, "utf8"); } catch { continue; }
+      for (const [, spec] of text.matchAll(/(?:from\s+|import\s*\(?\s*|require\(\s*|src=)["'](\.{1,2}\/[^"']+)["']/g)) {
+        const target = join(dirname(path), spec!);
+        const base = target.replace(/\.[cm]?jsx?$/, "");
+        const exts = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".css"];
+        for (const candidate of [target, ...exts.map((ext) => base + ext), ...exts.map((ext) => join(target, `index${ext}`))]) {
+          if (existsSync(candidate) && statSync(candidate).isFile()) { next.push(candidate); break; }
+        }
+      }
+    }
+    frontier = next;
+  }
+  return [...seen].map((path) => { try { return readFileSync(path, "utf8"); } catch { return ""; } }).join("\n");
+}
+
+function snappingArmed(): boolean {
+  try { return armedTasteChecks(readTaste()).some((armed) => armed.check === "snapping"); } catch { return false; }
+}
+
 /**
  * Runs the spacing check on laid-out pages at both sizes: its trips, empty when it holds,
  * isn't armed, or has no way to measure. A page it couldn't measure is logged, never passed silently.
@@ -329,9 +367,9 @@ async function spacingCheck(deps: DesignMateDeps, pages: string[], log: string[]
 }
 
 /** A spacing trip fails the round: the score stays under the target and the trips lead the critique. */
-function failRound(target: { score?: number; critique?: string }, trips: SpacingTrip[]): void {
+function failRound(target: { score?: number; critique?: string }, trips: SpacingTrip[], critique = spacingCritique): void {
   target.score = Math.min(target.score ?? 0, TARGET_SCORE - 1);
-  target.critique = [spacingCritique(trips), target.critique ?? ""].filter(Boolean).join("\n");
+  target.critique = [critique(trips), target.critique ?? ""].filter(Boolean).join("\n");
 }
 
 /** Leaves out the directions that would not build or be judged, while enough remain; otherwise says why the lab stops. */
@@ -950,6 +988,11 @@ async function advanceBuild(run: DomainRun, deps: DesignMateDeps, root: string, 
       })].join("\n");
       const trips = [...cssSpacingTrips(added), ...await spacingCheck(deps, pages, build.log, `Round ${build.round}`)];
       if (trips.length) failRound(build, trips);
+    }
+    if (files.length && snappingArmed()) {
+      const source = toolSource(build.root, files);
+      const trips = snappingTrips(source);
+      if (trips.length) failRound(build, trips, snappingCritique);
     }
     build.log.push(`Round ${build.round}: ${CREATIVE_DIRECTOR} scored it ${build.score}/10.`);
     if (build.score < TARGET_SCORE && build.round < MAX_ROUNDS) {
