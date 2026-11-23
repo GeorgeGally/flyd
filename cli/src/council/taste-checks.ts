@@ -65,12 +65,14 @@ export function armedTasteChecks(profile: TasteProfile): Array<{ check: TasteChe
 
 /** Inspect drawing-tool source for snapping and a modifier to bypass it. */
 export function snappingTrips(source: string): SpacingTrip[] {
-  if (!/\b(?:pen|pencil|bezier|draw(?:ing)?)[\s_-]*tool\b/i.test(source)) return [];
-  const snap = /\bsnap\w*\s*\(|Math\.round\([^)]*\/[^)]*(?:grid|step)/i.test(source);
-  const targets = /\b(?:grid|guides?)\w*/i.test(source);
-  const modifier = /\b(?:alt|shift|meta|ctrl)Key\b|\bkey\s*===?\s*["'](?:Alt|Shift|Meta|Control)["']/.test(source);
-  if (snap && targets && modifier) return [];
-  return [{ line: "Drawing tools must snap to grid points, guides and existing points, with a modifier key to disable snapping." }];
+  const code = source.replace(/<!--[\s\S]*?-->|\/\*[\s\S]*?\*\/|(^|[^:"'`])\/\/[^\n]*/g, "$1");
+  const drawing = /\btool\s*===?\s*["'](?:pen|pencil|bezier)["']|data-tool=["'](?:pen|pencil|bezier)["']|\b\w*(?:[Pp]en|[Pp]encil|[Bb]ezier|[Pp]ath)(?:Tool|Editor|Down|Move|Handler)\b|\b(?:pointer|mouse)(?:down|move)\b[\s\S]{0,400}?\.(?:push|lineTo)\(/.test(code);
+  if (!drawing) return [];
+  const trips = [{ line: "Drawing tools must snap to grid points, guides and existing points, with a modifier key to disable snapping." }];
+  const call = /\bsnap\w*\s*\([^)]*(?:grid|guide|point)[^)]*\)/i.exec(code) ?? /Math\.round\([^)]*\/[^)]*grid\w*[^)]*\)/i.exec(code);
+  if (!call) return trips;
+  const near = code.slice(Math.max(0, call.index - 300), call.index + call[0].length + 300);
+  return /\b(?:alt|shift|meta|ctrl)Key\b|\bkey\s*===?\s*["'](?:Alt|Shift|Meta|Control)["']/.test(near) ? [] : trips;
 }
 
 export function snappingCritique(trips: SpacingTrip[]): string {

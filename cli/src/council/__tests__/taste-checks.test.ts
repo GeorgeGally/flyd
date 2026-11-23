@@ -109,10 +109,22 @@ describe("the snapping check", () => {
   });
 
   it("is not satisfied by unrelated page content", () => {
-    const page = `<style>main{scroll-snap-type:y mandatory;pointer-events:auto}</style><img alt="logo"><div class="guide">Pen tool</div><script>const penTool = (e) => points.push({ x: e.clientX, y: e.clientY });</script>`;
+    const free = `const penTool = (e) => points.push({ x: e.clientX, y: e.clientY });`;
+    const page = `<style>main{display:grid;scroll-snap-type:y mandatory;pointer-events:auto}</style><img alt="logo"><div class="guide">Pen tool</div><script>${free}</script>`;
     expect(snappingTrips(page)).toHaveLength(1);
     expect(snappingTrips(`<script>const penTool = (e) => snap(p, grid, guides);</script>`)).toHaveLength(1);
-    expect(snappingTrips(`<p>Switch to path mode</p>`)).toEqual([]);
+    expect(snappingTrips(`const penTool = (e) => { const p = e.shiftKey ? lock(a, b) : q; }\n${"x".repeat(400)}\nsnap(p, grid)`)).toHaveLength(1);
+  });
+
+  it("finds drawing tools by their code, not by prose", () => {
+    expect(snappingTrips(`<h1>A drawing tool for path mode</h1><!-- penTool --><script>// penTool\n</script>`)).toEqual([]);
+    for (const free of [
+      `const myPenTool = (e) => points.push(e);`,
+      `if (tool === 'pen') points.push(p);`,
+      `<button data-tool="pen">Pen</button>`,
+      `const onPenDown = (e) => points.push(e);`,
+      `canvas.addEventListener("pointerdown", (e) => { path.push({ x: e.x, y: e.y }); });`,
+    ]) expect(snappingTrips(free)).toHaveLength(1);
   });
 
   it("leaves a spacing rule armed as spacing even when it mentions snap and grid", () => {

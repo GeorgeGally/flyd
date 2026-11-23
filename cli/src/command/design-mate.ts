@@ -332,7 +332,9 @@ function toolSource(root: string, files: string[]): string {
       try { text = readFileSync(path, "utf8"); } catch { continue; }
       for (const [, spec] of text.matchAll(/(?:from\s+|import\s*\(?\s*|require\(\s*|src=)["'](\.{1,2}\/[^"']+)["']/g)) {
         const target = join(dirname(path), spec!);
-        for (const candidate of [target, target.replace(/\.js$/, ".ts"), `${target}.ts`, `${target}.js`]) {
+        const base = target.replace(/\.[cm]?jsx?$/, "");
+        const exts = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".css"];
+        for (const candidate of [target, ...exts.map((ext) => base + ext), ...exts.map((ext) => join(target, `index${ext}`))]) {
           if (existsSync(candidate) && statSync(candidate).isFile()) { next.push(candidate); break; }
         }
       }
