@@ -163,6 +163,23 @@ export const INITIATIVE_CURATED_CONTRACT: SourceContract = {
   enabledByDefault: false,
 };
 
+/**
+ * Public-only, background research is a separate, renewable opt-in.
+ * The destination is the evidence engine's public retrieval path; it never
+ * authorizes transmitting local project facts, private repos or chat text.
+ */
+export const INITIATIVE_PUBLIC_RESEARCH_CONTRACT: SourceContract = {
+  sourceId: "initiative.public-research",
+  displayName: "Background research into public references",
+  sensitivity: "low",
+  scopes: ["initiative.public-research"],
+  retentionClass: "local_default",
+  retentionDays: 30,
+  egressDestinations: ["evidence:public"],
+  purpose: "Bounded public-source lookup from already-public Scout material only; compare with private work locally.",
+  enabledByDefault: false,
+};
+
 export const EXPERIENCE_RUNTIME_CONTRACT: SourceContract = {
   sourceId: "experience.runtime",
   displayName: "Runtime experience traces",
