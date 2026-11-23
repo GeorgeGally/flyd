@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { gatherEvidence } from "../../crew/self-improve.js";
-import { armedTasteChecks, cssSpacingTrips, spacingTrips, tasteCheckPlan, type SpacingMetrics } from "../taste-checks.js";
+import { armedTasteChecks, cssSpacingTrips, spacingTrips, snappingTrips, tasteCheckPlan, type SpacingMetrics } from "../taste-checks.js";
 import { planTasteSkills, renderTasteSkill } from "../taste-skills.js";
 import { ruleId, writeTaste, type TasteProfile, type TasteRule } from "../taste.js";
 
@@ -96,5 +96,15 @@ describe("the spacing check", () => {
     expect(cssSpacingTrips(quiet)).toEqual([]);
     const loud = ["+++ b/a.css", "+  margin: 10rem auto 0;", "+  gap: 12rem 1rem;", "+  row-gap: 200px;"].join("\n");
     expect(cssSpacingTrips(loud)).toHaveLength(3);
+  });
+});
+
+
+describe("the snapping check", () => {
+  it("holds drawing tools to magnetic snapping with a modifier to disable it", () => {
+    const snapping = rule("Drawing tools should snap to grid points, guides and existing points with a modifier key to disable snapping", 3, { skill: "interface" });
+    expect(armedTasteChecks(profile([snapping])).map((item) => item.check)).toEqual(["snapping"]);
+    expect(snappingTrips(`const penTool = (event) => event.altKey ? point : snap(point, grid, guides, points);`)).toEqual([]);
+    expect(snappingTrips(`const penTool = (event) => points.push({ x: event.clientX, y: event.clientY });`)).toHaveLength(1);
   });
 });
