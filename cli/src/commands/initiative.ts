@@ -1,7 +1,9 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { FLYD_DIR } from "../lib/config.js";
-import { INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
+import { INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT, INITIATIVE_MANDATE_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
+import { readProjects } from "../council/projects.js";
+import { acceptReadOnlyInitiativeMandate } from "../runtime/initiative/mandate.js";
 import { IntelligenceEventStore, defaultIntelligenceDbPath } from "../intelligence/event-store.js";
 import { activityRecordPath } from "../conversation-view/activity.js";
 import { initiativeMode, runInitiativeCycle } from "../runtime/initiative/cycle.js";
@@ -25,10 +27,50 @@ export function erasePreparedInitiativeCards(path = activityRecordPath(), resear
 }
 
 /** User action is explicit source consent; a generic "be proactive" is not. */
-export async function runInitiativeCommand(action = "status"): Promise<void> {
+export async function runInitiativeCommand(action = "status", projectId?: string): Promise<void> {
   const registry = new SourceContractRegistry();
   registry.register(INITIATIVE_CURATED_CONTRACT);
   registry.register(INITIATIVE_PUBLIC_RESEARCH_CONTRACT);
+  registry.register(INITIATIVE_MANDATE_CONTRACT);
+  if (action === "authorize-readonly") {
+    if (!projectId) throw new Error("Specify an existing project id: flyd initiative authorize-readonly <project-id>");
+    if (registry.status(ID) !== "enabled" || registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) !== "enabled") {
+      throw new Error("Enable local initiative and public evidence research first.");
+    }
+    const project = readProjects().find(item => item.id === projectId);
+    if (!project) throw new Error("Unknown curated project id.");
+    const source = INITIATIVE_MANDATE_CONTRACT.sourceId;
+    if (registry.status(source) === "revoked") throw new Error("Mandate source revoked. Run flyd initiative renew-mandates first.");
+    registry.setStatus(source, "enabled");
+    const store = new IntelligenceEventStore();
+    try {
+      const mandate = acceptReadOnlyInitiativeMandate(store, project, { explicitUserAction: true });
+      console.log("Accepted READ-ONLY research follow-up for " + project.name + " until " + mandate.expiresAt + ".");
+      console.log("No repository edits, sending, publishing, payments or new user-owned decisions are authorized.");
+    } finally { store.close(); }
+    return;
+  }
+  if (action === "revoke-mandates" || action === "renew-mandates") {
+    const source = INITIATIVE_MANDATE_CONTRACT.sourceId;
+    if (action === "revoke-mandates") {
+      registry.setStatus(source, "revoked");
+      const dbPath = defaultIntelligenceDbPath();
+      if (existsSync(dbPath)) {
+        const store = new IntelligenceEventStore({ path: dbPath });
+        try { store.eraseSource(source); } finally { store.close(); }
+      }
+      console.log("Read-only initiative remits revoked. No new follow-through may start.");
+    } else {
+      registry.renew(source);
+      const dbPath = defaultIntelligenceDbPath();
+      if (existsSync(dbPath)) {
+        const store = new IntelligenceEventStore({ path: dbPath });
+        try { store.renewSource(source); } finally { store.close(); }
+      }
+      console.log("Mandates remain disabled until you explicitly authorize a project again.");
+    }
+    return;
+  }
   if (action === "research-enable") {
     if (registry.status(ID) !== "enabled") throw new Error("Enable local initiative first: flyd initiative enable");
     if (registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) === "revoked") {
@@ -77,6 +119,7 @@ export async function runInitiativeCommand(action = "status"): Promise<void> {
   if (action === "disable" || action === "pause") {
     registry.setStatus(ID, action === "pause" ? "paused" : "disabled");
     registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "disabled");
+    registry.setStatus(INITIATIVE_MANDATE_CONTRACT.sourceId, "disabled");
     console.log("Proactive investigation " + (action === "pause" ? "paused" : "disabled") + "; previously prepared cards are no longer shown.");
     return;
   }
@@ -87,6 +130,7 @@ export async function runInitiativeCommand(action = "status"): Promise<void> {
     }
     registry.setStatus(ID, "revoked");
     registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "revoked");
+    registry.setStatus(INITIATIVE_MANDATE_CONTRACT.sourceId, "revoked");
     let events = 0;
     const dbPath = defaultIntelligenceDbPath();
     if (existsSync(dbPath)) {
@@ -107,6 +151,7 @@ export async function runInitiativeCommand(action = "status"): Promise<void> {
   }
   if (action === "renew") {
     registry.renew(ID);
+    registry.renew(INITIATIVE_MANDATE_CONTRACT.sourceId);
     const dbPath = defaultIntelligenceDbPath();
     if (existsSync(dbPath)) {
       const store = new IntelligenceEventStore({ path: dbPath });
@@ -124,13 +169,14 @@ export async function runInitiativeCommand(action = "status"): Promise<void> {
     return;
   }
   if (action !== "status") {
-    throw new Error("Usage: flyd initiative status|enable|disable|pause|revoke|renew|run|research-enable|research-disable|research-pause|research-revoke|research-renew|research-run");
+    throw new Error("Usage: flyd initiative status|enable|disable|pause|revoke|renew|run|research-enable|research-disable|research-pause|research-revoke|research-renew|research-run|authorize-readonly <project-id>|revoke-mandates|renew-mandates");
   }
   console.log([
     "Flyd self-initiated intelligence",
     "Local curated source: " + (registry.status(ID) ?? "disabled"),
     "Presentation mode: " + initiativeMode(),
     "Public research permission: " + registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId),
+    "Read-only research mandates: " + registry.status(INITIATIVE_MANDATE_CONTRACT.sourceId),
     "Inputs: curated projects, Scout discoveries, Council advice, CoS outcome receipts",
     "Local initiative is private. Separately enabled PUBLIC lookups may use public Scout titles/URLs only.",
     "Output: one quiet source-linked hypothesis a day; original evidence remains authoritative.",
