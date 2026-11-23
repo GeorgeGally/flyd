@@ -85,6 +85,8 @@ var __name = function (f) { return f; };
     prefsOpen.setAttribute("aria-expanded", String(open));
   }
   prefsOpen.addEventListener("click", function () { showPrefs(prefs.hidden); });
+  var prefsClose = document.getElementById("prefs-close");
+  if (prefsClose) prefsClose.addEventListener("click", function () { showPrefs(false); prefsOpen.focus(); });
   document.addEventListener("click", function (event) {
     if (!prefs.hidden && event.target instanceof Node && !prefs.contains(event.target) && !prefsOpen.contains(event.target)) showPrefs(false);
   });

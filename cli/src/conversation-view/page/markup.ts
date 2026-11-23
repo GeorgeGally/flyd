@@ -31,8 +31,9 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
     ${LEFT_BUTTON}${options.workCanvas ? '<a href="/work" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">work</a>' : ""}<a href="/whatsapp" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">people</a><button id="prefs-open" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="prefs">preferences</button>
   </span>
 </header>
-<div class="prefs" id="prefs" hidden role="dialog" aria-label="Preferences">
-  <p class="prefs-title">Preferences</p>
+<div class="prefs" id="prefs" hidden role="dialog" aria-modal="true" aria-label="Preferences">
+  <div class="prefs-page">
+  <div class="prefs-top"><p class="prefs-title">Preferences</p><button id="prefs-close" type="button" aria-label="Close preferences">Done</button></div>
   <button id="mode" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Full replies</span><span class="prefs-about">Every reply as written, not Flyd's reading</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="theme" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Light theme</span><span class="prefs-about">Dark when off</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="rail-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Right column</span><span class="prefs-about">Past conversations and finished work</span></span><span class="track" aria-hidden="true"></span></button>
@@ -40,6 +41,7 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
   <button id="preparation-link" type="button"><span class="prefs-words"><span class="prefs-name">Local preparation</span><span class="prefs-about">Review drafts and stop preparation</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
   <button id="routines-link" type="button"><span class="prefs-words"><span class="prefs-name">Routines</span><span class="prefs-about">Useful requests, ready to use again</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
   <button id="taste-link" type="button"><span class="prefs-words"><span class="prefs-name">Taste</span><span class="prefs-about">What Flyd knows about your taste</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
+  </div>
 </div>
 ${LEFT_HTML}
 ${FRONT_HTML}
