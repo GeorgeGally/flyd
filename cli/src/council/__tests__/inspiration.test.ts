@@ -148,7 +148,7 @@ describe("gatherInspiration", () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-inspire-edition-"));
     const inspiration = [
       item({ url: "https://en.wikipedia.org/wiki/Flyd", title: "Flyd sessions", source: "Wikipedia", sourceId: "wiki", summary: "Flyd kept 12% of sessions.", media: "stat", figure: "12%", obscure: true }),
-      item({ url: "https://commons.wikimedia.org/wiki/File:Loop.gif", title: "Loop", source: "Wikimedia Commons", sourceId: "commons:gif", summary: "Loop", media: "gif", mediaUrl: "https://upload.wikimedia.org/loop.gif", obscure: true }),
+      item({ url: "https://commons.wikimedia.org/wiki/File:Loop.gif", title: "Loop", source: "Wikimedia Commons", sourceId: "commons:gif", summary: "A pen plotter drawing a loop in one continuous line.", media: "gif", mediaUrl: "https://upload.wikimedia.org/loop.gif", obscure: true }),
     ];
     const result = await runScout({
       complete: async (prompt) => prompt.startsWith("Plan ") ? '{"topics":[]}' : '{"picks":[]}',

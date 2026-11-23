@@ -26,12 +26,18 @@ header .site-path::after { content: " ↗"; color: var(--muted); }
 header #prefs-open { font-size: 14px; }
 header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .prefs {
-  position: fixed; top: 48px; right: 16px; z-index: 8; width: min(320px, calc(100vw - 32px)); padding: 6px;
-  border: 1px solid var(--faint); border-radius: 12px; background: var(--bg); box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
-  font: 400 15px/1.35 var(--sans); animation: choice-in 160ms ease both;
+  position: fixed; inset: 0; z-index: 30; width: auto; padding: 0;
+  border: 0; border-radius: 0; background: var(--bg); box-shadow: none; overflow-y: auto;
+  -webkit-overflow-scrolling: touch; font: 400 16px/1.5 var(--sans);
 }
 .prefs[hidden] { display: none; }
-.prefs-title { margin: 0; padding: 10px 12px 6px; font: 600 13px/1.2 var(--sans); color: var(--muted); }
+.prefs-page { width: min(720px, 100% - 48px); margin-inline: auto; padding: clamp(28px, 7vh, 72px) 0 clamp(48px, 12vh, 120px); }
+.prefs-top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.prefs-title { margin: 0; padding: 0; font: 600 clamp(24px, 2.4vw, 32px)/1.1 var(--sans); color: var(--fg); }
+.prefs .prefs-page > button { padding: 18px 10px; border-radius: 0; border-bottom: 1px solid var(--faint); }
+.prefs-page > button:last-of-type { border-bottom: 0; }
+#prefs-close { width: auto; flex: none; padding: 8px 18px; border: 1px solid var(--faint); border-radius: 999px; font: 500 14px/1 var(--sans); color: var(--strong); background: transparent; }
+#prefs-close:hover { background: var(--tint); }
 .prefs button {
   display: flex; align-items: center; gap: 14px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px;
   background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; transition: background-color 140ms ease;
