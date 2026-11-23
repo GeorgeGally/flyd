@@ -201,8 +201,8 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
         if (process.env.FLYD_INITIATIVE === "0" || process.env.FLYD_INITIATIVE === "off") return;
         const { runInitiativeCycle } = await import("./initiative/cycle.js");
         const result = await runInitiativeCycle({ ...(options.now ? { now: options.now } : {}) });
-        return result.investigated || result.published
-          ? `Investigated ${result.investigated} grounded questions; ${result.published} quiet insight cards`
+        return result.triaged || result.published
+          ? `Triaged ${result.triaged} grounded questions; ${result.published} quiet insight cards`
           : undefined;
       },
     },
