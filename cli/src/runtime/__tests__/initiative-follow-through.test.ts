@@ -85,7 +85,7 @@ describe("v10 accepted CoS research follow-through", () => {
   it("can report one genuine accepted read-only result through durable CoS, without launching workers", async () => {
     const { db, registry, dir, candidate, current } = fixture();
     try {
-      const mandate = acceptReadOnlyInitiativeMandate(db, project, { explicitUserAction: true, now });
+      const mandate = acceptReadOnlyInitiativeMandate(db, project, { explicitUserAction: true, now, registry });
       expect(currentReadOnlyMandate(db, project, now)?.mandateId).toBe(mandate.mandateId);
       const reportCard = vi.fn();
       const deps = { store: db, registry, now: () => now,
@@ -123,7 +123,7 @@ describe("v10 accepted CoS research follow-through", () => {
         objectiveDir: dir, projects: () => [project], current, cosEnabled: () => true,
       });
       expect(late.accepted).toBe(0);
-      acceptReadOnlyInitiativeMandate(db, project, { explicitUserAction: true, now });
+      acceptReadOnlyInitiativeMandate(db, project, { explicitUserAction: true, now, registry });
       const changed = await runInitiativeFollowThrough({
         store: db, registry, now: () => now, objectiveDir: dir,
         projects: () => [{ ...project, now: "changed goal" }],
