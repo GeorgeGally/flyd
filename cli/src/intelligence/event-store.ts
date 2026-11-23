@@ -472,7 +472,7 @@ export class IntelligenceEventStore {
       if (episodeTable) this.db.prepare("DELETE FROM episode_nodes").run();
       for (const surface of ["projections", "indexes", "replay_snapshots", "legacy_copies"] as const) {
         this.db.prepare(
-          "INSERT INTO erasure_sweeps (sweep_id, source_id, surface) VALUES (?, ?, ?, 'pending')",
+          "INSERT INTO erasure_sweeps (sweep_id, source_id, surface, status) VALUES (?, ?, ?, 'pending')",
         ).run(crypto.randomUUID(), sourceId, surface);
       }
       return [...new Set([...own, ...dependent, ...cos])];
