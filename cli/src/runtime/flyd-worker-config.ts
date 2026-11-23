@@ -2,6 +2,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { allowedForText } from "./provider-policy.js";
 import { claudeApiKey, spendStatus } from "../lib/claude-spend.js";
+import { OPENCODE_ENDPOINTS, opencodeEndpoint } from "./opencode-headers.js";
 import { modelRoutes, type ModelRoute, type ModelRouting } from "./model-routing.js";
 
 export interface FlydWorkerConfig {
@@ -11,11 +12,6 @@ export interface FlydWorkerConfig {
   providerIdentity: string;
 }
 
-const OPENCODE_ENDPOINTS: Record<string, string> = {
-  opencode: "https://opencode.ai/zen/v1",
-  "opencode-go": "https://opencode.ai/inference/go/v1",
-};
-
 const OPENCODE_MODEL_PREFIX = /^(opencode-go|opencode)\//;
 
 export function opencodeProviderFor(model?: string, provider?: string): string | null {
@@ -23,10 +19,6 @@ export function opencodeProviderFor(model?: string, provider?: string): string |
   if (named in OPENCODE_ENDPOINTS) return named;
   const match = (model ?? "").trim().match(OPENCODE_MODEL_PREFIX);
   return match ? match[1] : null;
-}
-
-export function opencodeEndpoint(provider: string): string {
-  return OPENCODE_ENDPOINTS[provider] ?? OPENCODE_ENDPOINTS.opencode;
 }
 
 /**

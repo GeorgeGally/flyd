@@ -3,10 +3,10 @@ import { join, basename } from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 import { parseEnvFile } from "../runtime/flyd-worker-config.js";
+import { opencodeEndpoint } from "../runtime/opencode-headers.js";
 import {
   apiModelId,
   COMMANDCODE_BASE_URL,
-  opencodeEndpoint,
   opencodeProviderFor,
   qualifiedModelProvider,
 } from "../runtime/flyd-worker-config.js";

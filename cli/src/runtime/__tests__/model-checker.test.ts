@@ -15,7 +15,7 @@ describe("the checker is another model family than the builder", () => {
   });
 
   it("picks a configured model of another family, the checker job's first", () => {
-    setModelRouting({ jobs: { chat: [{ provider: "openai", model: "gpt-5.5" }] } });
+    setModelRouting({ jobs: { chat: [{ provider: "openai", model: "gpt-5.5" }], quick: [{ provider: "anthropic", model: "claude-haiku-5-5" }], background: [{ provider: "anthropic", model: "claude-haiku-5-5" }] } });
     expect(checkerModelChain(["anthropic:claude-sonnet-5-5"], () => ["fallback"])).toEqual(["openai:gpt-5.5"]);
     setModelRouting({ jobs: { chat: [{ provider: "openai", model: "gpt-5.5" }], checker: [{ provider: "openrouter", model: "google/gemini-3-pro" }, { provider: "openrouter", model: "openai/gpt-5.5" }] } });
     expect(checkerModelChain(["claude/default"], () => ["fallback"])).toEqual(["openrouter:google/gemini-3-pro", "openrouter:openai/gpt-5.5"]);

@@ -4,8 +4,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ClaudeUsage } from "../lib/claude-spend.js";
-import { opencodeHeaders } from "../runtime/opencode-headers.js";
-import { opencodeEndpoint } from "../runtime/flyd-worker-config.js";
+import { opencodeEndpoint, opencodeHeaders } from "../runtime/opencode-headers.js";
 import { namesBackstage } from "../runtime/honesty-check.js";
 import { plainSaid } from "../lib/backstage.js";
 
