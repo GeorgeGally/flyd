@@ -1079,7 +1079,10 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
   for (const source of revival.revived) changes.push({ kind: "revived", detail: `retrying ${source.name}` });
 
   // Exploration: one untried reserve feed each cycle, up to three while feeds or subreddits sit paused.
-  for (const reserve of sources.filter((source) => source.status === "reserve").slice(0, Math.max(1, Math.min(3, pausedFeeds)))) {
+  const reserveRank = new Map(RESERVE_RSS.map(([, url], index) => [sourceId("rss", url), index]));
+  const rank = (source: ScoutSource) => reserveRank.get(source.id) ?? -1;
+  const reserves = sources.filter((source) => source.status === "reserve").sort((a, b) => rank(a) - rank(b));
+  for (const reserve of reserves.slice(0, Math.max(1, Math.min(3, pausedFeeds)))) {
     sources = sources.map((source) => source.id === reserve.id ? { ...source, status: "active" as const, note: "exploring from reserve" } : source);
     changes.push({ kind: "revived", detail: `trying ${reserve.name}` });
   }

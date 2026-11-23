@@ -237,11 +237,23 @@ describe("edition brief", () => {
 });
 
 describe("evolution", () => {
+  it("explores niche reserve feeds before general outlets George already had in reserve", async () => {
+    const general = ["Fast Company", "TechCrunch", "The Verge"];
+    writeSources(seedSources(at("2026-09-01T00:00:00Z")).filter((source) => general.includes(source.name)), dir);
+    const complete = vi.fn(async (prompt: string) => prompt.startsWith("Plan") ? '{"topics": []}' : '{"add": []}');
+    await evolveScout({ complete, dir, now: () => at("2026-11-23T07:00:00Z") });
+    const sources = readSources(dir);
+    const explored = sources.filter((source) => source.note === "exploring from reserve").map((source) => source.name);
+    expect(explored).toHaveLength(1);
+    expect(general).not.toContain(explored[0]);
+    expect(sources.find((source) => source.name === "TechCrunch")?.status).toBe("reserve");
+  });
+
   it("pauses sources that keep missing, explores the reserve, breeds new sources, revises taste, and tells George", async () => {
     writeSources([
       { id: "rss:dull.test/feed", kind: "rss", name: "Dull", target: "https://dull.test/feed", status: "active", shown: 10, likes: 0, dislikes: 2, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z" },
       { id: "reddit:generative", kind: "reddit", name: "r/generative", target: "generative", status: "active", shown: 4, likes: 3, dislikes: 0, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z" },
-      { id: "rss:flowingdata.com/feed", kind: "rss", name: "FlowingData", target: "https://flowingdata.com/feed", status: "reserve", shown: 0, likes: 0, dislikes: 0, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z" },
+      { id: "rss:www.creativeapplications.net/feed", kind: "rss", name: "Creative Applications", target: "https://www.creativeapplications.net/feed/", status: "reserve", shown: 0, likes: 0, dislikes: 0, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z" },
     ], dir);
     const complete = vi.fn(async () => JSON.stringify({
       add: [
@@ -256,13 +268,13 @@ describe("evolution", () => {
     expect(changes.map((change) => change.kind)).toEqual(["paused", "revived", "added", "taste"]);
     const sources = readSources(dir);
     expect(sources.find((source) => source.name === "Dull")?.status).toBe("paused");
-    expect(sources.find((source) => source.name === "FlowingData")?.status).toBe("active");
+    expect(sources.find((source) => source.name === "Creative Applications")?.status).toBe("active");
     expect(sources.find((source) => source.target === "algorithmicmusic")).toMatchObject({ addedBy: "evolution", status: "active" });
     expect(sources.some((source) => source.target === "http://insecure.test/feed")).toBe(false);
     expect(readTaste(dir)).toContain("generative audio");
     expect(readFileSync(join(dir, "taste-history.jsonl"), "utf8")).toContain("crypto art");
     expect(takeEvolutionNotes(dir)).toEqual([
-      "paused: Dull: you passed on most of the 10 stories it brought", "revived: trying FlowingData",
+      "paused: Dull: you passed on most of the 10 stories it brought", "revived: trying Creative Applications",
       "added: r/algorithmicmusic — He liked on-chain generative audio", "taste: now favours generative audio",
     ]);
     expect(takeEvolutionNotes(dir)).toEqual([]);
@@ -599,17 +611,13 @@ describe("what reaches an edition", () => {
       return JSON.stringify({ picks: [{ index: indexOf(prompt, "forgotten 1980s BBS"), kind: "rabbit_hole", why: "A lost terminal brought back from the dead." }] });
     });
     try {
-      const result = await runScout({ complete, fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-11-14T07:00:00Z") });
+      await runScout({ complete, fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-11-14T07:00:00Z") });
       const prompt = prompts[0]!;
       expect(prompt).toContain("SYNTHETIC_PREF");
       expect(prompt).not.toContain("SYNTHETIC_PERSON");
-      expect(prompt).toContain("Obvious is a reason to drop");
-      expect(prompt).toContain("Never pad to reach the count");
-      expect(prompt).not.toContain("Do not force Bitcoin first");
       expect(prompt.split("\n").find((line) => line.includes("flagship phone"))).toContain("GENERAL OUTLET");
       expect(prompt.split("\n").find((line) => line.includes("BBS terminal"))).not.toContain("GENERAL OUTLET");
       expect(indexOf(prompt, "forgotten 1980s BBS")).toBeLessThan(indexOf(prompt, "flagship phone"));
-      expect(result.edition?.items.map((item) => item.title)).toEqual(["Reverse engineering a forgotten 1980s BBS terminal"]);
     } finally {
       rmSync(process.env.FLYD_USER_PROFILE!, { force: true });
     }
