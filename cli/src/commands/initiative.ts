@@ -4,6 +4,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import { INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT, INITIATIVE_MANDATE_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
 import { readProjects } from "../council/projects.js";
 import { acceptReadOnlyInitiativeMandate } from "../runtime/initiative/mandate.js";
+import { recordInitiativeReview, summarizeInitiativeOutcomes } from "../runtime/initiative/outcomes.js";
 import { purgeInitiativeObjectives } from "../command/cos/objectives.js";
 import { IntelligenceEventStore, defaultIntelligenceDbPath } from "../intelligence/event-store.js";
 import { activityRecordPath } from "../conversation-view/activity.js";
@@ -30,11 +31,51 @@ export function erasePreparedInitiativeCards(path = activityRecordPath(), resear
 }
 
 /** User action is explicit source consent; a generic "be proactive" is not. */
-export async function runInitiativeCommand(action = "status", projectId?: string): Promise<void> {
+export async function runInitiativeCommand(action = "status", projectId?: string, verdict?: string): Promise<void> {
   const registry = new SourceContractRegistry();
   registry.register(INITIATIVE_CURATED_CONTRACT);
   registry.register(INITIATIVE_PUBLIC_RESEARCH_CONTRACT);
   registry.register(INITIATIVE_MANDATE_CONTRACT);
+  if (action === "review") {
+    if (!projectId || (verdict !== "helpful" && verdict !== "not_helpful")) {
+      throw new Error("Usage: flyd initiative review <candidate-id> helpful|not_helpful");
+    }
+    const path = defaultIntelligenceDbPath();
+    if (!existsSync(path)) throw new Error("No local initiative research is recorded.");
+    const store = new IntelligenceEventStore({ path });
+    try {
+      console.log(recordInitiativeReview({ store, registry, candidateId: projectId, verdict }));
+    } finally { store.close(); }
+    return;
+  }
+  if (action === "stats" || action === "doctor") {
+    const path = defaultIntelligenceDbPath();
+    if (!existsSync(path)) {
+      console.log("No intelligence store exists. Source consent remains " + registry.status(ID) + ".");
+      return;
+    }
+    const store = new IntelligenceEventStore({ path });
+    try {
+      const events = store.readSourcePage(ID, { limit: 1000 });
+      const summary = summarizeInitiativeOutcomes(events);
+      console.log(JSON.stringify({
+        localConsent: registry.status(ID),
+        publicResearchConsent: registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId),
+        mandateConsent: registry.status(INITIATIVE_MANDATE_CONTRACT.sourceId),
+        mode: initiativeMode(),
+        sourceStatus: store.isRevoked(ID) ? "erased" : "available",
+        research: summary,
+        budget: { researchPerDay: 2, ambientCardsPerDay: 1 },
+        outstandingErasureSweeps: store.pendingSweeps(ID).map(s => s.surface),
+        ...(action === "doctor" ? {
+          macRuntime: process.platform === "darwin" ? "macOS: verify installed Core and UI manually" : "not macOS",
+          verifiedLivePilot: false,
+          releaseReadiness: "requires explicit macOS acceptance and outcome evaluation",
+        } : {}),
+      }, null, 2));
+    } finally { store.close(); }
+    return;
+  }
   if (action === "authorize-readonly") {
     if (!projectId) throw new Error("Specify an existing project id: flyd initiative authorize-readonly <project-id>");
     if (registry.status(ID) !== "enabled" || registry.status(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId) !== "enabled") {
@@ -176,7 +217,7 @@ export async function runInitiativeCommand(action = "status", projectId?: string
     return;
   }
   if (action !== "status") {
-    throw new Error("Usage: flyd initiative status|enable|disable|pause|revoke|renew|run|research-enable|research-disable|research-pause|research-revoke|research-renew|research-run|authorize-readonly <project-id>|revoke-mandates|renew-mandates");
+    throw new Error("Usage: flyd initiative status|stats|doctor|review <candidate-id> helpful|not_helpful|enable|disable|pause|revoke|renew|run|research-enable|research-disable|research-pause|research-revoke|research-renew|research-run|authorize-readonly <project-id>|revoke-mandates|renew-mandates");
   }
   console.log([
     "Flyd self-initiated intelligence",
