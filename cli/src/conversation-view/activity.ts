@@ -258,12 +258,12 @@ export function visibleCareRecords(
 /** Additional per-read revocation gate for self-started initiative cards. */
 export function visibleInitiativeRecords(
   records: unknown[],
-  policy: { enabled: boolean; current: (sources: InitiativeSource[]) => boolean },
+  policy: { enabled: boolean; publicResearchEnabled?: boolean; current: (sources: InitiativeSource[]) => boolean },
 ): unknown[] {
   return records.filter(raw => {
     const rec = raw as Partial<ActivityRecord> | null;
     if (!rec || typeof rec.key !== "string" || !rec.key.startsWith("initiative:")) return true;
-    if (!policy.enabled) return false;
+    if (!policy.enabled || (rec.key.startsWith("initiative:research:") && !policy.publicResearchEnabled)) return false;
     return Array.isArray(rec.sourceRefs) && policy.current(rec.sourceRefs);
   });
 }
@@ -767,6 +767,8 @@ export class ActivityReader {
       // Re-evaluate every parent source before showing an idea, even if it
       // was prepared on a prior tick. A revised/revoked parent hides it.
       records: visibleInitiativeRecords(careRecords, {
+        publicResearchEnabled: new SourceContractRegistry({ path: join(this.dir, "intelligence", "source-consents.json") })
+          .status("initiative.public-research") === "enabled",
         enabled: process.env.FLYD_INITIATIVE !== "0" && process.env.FLYD_INITIATIVE !== "off"
           && process.env.FLYD_INITIATIVE !== "shadow"
           && new SourceContractRegistry({ path: join(this.dir, "intelligence", "source-consents.json") })
