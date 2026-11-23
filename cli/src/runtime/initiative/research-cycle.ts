@@ -2,7 +2,8 @@ import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import type { ContextEnvelope } from "../../intelligence/context-envelope.js";
 import { validateEnvelope } from "../../intelligence/context-envelope.js";
 import {
-  INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT, SourceContractRegistry,
+  INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT,
+  INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT, SourceContractRegistry,
 } from "../../intelligence/sensors/source-contracts.js";
 import { readProjects, type Project } from "../../council/projects.js";
 import { latestEdition, type Edition } from "../../council/scout.js";
@@ -75,6 +76,11 @@ export function researchedActivity(candidate: InitiativeCandidate, finding: Init
     detail: [
       "Question: " + candidate.question,
       "Finding: " + finding.finding,
+      ...(finding.publicInterpretation ? [
+        "Model hypothesis (unverified): " + finding.publicInterpretation.hypothesis,
+        "Counterargument: " + finding.publicInterpretation.counterargument,
+        "Uncertainty: " + finding.publicInterpretation.caveat,
+      ] : []),
       "Limit: This does not prove a technique will improve the project.",
       "Next: " + candidate.proposedTest,
       "Public sources: " + finding.citedEvidence.map(s => s.url).join(", "),
@@ -94,6 +100,7 @@ export async function runInitiativeResearchCycle(deps: ResearchCycleDeps = {}): 
   const registry = deps.registry ?? new SourceContractRegistry();
   registry.register(INITIATIVE_CURATED_CONTRACT);
   registry.register(INITIATIVE_PUBLIC_RESEARCH_CONTRACT);
+  registry.register(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT);
   const now = deps.now?.() ?? new Date();
   if (registry.status(SOURCE) !== "enabled" || !publicResearchConsentCurrent(registry, now)) {
     summary.held.push("source_or_public_research_consent_required");
@@ -120,7 +127,8 @@ export async function runInitiativeResearchCycle(deps: ResearchCycleDeps = {}): 
     for (const candidate of selected) {
       const generation = store.latestTombstone(SOURCE)?.erasedAt ?? "initial";
       const publicGeneration = registry.list().find(item => item.contract.sourceId === INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId)?.state.changedAt ?? "missing";
-      const caseKey = generation + ":" + publicGeneration + ":" + candidate.id + ":" + initiativeRevision(candidate.sources);
+      const synthGeneration = registry.list().find(item => item.contract.sourceId === INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId)?.state.changedAt ?? "missing";
+      const caseKey = generation + ":" + publicGeneration + ":" + synthGeneration + ":" + candidate.id + ":" + initiativeRevision(candidate.sources);
       const resultKey = "research-result:" + caseKey;
       if (registry.status(SOURCE) !== "enabled" || !publicResearchConsentCurrent(registry, new Date())) {
         summary.held.push("consent_revoked");
