@@ -163,12 +163,17 @@ export async function runInitiativeCommand(action = "status", projectId?: string
   }
   if (action === "research-disable" || action === "research-pause") {
     registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, action === "research-pause" ? "paused" : "disabled");
+    if (registry.status(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId) !== "revoked") {
+      registry.setStatus(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId, "disabled");
+    }
     console.log("Background public research stopped.");
     return;
   }
   if (action === "research-revoke") {
     registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "revoked");
-    registry.setStatus(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId, "disabled");
+    if (registry.status(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId) !== "revoked") {
+      registry.setStatus(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId, "disabled");
+    }
     const dbPath = defaultIntelligenceDbPath();
     let derived = 0;
     if (existsSync(dbPath)) {
@@ -201,9 +206,9 @@ export async function runInitiativeCommand(action = "status", projectId?: string
   }
   if (action === "disable" || action === "pause") {
     registry.setStatus(ID, action === "pause" ? "paused" : "disabled");
-    registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "disabled");
-    registry.setStatus(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId, "disabled");
-    registry.setStatus(INITIATIVE_MANDATE_CONTRACT.sourceId, "disabled");
+    for (const source of [INITIATIVE_PUBLIC_RESEARCH_CONTRACT, INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT, INITIATIVE_MANDATE_CONTRACT]) {
+      if (registry.status(source.sourceId) !== "revoked") registry.setStatus(source.sourceId, "disabled");
+    }
     console.log("Proactive investigation " + (action === "pause" ? "paused" : "disabled") + "; previously prepared cards are no longer shown.");
     return;
   }
