@@ -6,7 +6,7 @@ import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import { INITIATIVE_CURATED_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
 import {
   initiativeReviews, initiativeOutcomeProjection, recordInitiativeReview,
-  summarizeInitiativeOutcomes,
+  summarizeInitiativeOutcomes, projectInitiativeQuietUntil,
 } from "../initiative/outcomes.js";
 
 const baseNow = new Date("2026-11-23T12:00:00Z");
@@ -68,6 +68,31 @@ describe("initiative learning truth", () => {
       expect(recordInitiativeReview({ ...data, activityPath: join(dirname(activityPath), "missing.jsonl") })).toBe("not_eligible");
       registry.setStatus(INITIATIVE_CURATED_CONTRACT.sourceId, "revoked");
       expect(recordInitiativeReview(data)).toBe("not_eligible");
+    } finally { store.close(); }
+  });
+
+  it("three separate explicitly negative project reviews quiet only that project for seven days", () => {
+    const { store } = fixture();
+    try {
+      for (let i = 0; i < 3; i++) store.append({
+        pathKind: "interface", kind: "observation", sourceId: "initiative.curated",
+        consent: { grantedAt: new Date().toISOString(), scopes: ["initiative.curated"] },
+        retentionClass: "local_default", payloadClassification: "operational",
+        provenance: "test:explicit-user-review", idempotencyKey: "manual-negative:" + i,
+        payload: {
+          type: "initiative_review", candidate_id: String(i).repeat(24),
+          verdict: "not_helpful", effect: "unknown",
+          source_keys: ["project:visual"],
+          sources: [{ id: "project:visual", scope: "local_operational",
+            revision: "current", evidenceRef: "project:visual" }],
+        },
+      });
+      const events = store.readSource("initiative.curated");
+      const tomorrow = new Date(Date.now() + 1_000);
+      expect(projectInitiativeQuietUntil(events, "visual", tomorrow)).not.toBeNull();
+      expect(projectInitiativeQuietUntil(events, "another", tomorrow)).toBeNull();
+      expect(projectInitiativeQuietUntil(events, "visual", new Date(Date.now() + 8 * 86_400_000))).toBeNull();
+      expect(summarizeInitiativeOutcomes(events).verifiedExternalImpact).toBe(0);
     } finally { store.close(); }
   });
 
