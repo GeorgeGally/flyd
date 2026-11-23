@@ -425,13 +425,14 @@ export function findXaiKey(env: NodeJS.ProcessEnv = process.env, home = homedir(
 }
 
 /** The summary models to try, in order, from whatever keys this machine has; the keys never leave this function. */
-export function summaryModels(options: { env?: NodeJS.ProcessEnv; home?: string; anthropicKey?: string } = {}): Array<{ provider: "xai" | "anthropic" | "opencode-go"; model: string; key: string }> {
+export function summaryModels(options: { env?: NodeJS.ProcessEnv; home?: string; anthropicKey?: string; opencodeKey?: string } = {}): Array<{ provider: "xai" | "anthropic" | "opencode-go"; model: string; key: string }> {
   const env = options.env ?? process.env;
   if (env.FLYD_VIEW_SUMMARIES === "0") return [];
   const models: Array<{ provider: "xai" | "anthropic" | "opencode-go"; model: string; key: string }> = [];
   const openCode = modelRoutes("quick").find((route) => route.provider === "opencode-go");
-  if (openCode && env.OPENCODE_API_KEY?.trim()) {
-    models.push({ provider: "opencode-go", model: openCode.model, key: env.OPENCODE_API_KEY.trim() });
+  const openCodeKey = env.OPENCODE_API_KEY?.trim() || options.opencodeKey?.trim();
+  if (openCode && openCodeKey) {
+    models.push({ provider: "opencode-go", model: openCode.model, key: openCodeKey });
   }
   const anthropic = env.CLAUDE_API_KEY?.trim() || env.ANTHROPIC_API_KEY?.trim() || options.anthropicKey?.trim();
   if (anthropic && env.FLYD_CLAUDE !== "0") {
@@ -445,7 +446,7 @@ export function summaryModels(options: { env?: NodeJS.ProcessEnv; home?: string;
 }
 
 /** The providers to try, in order, from whatever keys this machine has. */
-export function defaultProviders(options: { env?: NodeJS.ProcessEnv; home?: string; anthropicKey?: string; fetchFn?: FetchFn } = {}): SummaryProvider[] {
+export function defaultProviders(options: { env?: NodeJS.ProcessEnv; home?: string; anthropicKey?: string; opencodeKey?: string; fetchFn?: FetchFn } = {}): SummaryProvider[] {
   return summaryModels(options).map(({ provider, model, key }) => provider === "xai"
     ? xaiProvider(key, model, options.fetchFn)
     : provider === "anthropic" ? anthropicProvider(key, model, options.fetchFn) : opencodeProvider(key, model, options.fetchFn));

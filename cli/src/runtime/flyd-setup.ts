@@ -193,7 +193,7 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
     settings: ["QMD_EMBED_MODEL", "QMD_GENERATE_MODEL", "QMD_RERANK_MODEL"],
   });
 
-  const summaryChain = summaryModels({ anthropicKey: claudeApiKey() });
+  const summaryChain = summaryModels({ anthropicKey: claudeApiKey(), opencodeKey: getKey("OPENCODE_API_KEY") });
   const summaries = summaryChain.map(({ model }) => model);
   const summarySettings = summaryChain[0]?.provider === "anthropic" ? ["FLYD_VIEW_ANTHROPIC_MODEL"]
     : summaryChain[0]?.provider === "opencode-go" ? ["OPENCODE_API_KEY", "models.json jobs.quick"] : ["FLYD_VIEW_XAI_MODEL"];

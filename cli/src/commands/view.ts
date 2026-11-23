@@ -28,6 +28,7 @@ import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-v
 import { memoryLookup } from "../conversation-view/living.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
 import { claudeApiKey } from "../lib/claude-spend.js";
+import { getKey } from "../lib/config.js";
 import { readProjects } from "../council/projects.js";
 import { relayMayShow } from "../council/reply-review.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
@@ -380,7 +381,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   // Plain-English summaries: OpenCode Go, then the configured fallback
   // exist; with neither, a long reply leads with Flyd's whole briefing of it
   // (engineering stubs out, a status card for several pieces of work, every sentence kept).
-  const providers = defaultProviders({ anthropicKey: claudeApiKey() });
+  const providers = defaultProviders({ anthropicKey: claudeApiKey(), opencodeKey: getKey("OPENCODE_API_KEY") });
   const summarizer = new ReplySummarizer({ providers, cacheFile: defaultSummaryCache() });
   // The plan's usage limits, from quota-axi when it can read them without prompting.
   const plan = new PlanUsageReader();
