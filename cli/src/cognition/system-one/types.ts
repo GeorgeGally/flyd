@@ -34,6 +34,8 @@ export interface PredicateAnswer {
   levels?: number;
 }
 
+export type JevFailureKind = "credits_exhausted" | "billing" | "rate_limited" | "authentication" | "provider_unavailable" | "timeout" | "network" | "invalid_response" | "not_configured";
+
 export interface PredicateEvaluation {
   ok: boolean;
   evaluator: "jev" | "gemini" | "none";
@@ -48,6 +50,9 @@ export interface PredicateEvaluation {
   /** Egress gateway receipt for the outbound payload, when a call was attempted. */
   egressReceiptId?: string;
   error?: string;
+  /** Safe provider diagnostics; never the raw response body or supplied state. */
+  failureKind?: JevFailureKind;
+  httpStatus?: number;
 }
 
 export interface JevOptions {
@@ -60,6 +65,8 @@ export interface JevOptions {
   fetchFn?: typeof fetch;
   /** Consent source for the egress gateway; defaults to "nothing revoked". */
   consentLookup?: ConsentLookup;
+  /** Recorded/offline replay must not change the live provider's health. */
+  reportHealth?: boolean;
 }
 
 /**

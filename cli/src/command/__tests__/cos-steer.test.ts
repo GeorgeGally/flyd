@@ -104,6 +104,22 @@ describe("tell_work", () => {
 
 
 describe("durable correction delivery", () => {
+  it("records a correction before a planned run has an executor, without inventing a pending delivery", async () => {
+    const objective = openObjective({ words: "Fix the footer", flydNotes: "", origin: { surface: "chat" } });
+    mutateObjective(objective.id, (current) => current && {
+      ...current, status: "working", briefRevision: 0,
+      plan: [{ key: "build", team: "coding", outcome: "Fix the footer", doneWhen: ["Footer fixed"], state: "queued", attempt: 0, validFor: 0 }],
+    });
+    const { sent, send } = recorder();
+    expect(await tellWork({ objectiveId: objective.id, message: "make it blue", kind: "correction" }, send))
+      .toEqual({ delivered: true, objectiveId: objective.id });
+    expect(readObjective(objective.id)).toMatchObject({
+      briefRevision: 1, pendingCorrections: [],
+      corrections: [{ revision: 1, run: "build", text: "make it blue" }],
+    });
+    expect(sent).toEqual([]);
+  });
+
   it("persists the revision before sending and retries failed sends without losing intent", async () => {
     const id = underWay("Fix the cap5 footer", "coding");
     let attempts = 0;

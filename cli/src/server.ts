@@ -1447,6 +1447,14 @@ export async function startServer(port = 4815, host = "127.0.0.1", options: { so
           .catch(() => sendJson(res, 503, { error: "AgentRun diagnostics unavailable" }));
         break;
       }
+      case "/runtime/jev/status": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "GET") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        void import("./cognition/system-one/health.js")
+          .then(({ jevRuntimeStatus }) => sendJson(res, 200, jevRuntimeStatus()))
+          .catch(() => sendJson(res, 503, { error: "Jev diagnostics unavailable" }));
+        break;
+      }
       case "/health":
         handleHealth(req, res);
         break;

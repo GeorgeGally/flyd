@@ -219,7 +219,7 @@ export async function replayPredicates(cases: readonly ReplayCase[], options: Re
         if (!trace) unreplayable.missing.push(c.id);
         else if (trace.questionFingerprint !== caseFingerprint || trace.evaluatorVersion !== definition.evaluatorVersion || trace.projectionHash !== stateProjectionHash(state)) unreplayable.stale.push(c.id);
         else {
-          const evaluation = await evaluatePredicates(state, [caseQuestion], { apiKey: "replay", fetchFn: recordedFetch(trace) }, egress);
+          const evaluation = await evaluatePredicates(state, [caseQuestion], { apiKey: "replay", fetchFn: recordedFetch(trace), reportHealth: false }, egress);
           if (!evaluation.ok) unreplayable.errors.push(`${c.id}: ${evaluation.error}`);
           answer = evaluation.answers[predicateId];
           jevLatencies.push(trace.latencyMs);

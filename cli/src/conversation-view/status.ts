@@ -212,11 +212,13 @@ export class IslandRung {
 
   /**
    * A notice rings once per wording: the sender re-posts the same ask under a
-   * new id every few minutes, so the id alone can't stop the repeat.
+   * new id every few minutes, so the id alone can't stop the repeat. A provider
+   * incident has a real lifecycle identity instead: recovery followed by another
+   * failure may ring again even when its words are unchanged.
    */
-  onceNotice<T extends { text: string }>(notice: T | undefined): T | undefined {
+  onceNotice<T extends { text: string }>(notice: T | undefined, lifecycleId?: string): T | undefined {
     if (!notice) return undefined;
-    return this.ringing(wordKey(notice.text)) ? notice : undefined;
+    return this.ringing(lifecycleId ? `notice-lifecycle:${lifecycleId}` : wordKey(notice.text)) ? notice : undefined;
   }
 
   /** True while a key is new: unseen (it is recorded now) or first rung within the window. */
