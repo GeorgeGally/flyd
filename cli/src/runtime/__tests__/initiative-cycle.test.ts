@@ -99,7 +99,7 @@ describe("Flyd v10 source-grounded curiosity", () => {
     // date field does not change; refreshing a timestamp without content does not.
     const revised = deriveInitiatives({ now, projects: [{ ...project, now: "Newly confirmed different experimental generative typography approach" }], edition });
     expect(initiativeRevision(revised.find(x => x.origin === "scout")!.sources)).not.toBe(initiativeRevision(a.sources));
-    const retimed = deriveInitiatives({ now, projects: [project], edition: { ...edition, generatedAt: "2026-11-23T13:00:00Z" } });
+    const retimed = deriveInitiatives({ now, projects: [project], edition: { ...edition, generatedAt: "2026-11-23T11:00:00Z" } });
     expect(initiativeRevision(retimed.find(x => x.origin === "scout")!.sources)).toBe(initiativeRevision(a.sources));
 
   });
