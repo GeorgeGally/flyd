@@ -24,7 +24,11 @@ export function intakePrompt(objective: Objective, context: IntakeContext = {}):
     "Teams:",
     ...Object.entries(TEAMS).map(([team, takes]) => `- ${team}: ${takes}`),
     "",
-    `George's exact words: ${objective.words}`,
+    ...(objective.origin.surface === "initiative"
+      ? [`Flyd-generated follow-up, NOT George\'s words: ${objective.words}`,
+         `User-approved read-only mandate evidence: ${objective.initiative?.mandateEventId ?? "missing"}`,
+         "No write, publish, send, payment, credential, deployment or new source access is permitted."]
+      : [`George\'s exact words: ${objective.words}`]),
     ...(objective.flydNotes.trim() ? [`What Flyd knew when he asked: ${objective.flydNotes.trim()}`] : []),
     ...(objective.project?.name || objective.project?.root ? [`The project he was in: ${[objective.project.name, objective.project.root].filter(Boolean).join(" — ")}`] : []),
     ...(objective.general ? ["He asked in Flyd's general chat, not in any project's. It is for a project only if his words name one; what he was working on before does not make it that project's."] : []),
