@@ -35,7 +35,7 @@ const reply = JSON.stringify({
 describe("separately consented public-only model critique", () => {
   it("makes no model call without explicit consent", async () => {
     const r = registry();
-    const complete = vi.fn(async () => reply);
+    const complete = vi.fn(async (_prompt: string) => reply);
     const result = await synthesizePublicEvidence("Particle shader typography", evidence,
       { registry: r, now: () => now, complete, modelAllowed: () => true });
     expect(result).toMatchObject({ interpretation: null, modelCalls: 0, stopReason: "synthesis_not_consented" });
@@ -45,7 +45,7 @@ describe("separately consented public-only model critique", () => {
   it("sends only public material, never project labels or local repo context", async () => {
     const r = registry();
     r.setStatus(INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT.sourceId, "enabled");
-    const complete = vi.fn(async () => reply);
+    const complete = vi.fn(async (_prompt: string) => reply);
     const result = await synthesizePublicEvidence("Particle shader typography", evidence,
       { registry: r, now: () => now, complete, modelAllowed: () => true });
     expect(result.modelCalls).toBe(1);
