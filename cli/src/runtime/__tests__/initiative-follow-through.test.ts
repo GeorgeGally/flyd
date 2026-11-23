@@ -65,7 +65,7 @@ describe("v10 accepted CoS research follow-through", () => {
     const { db } = fixture();
     try {
       expect(() => acceptReadOnlyInitiativeMandate(db, project,
-        { explicitUserAction: false as true, now })).toThrow(/infer authorization/);
+        { explicitUserAction: false as true, now, registry })).toThrow(/infer authorization/);
       expect(currentReadOnlyMandate(db, project, now)).toBeNull();
     } finally { db.close(); }
   });
