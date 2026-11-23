@@ -8,6 +8,7 @@ import {
 } from "../../intelligence/sensors/source-contracts.js";
 import type { ContextEnvelope } from "../../intelligence/context-envelope.js";
 import { scoutItemRevision } from "./lineage.js";
+import { synthesizePublicEvidence, type PublicModelInterpretation } from "./public-synthesis.js";
 import { initiativeRevision, type InitiativeCandidate } from "./candidates.js";
 import type { Edition, EditionItem } from "../../council/scout.js";
 
@@ -50,6 +51,9 @@ export interface InitiativeResearchReceipt {
   monetaryCost?: number;
   stopReason: string;
   privateComparisonNeeded: boolean;
+  /** Optional public-only model interpretation: never independent fact verification. */
+  publicInterpretation?: PublicModelInterpretation;
+  modelCalls?: number;
 }
 
 export interface InitiativeResearchDeps {
@@ -57,6 +61,7 @@ export interface InitiativeResearchDeps {
   registry?: SourceContractRegistry;
   engine?: Pick<EvidenceEngine, "research">;
   maxWallMs?: number;
+  publicSynthesis?: typeof synthesizePublicEvidence;
 }
 
 export function safePublicLocator(raw: string): string | null {
@@ -220,6 +225,12 @@ export async function researchInitiative(
   const hosts = new Set(linked.map(x => x.host).filter(Boolean));
   const gaps = evidence.gaps.map(g => g.code).slice(0, 5);
   const contradicted = evidence.conflicts.length > 0;
+  // Separate model opt-in. The model sees ONLY fetched PUBLIC article snippets
+  // (not the project name, local observations, original candidate or mandate).
+  const publicSynthesis = matches.length
+    ? await (deps.publicSynthesis ?? synthesizePublicEvidence)(item.title, matches,
+        { registry, now: () => now })
+    : { interpretation: null, modelCalls: 0, stopReason: "no_public_evidence" };
   const status: InitiativeResearchStatus = contradicted ? "contradictory"
     : hosts.size >= 2 ? "source_confirmed"
     : linked.length ? "inconclusive" : "no_evidence";
@@ -234,6 +245,8 @@ export async function researchInitiative(
       : status === "contradictory" ? "contradictory_evidence"
         : linked.length ? "insufficient_independent_sources" : "no_matching_evidence",
     { citedEvidence: linked, gaps, researchCalls: 1,
+      ...(publicSynthesis.interpretation ? { publicInterpretation: publicSynthesis.interpretation } : {}),
+      modelCalls: publicSynthesis.modelCalls,
       counterEvidence: evidence.conflicts.map(c => c.reason.slice(0, 180)).slice(0, 3) });
 }
 
@@ -245,7 +258,9 @@ export function safeResearchPayload(result: InitiativeResearchReceipt): Record<s
     verified: false, // "source_confirmed" is not a verified effect or project benefit
     checked_claim: result.checkedClaim, finding: result.finding, stop_reason: result.stopReason,
     evidence: result.citedEvidence, counter_evidence: result.counterEvidence,
-    gaps: result.gaps, research_calls: result.researchCalls, elapsed_ms: result.elapsedMs,
+    gaps: result.gaps, research_calls: result.researchCalls, model_calls: result.modelCalls ?? 0,
+    ...(result.publicInterpretation ? { public_interpretation: result.publicInterpretation } : {}),
+    elapsed_ms: result.elapsedMs,
     at: result.searchedAt,
   };
 }
