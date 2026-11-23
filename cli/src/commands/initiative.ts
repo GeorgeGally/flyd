@@ -8,13 +8,13 @@ import { initiativeMode, runInitiativeCycle } from "../runtime/initiative/cycle.
 
 const ID = INITIATIVE_CURATED_CONTRACT.sourceId;
 
-export function erasePreparedInitiativeCards(path = activityRecordPath()): number {
+export function erasePreparedInitiativeCards(path = activityRecordPath(), researchOnly = false): number {
   if (!existsSync(path)) return 0;
   const rows = readFileSync(path, "utf8").split("\n").filter(Boolean);
   const keep = rows.filter(row => {
     try {
       const key = (JSON.parse(row) as { key?: unknown }).key;
-      return typeof key !== "string" || !key.startsWith("initiative:");
+      return typeof key !== "string" || !(researchOnly ? key.startsWith("initiative:research:") : key.startsWith("initiative:"));
     } catch { return !row.includes("initiative:"); }
   });
   if (keep.length === rows.length) return 0;
@@ -45,10 +45,14 @@ export async function runInitiativeCommand(action = "status"): Promise<void> {
   }
   if (action === "research-revoke") {
     registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "revoked");
-    // The local hypotheses remain governed by the separate initiative.curated
-    // consent; anything derived from a public research receipt is hidden via
-    // revalidation and erased by the initiative's main revoke command.
-    console.log("Public research permission revoked; no further external lookups may start.");
+    const dbPath = defaultIntelligenceDbPath();
+    let derived = 0;
+    if (existsSync(dbPath)) {
+      const store = new IntelligenceEventStore({ path: dbPath });
+      try { derived = store.retractInitiativeResearch(); } finally { store.close(); }
+    }
+    const cards = erasePreparedInitiativeCards(activityRecordPath(FLYD_DIR), true);
+    console.log("Public research revoked; erased " + derived + " research events and " + cards + " research cards.");
     return;
   }
   if (action === "research-renew") {
