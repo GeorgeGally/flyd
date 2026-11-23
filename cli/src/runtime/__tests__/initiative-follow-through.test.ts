@@ -117,7 +117,7 @@ describe("v10 accepted CoS research follow-through", () => {
     const { db, registry, dir, current } = fixture();
     try {
       acceptReadOnlyInitiativeMandate(db, project,
-        { explicitUserAction: true, now, ttlMs: 1_000 });
+        { explicitUserAction: true, now, ttlMs: 1_000, registry });
       const late = await runInitiativeFollowThrough({
         store: db, registry, now: () => new Date(now.getTime() + 2_000),
         objectiveDir: dir, projects: () => [project], current, cosEnabled: () => true,
