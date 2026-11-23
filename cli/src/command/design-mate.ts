@@ -317,6 +317,31 @@ function spacingArmed(): boolean {
   try { return armedTasteChecks(readTaste()).some((armed) => armed.check === "spacing"); } catch { return false; }
 }
 
+const SOURCE_FILE = /\.(?:[cm]?[jt]sx?|css|scss|html?|vue|svelte|astro)$/i;
+
+/** The changed files plus the local modules they import, two hops deep, so snapping code in an untouched module still counts. */
+function toolSource(root: string, files: string[]): string {
+  const seen = new Set<string>();
+  let frontier = files.map((path) => join(root, path));
+  for (let hop = 0; hop <= 2 && frontier.length && seen.size < 40; hop += 1) {
+    const next: string[] = [];
+    for (const path of frontier) {
+      if (seen.has(path) || !SOURCE_FILE.test(path)) continue;
+      seen.add(path);
+      let text = "";
+      try { text = readFileSync(path, "utf8"); } catch { continue; }
+      for (const [, spec] of text.matchAll(/(?:from\s+|import\s*\(?\s*|require\(\s*|src=)["'](\.{1,2}\/[^"']+)["']/g)) {
+        const target = join(dirname(path), spec!);
+        for (const candidate of [target, target.replace(/\.js$/, ".ts"), `${target}.ts`, `${target}.js`]) {
+          if (existsSync(candidate) && statSync(candidate).isFile()) { next.push(candidate); break; }
+        }
+      }
+    }
+    frontier = next;
+  }
+  return [...seen].map((path) => { try { return readFileSync(path, "utf8"); } catch { return ""; } }).join("\n");
+}
+
 function snappingArmed(): boolean {
   try { return armedTasteChecks(readTaste()).some((armed) => armed.check === "snapping"); } catch { return false; }
 }
@@ -963,9 +988,7 @@ async function advanceBuild(run: DomainRun, deps: DesignMateDeps, root: string, 
       if (trips.length) failRound(build, trips);
     }
     if (files.length && snappingArmed()) {
-      const source = files.filter((path) => /\.(?:[cm]?[jt]sx?|css|scss|html?|vue|svelte|astro)$/i.test(path)).map((path) => {
-        try { return readFileSync(join(build.root, path), "utf8"); } catch { return ""; }
-      }).join("\n");
+      const source = toolSource(build.root, files);
       const trips = snappingTrips(source);
       if (trips.length) failRound(build, trips, snappingCritique);
     }

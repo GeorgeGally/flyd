@@ -44,7 +44,7 @@ export function tasteCheckPlan(profile: TasteProfile): TasteRulePlan[] {
     .filter((rule) => !rule.principle && rule.count >= CHECK_REPEATS && rule.skill !== "none")
     .map((rule): TasteRulePlan => {
       const layers: FixLayer[] = ["prompt"];
-      const check = /\bsnapp?\w*/i.test(rule.text) && /\b(?:grid|guide|point)\w*/i.test(rule.text)
+      const check = /\bsnapp?\w*/i.test(rule.text) && /\b(?:grid|guide)\w*/i.test(rule.text) && /\b(?:pen|pencil|draw\w*|path|bezier)\b/i.test(rule.text)
         ? "snapping" : tasteSkillKind(rule) === "spacing" ? "spacing" : undefined;
       if (check) layers.push("check");
       const layer = layers.sort(STRONGER)[0] as "check" | "prompt";
@@ -65,10 +65,10 @@ export function armedTasteChecks(profile: TasteProfile): Array<{ check: TasteChe
 
 /** Inspect drawing-tool source for snapping and a modifier to bypass it. */
 export function snappingTrips(source: string): SpacingTrip[] {
-  if (!/\b(?:pen|draw(?:ing)?|pencil|bezier|path)[\w-]*(?:\s|[-_])*(?:tool|mode)|\b(?:tool|mode)[\w-]*(?:\s|[-_])*(?:pen|draw(?:ing)?|pencil|bezier|path)\b/i.test(source)) return [];
-  const snap = /\bsnap(?:ping|ped|s|to)?[\w-]*/i.test(source);
-  const targets = /\b(?:grid|guide|anchor|point|vertex|vertices)[\w-]*/i.test(source);
-  const modifier = /\b(?:altKey|shiftKey|metaKey|ctrlKey|alt|shift|meta|ctrl|control|option|command)\b/i.test(source);
+  if (!/\b(?:pen|pencil|bezier|draw(?:ing)?)[\s_-]*tool\b/i.test(source)) return [];
+  const snap = /\bsnap\w*\s*\(|Math\.round\([^)]*\/[^)]*(?:grid|step)/i.test(source);
+  const targets = /\b(?:grid|guides?)\w*/i.test(source);
+  const modifier = /\b(?:alt|shift|meta|ctrl)Key\b|\bkey\s*===?\s*["'](?:Alt|Shift|Meta|Control)["']/.test(source);
   if (snap && targets && modifier) return [];
   return [{ line: "Drawing tools must snap to grid points, guides and existing points, with a modifier key to disable snapping." }];
 }

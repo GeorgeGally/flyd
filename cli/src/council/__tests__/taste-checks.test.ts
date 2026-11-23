@@ -107,4 +107,16 @@ describe("the snapping check", () => {
     expect(snappingTrips(`const penTool = (event) => event.altKey ? point : snap(point, grid, guides, points);`)).toEqual([]);
     expect(snappingTrips(`const penTool = (event) => points.push({ x: event.clientX, y: event.clientY });`)).toHaveLength(1);
   });
+
+  it("is not satisfied by unrelated page content", () => {
+    const page = `<style>main{scroll-snap-type:y mandatory;pointer-events:auto}</style><img alt="logo"><div class="guide">Pen tool</div><script>const penTool = (e) => points.push({ x: e.clientX, y: e.clientY });</script>`;
+    expect(snappingTrips(page)).toHaveLength(1);
+    expect(snappingTrips(`<script>const penTool = (e) => snap(p, grid, guides);</script>`)).toHaveLength(1);
+    expect(snappingTrips(`<p>Switch to path mode</p>`)).toEqual([]);
+  });
+
+  it("leaves a spacing rule armed as spacing even when it mentions snap and grid", () => {
+    const spacing = rule("Snap the spacing to the 8px grid with a guide for padding", 3, { skill: "spacing" });
+    expect(armedTasteChecks(profile([spacing])).map((item) => item.check)).toEqual(["spacing"]);
+  });
 });
