@@ -83,6 +83,8 @@ describe("v10 independently checked public research", () => {
     expect(safePublicLocator("http://example.org")).toBeNull();
     expect(safePublicLocator("https://127.0.0.1/test")).toBeNull();
     expect(safePublicLocator("https://user:pass@example.org")).toBeNull();
+    expect(safePublicLocator("https://example.org/?api_key=private")).toBeNull();
+    expect(safePublicLocator("https://example.org/?page=2")).toBeTruthy();
     expect(safePublicLocator("https://intranet.local/a")).toBeNull();
     expect(safePublicLocator("https://example.org/x")).toBeTruthy();
     expect(publicResearchInput({ ...candidate(), subject: "Particle arrays" }, edition)).toBeNull();
