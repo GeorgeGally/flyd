@@ -207,6 +207,20 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       },
     },
     {
+      // Separate, opt-in public evidence pass. Uses the SAME agenda clock,
+      // never a second daemon, and never sends private project context.
+      name: "initiative-research", usesModel: false,
+      run: async () => {
+        if (process.env.FLYD_INITIATIVE === "0" || process.env.FLYD_INITIATIVE === "off"
+          || process.env.FLYD_INITIATIVE_RESEARCH === "0") return;
+        const { runInitiativeResearchCycle } = await import("./initiative/research-cycle.js");
+        const result = await runInitiativeResearchCycle({ ...(options.now ? { now: options.now } : {}) });
+        return result.attempted
+          ? `Checked ${result.attempted} public initiative references; ${result.confirmed} independently corroborated`
+          : undefined;
+      },
+    },
+    {
       // Have the morning ready before George is up (council/morning.ts).
       name: "morning", usesModel: true,
       run: async () => {
