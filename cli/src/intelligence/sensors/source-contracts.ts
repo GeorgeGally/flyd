@@ -180,6 +180,21 @@ export const INITIATIVE_PUBLIC_RESEARCH_CONTRACT: SourceContract = {
   enabledByDefault: false,
 };
 
+/** A separate, explicit user-authored, short-lived delegation remit.
+ * This is NEVER inferred from user interests or the public-research opt-in.
+ */
+export const INITIATIVE_MANDATE_CONTRACT: SourceContract = {
+  sourceId: "initiative.mandate",
+  displayName: "Authorized read-only initiative follow-through",
+  sensitivity: "medium",
+  scopes: ["initiative.read-only-mandate"],
+  retentionClass: "local_default",
+  retentionDays: 30,
+  egressDestinations: [],
+  purpose: "Preserve explicitly granted, expiring, project-bound permission for read-only research follow-through; not repo edits, external messages, purchases or publishing.",
+  enabledByDefault: false,
+};
+
 export const EXPERIENCE_RUNTIME_CONTRACT: SourceContract = {
   sourceId: "experience.runtime",
   displayName: "Runtime experience traces",
