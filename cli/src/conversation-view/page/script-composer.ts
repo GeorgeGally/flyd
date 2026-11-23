@@ -659,7 +659,7 @@ export const COMPOSER_SCRIPT = `
   function replyTo(title, send, prefill, takesAttachments) {
     replying = title && send ? { title: title, send: send, takes: !!takesAttachments } : null;
     replyingEl.hidden = !replying;
-    document.getElementById("replying-title").textContent = replying ? title.replace(/^Flyd:\s+/, "") : "";
+    document.getElementById("replying-title").textContent = replying ? title.replace(/^Flyd:\\s+/, "") : "";
     if (!replying) return;
     if (prefill && input.value.indexOf(prefill) === -1) input.value = prefill + input.value.replace(/^\s+/, "");
     grow();
