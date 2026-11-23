@@ -4,6 +4,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import { INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT, INITIATIVE_MANDATE_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
 import { readProjects } from "../council/projects.js";
 import { acceptReadOnlyInitiativeMandate } from "../runtime/initiative/mandate.js";
+import { purgeInitiativeObjectives } from "../command/cos/objectives.js";
 import { IntelligenceEventStore, defaultIntelligenceDbPath } from "../intelligence/event-store.js";
 import { activityRecordPath } from "../conversation-view/activity.js";
 import { initiativeMode, runInitiativeCycle } from "../runtime/initiative/cycle.js";
@@ -16,7 +17,9 @@ export function erasePreparedInitiativeCards(path = activityRecordPath(), resear
   const keep = rows.filter(row => {
     try {
       const key = (JSON.parse(row) as { key?: unknown }).key;
-      return typeof key !== "string" || !(researchOnly ? key.startsWith("initiative:research:") : key.startsWith("initiative:"));
+      return typeof key !== "string" || !(researchOnly
+        ? key.startsWith("initiative:research:") || key.startsWith("initiative:cos:")
+        : key.startsWith("initiative:"));
     } catch { return !row.includes("initiative:"); }
   });
   if (keep.length === rows.length) return 0;
@@ -59,7 +62,9 @@ export async function runInitiativeCommand(action = "status", projectId?: string
         const store = new IntelligenceEventStore({ path: dbPath });
         try { store.eraseSource(source); } finally { store.close(); }
       }
-      console.log("Read-only initiative remits revoked. No new follow-through may start.");
+      const removed = purgeInitiativeObjectives();
+      erasePreparedInitiativeCards(activityRecordPath(FLYD_DIR), true);
+      console.log("Read-only initiative remits revoked; cleared " + removed + " generated CoS objective records.");
     } else {
       registry.renew(source);
       const dbPath = defaultIntelligenceDbPath();
@@ -94,6 +99,7 @@ export async function runInitiativeCommand(action = "status", projectId?: string
       try { derived = store.retractInitiativeResearch(); } finally { store.close(); }
     }
     const cards = erasePreparedInitiativeCards(activityRecordPath(FLYD_DIR), true);
+    purgeInitiativeObjectives();
     console.log("Public research revoked; erased " + derived + " research events and " + cards + " research cards.");
     return;
   }
@@ -131,6 +137,7 @@ export async function runInitiativeCommand(action = "status", projectId?: string
     registry.setStatus(ID, "revoked");
     registry.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "revoked");
     registry.setStatus(INITIATIVE_MANDATE_CONTRACT.sourceId, "revoked");
+    purgeInitiativeObjectives();
     let events = 0;
     const dbPath = defaultIntelligenceDbPath();
     if (existsSync(dbPath)) {
