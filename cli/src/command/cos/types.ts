@@ -80,9 +80,11 @@ export interface Objective {
   revision: number;
   createdAt: string;
   updatedAt: string;
-  origin: { surface: "chat" | "view" | "agenda" | "live"; sessionId?: string; turnId?: string };
-  /** George's exact words; never rewritten. */
+  origin: { surface: "chat" | "view" | "agenda" | "live" | "initiative"; sessionId?: string; turnId?: string };
+  /** George's exact words on user-authored objectives; for initiative-origin this is explicitly a generated scoped brief. */
   words: string;
+  /** This is NOT a chat utterance; original user authority is the source event. */
+  initiative?: { candidateId: string; sourceRevision: string; mandateEventId: string; researchEventId: string; readOnly: true };
   /** What Flyd knew and judged at handoff (project, people, taste, urgency). */
   flydNotes: string;
   contextRefs: string[];
