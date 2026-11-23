@@ -183,6 +183,21 @@ export const INITIATIVE_PUBLIC_RESEARCH_CONTRACT: SourceContract = {
 /** A separate, explicit user-authored, short-lived delegation remit.
  * This is NEVER inferred from user interests or the public-research opt-in.
  */
+/** Optional quick-model interpretation of public reference snippets ONLY.
+ * No private project context, accounts, repo paths or personal memories.
+ */
+export const INITIATIVE_PUBLIC_SYNTHESIS_CONTRACT: SourceContract = {
+  sourceId: "initiative.public-synthesis",
+  displayName: "Public-source hypothesis synthesis",
+  sensitivity: "low",
+  scopes: ["initiative.public-synthesis"],
+  retentionClass: "local_default",
+  retentionDays: 30,
+  egressDestinations: ["configured.quick.model"],
+  purpose: "One bounded optional interpretation of already public source evidence; private project comparison remains entirely local.",
+  enabledByDefault: false,
+};
+
 export const INITIATIVE_MANDATE_CONTRACT: SourceContract = {
   sourceId: "initiative.mandate",
   displayName: "Authorized read-only initiative follow-through",
