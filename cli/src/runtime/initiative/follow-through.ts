@@ -5,6 +5,8 @@ import {
 } from "../../intelligence/sensors/source-contracts.js";
 import { readProjects, type Project } from "../../council/projects.js";
 import { localDay } from "../../council/memory-store.js";
+import { recordActivity, type ActivityRecord } from "../../conversation-view/activity.js";
+import { countInitiativeCards, initiativeCardRecorded } from "./cycle.js";
 import { listObjectives, openVerifiedInitiativeResearch, mutateObjective } from "../../command/cos/objectives.js";
 import { recordCosReport } from "../../command/cos/tick.js";
 import type { CosReport } from "../../command/cos/types.js";
@@ -27,11 +29,17 @@ export interface FollowThroughDeps {
   projects?: () => Project[];
   current?: () => CurrentInitiativeEvidence;
   objectiveDir?: string;
+  cosEnabled?: () => boolean;
+  on?: boolean;
+  record?: (card: ActivityRecord) => void;
+  seen?: (key: string) => boolean;
+  countPublished?: (day: string) => number;
 }
 export interface FollowThroughResult {
   reviewed: number;
   accepted: number;
   reported: number;
+  published: number;
   held: string[];
 }
 
@@ -59,7 +67,11 @@ function usableResearchEvent(event: StoredEvent): {
 }
 
 export async function runInitiativeFollowThrough(deps: FollowThroughDeps = {}): Promise<FollowThroughResult> {
-  const summary: FollowThroughResult = { reviewed: 0, accepted: 0, reported: 0, held: [] };
+  const summary: FollowThroughResult = { reviewed: 0, accepted: 0, reported: 0, published: 0, held: [] };
+  if (!(deps.cosEnabled ?? (() => process.env.FLYD_COS === "1"))()) {
+    summary.held.push("cos_not_enabled");
+    return summary;
+  }
   const registry = deps.registry ?? new SourceContractRegistry();
   for (const contract of [
     INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT, INITIATIVE_MANDATE_CONTRACT,
@@ -121,8 +133,26 @@ export async function runInitiativeFollowThrough(deps: FollowThroughDeps = {}): 
         continue;
       }
       if (recordCosReport(report, store, now)) summary.reported++;
-      // Ownership and delivery remain with existing CoS reports; no second
-      // notification or in-conversation workers are created here.
+      // Existing Activity is the quiet presentation layer. A CoS report here
+      // is not sent as a notification, and a report that was only recorded
+      // must not be represented as already shown to George.
+      const on = deps.on ?? (process.env.FLYD_INITIATIVE !== "off"
+        && process.env.FLYD_INITIATIVE !== "0" && process.env.FLYD_INITIATIVE !== "shadow");
+      if (on && (deps.countPublished ?? countInitiativeCards)(localDay(now)) < 1) {
+        const card: ActivityRecord = {
+          key: "initiative:cos:" + objective.id,
+          kind: "noted", state: "done", at: now.toISOString(),
+          expiresAt: new Date(now.getTime() + 48 * 60 * 60_000).toISOString(),
+          title: "Independent research follow-up",
+          line: report.outcome,
+          detail: report.detail,
+          sourceRefs: research.sources.map(s => ({ ...s })),
+        };
+        if (!(deps.seen ?? initiativeCardRecorded)(card.key!)) {
+          (deps.record ?? recordActivity)(card);
+          summary.published++;
+        }
+      }
       if (summary.reported >= 1) break;
     }
   } finally {
