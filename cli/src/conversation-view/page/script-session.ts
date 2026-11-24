@@ -40,12 +40,16 @@ export const SESSION_SCRIPT = `
     if (typeof workUnplace === "function" && typeof workPlaced !== "undefined") workUnplace();
   }
 
-  function connect(sessionId) {
+  function connect(sessionId, again) {
     if (!VIEW_TOKEN) return;
-    if (typingPredictions) typingPredictions.reset();
     if (source) source.close();
-    reset();
-    var streamQuery = "?token=" + encodeURIComponent(VIEW_TOKEN) + (sessionId ? "&session=" + encodeURIComponent(sessionId) : "");
+    // Coming back to the conversation on the page keeps what is drawn, from its oldest message on.
+    var from = again && current && shownOrder.length ? shownOrder[0] : "";
+    if (!from) {
+      if (typingPredictions) typingPredictions.reset();
+      reset();
+    }
+    var streamQuery = "?token=" + encodeURIComponent(VIEW_TOKEN) + (sessionId ? "&session=" + encodeURIComponent(sessionId) : "") + (from ? "&from=" + encodeURIComponent(from) : "");
     source = new EventSource("/api/stream" + streamQuery);
     source.addEventListener("session", function (event) {
       var session = JSON.parse(event.data);
@@ -70,10 +74,11 @@ export const SESSION_SCRIPT = `
     source.addEventListener("staff", function (event) { showStaff(JSON.parse(event.data)); });
     source.onerror = function () {
       problem.textContent = "reconnecting…";
-      // The browser retries a dropped stream by itself, but gives up for good
-      // once the view refuses it: after a restart the old token is no longer
-      // the view's. Then a new view is up; load it, its code and its token.
-      if (source.readyState === 2 /* CLOSED */) rejoin(sessionId);
+      // A dropped stream comes back through rejoin, not the browser's own retry, so it can say
+      // where the page's drawn part starts. After a restart the old token is no longer the
+      // view's: then a new view is up; load it, its code and its token.
+      source.close();
+      rejoin(sessionId);
     };
     source.onopen = function () { problem.textContent = ""; rejoinDelay = 1000; };
   }
@@ -87,7 +92,7 @@ export const SESSION_SCRIPT = `
         // The draft is kept on the way out (pagehide), so reloading loses nothing.
         if (data.token && data.token !== VIEW_TOKEN) { location.reload(); return; }
         rejoinDelay = Math.min(rejoinDelay * 2, 15000);
-        connect(sessionId);
+        connect(sessionId, true);
       }).catch(function () {
         // The view is not up yet: try again, less often each time.
         rejoining = null;

@@ -135,7 +135,7 @@ export const TIMELINE_SCRIPT = `
       workNodes.delete(id);
       workPlaced.delete(id);
     });
-    if (frontUpdate && Array.isArray(frontUpdate.jobs)) workDrawnOnce = true;
+    if (frontUpdate && Array.isArray(frontUpdate.jobs) && frontUpdate.jobsFleetKnown === true) workDrawnOnce = true;
     // A job open in the timeline holds its detail under its message.
     var open = workNodes.get(frontActive);
     if (open && jobView.parentElement !== open) open.appendChild(jobView);

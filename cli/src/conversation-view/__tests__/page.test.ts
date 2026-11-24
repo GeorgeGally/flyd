@@ -1190,17 +1190,19 @@ describe("conversation page", () => {
       const reload = vi.spyOn(window.location, "reload").mockImplementation(() => {});
       load("");
       await vi.runOnlyPendingTimersAsync();
-      const first = open("latest", []);
-      // A dropped stream the browser is still retrying: say so, and leave it to the browser.
+      const drawn = [
+        { id: "m0", role: "user", html: "<p>m0</p>" },
+        { id: "m1", role: "assistant", html: "<p>m1</p>" },
+      ];
+      const first = open("latest", drawn);
+      // A dropped stream with the same token: say so, and connect again from the oldest message drawn, keeping it.
       first.onerror!();
       expect(document.getElementById("problem")!.textContent).toBe("reconnecting…");
-      await vi.advanceTimersByTimeAsync(20_000);
-      expect(FakeEventSource.instances).toHaveLength(1);
-      // The view refused the stream for good with the same token: connect again.
-      (first as unknown as { readyState: number }).readyState = 2;
-      first.onerror!();
+      expect(first.closed).toBe(true);
       await vi.advanceTimersByTimeAsync(1_100);
       expect(FakeEventSource.instances).toHaveLength(2);
+      expect(new URL(FakeEventSource.instances[1]!.url, "http://view").searchParams.get("from")).toBe("m0");
+      expect([...document.querySelectorAll("#stream > .msg .body")].map((node) => node.textContent)).toEqual(["m0", "m1"]);
       expect(reload).not.toHaveBeenCalled();
       // A restarted view has a new token: the page reloads to take it, and its new code.
       token = "b".repeat(48);
@@ -3123,6 +3125,22 @@ describe("the front page", () => {
     stream.emit("update", { order: messages.map((m) => m.id), messages: [], working: false, show: SHOW, jobsFleetKnown: true, jobs: [job("late", iso(60))] });
     await settle();
     expect(panes()).toEqual(["m0", "m1", "m2", "m3", "job:late"]);
+  });
+
+  it("places a job already on the board at its own time when the first update came before Core knew the board", async () => {
+    load("");
+    await settle();
+    const base = Date.now() - 6 * 60 * 60_000;
+    const iso = (minutes: number) => new Date(base + minutes * 60_000).toISOString();
+    const messages = [0, 5, 120, 125].map((minutes, i) => ({ id: `m${i}`, role: i % 2 ? "assistant" : "user", html: `<p>m${i}</p>`, timestamp: iso(minutes) }));
+    const job = (id: string, at: string) => ({ id, group: "needs", state: "Needs you", title: `Ask ${id}`, at, toldAt: at, project: "", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null });
+    const panes = () => [...document.querySelectorAll<HTMLElement>("#stream > .msg")].map((node) => node.dataset.job ? `job:${node.dataset.job}` : node.querySelector(".body")!.textContent);
+    const stream = open("latest", messages);
+    stream.emit("update", { order: messages.map((m) => m.id), messages: [], working: false, show: SHOW, jobsFleetKnown: false, jobs: [] });
+    await settle();
+    stream.emit("update", { order: messages.map((m) => m.id), messages: [], working: false, show: SHOW, jobsFleetKnown: true, jobs: [job("existing", iso(60))] });
+    await settle();
+    expect(panes()).toEqual(["m0", "m1", "job:existing", "m2", "m3"]);
   });
 
   it("loads earlier exchanges as he scrolls to the top, above what he is reading, without moving him", async () => {

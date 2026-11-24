@@ -46,6 +46,19 @@ describe("the stream's window on a long conversation", () => {
     expect(all.earlier).toBeUndefined();
   });
 
+  it("draws again from the page's oldest message when it comes back to the same conversation, else from the newest", () => {
+    const history = exchanges(STREAM_EXCHANGES + 120);
+    const back = new SnapshotDiffer();
+    back.startAt("ask:20");
+    const again = back.next(snapshot(history));
+    expect(again.order[0]).toBe("ask:20");
+    expect(again.order).toEqual(history.slice(40).map((message) => message.id));
+    expect(again.earlier).toBe(20);
+    const unknown = new SnapshotDiffer();
+    unknown.startAt("ask:elsewhere");
+    expect(unknown.next(snapshot(history)).order[0]).toBe("ask:120");
+  });
+
   it("draws a short conversation whole", () => {
     const update = new SnapshotDiffer().next(snapshot(exchanges(3)));
     expect(update.order).toEqual(exchanges(3).map((message) => message.id));

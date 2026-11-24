@@ -387,6 +387,11 @@ export class SnapshotDiffer {
 
   constructor(private readonly summaries?: SummaryOptions, private readonly show?: ShowOptions, private readonly exchanges = STREAM_EXCHANGES) {}
 
+  /** A page coming back to the same conversation draws again from the message it already had at the top. */
+  startAt(id: string): void {
+    this.from = id;
+  }
+
   /** He scrolled to the top: the next update brings the exchanges before the drawn ones. */
   showEarlier(count = EARLIER_EXCHANGES): void {
     this.more += count;
@@ -1354,7 +1359,7 @@ export class ConversationViewServer {
         sendJson(res, 403, { error: "missing or wrong token" });
         return;
       }
-      await this.stream(req, res, url.searchParams.get("session"));
+      await this.stream(req, res, url.searchParams.get("session"), url.searchParams.get("from"));
       return;
     }
     sendJson(res, 404, { error: "not found" });
@@ -2701,7 +2706,7 @@ export class ConversationViewServer {
     try { return existsSync(path); } catch { return false; }
   }
 
-  private async stream(req: IncomingMessage, res: ServerResponse, requested: string | null): Promise<void> {
+  private async stream(req: IncomingMessage, res: ServerResponse, requested: string | null, from: string | null = null): Promise<void> {
     // A session he chose by hand stays; no choice (or "latest") follows whichever holds the lock now.
     const chosen = requested && requested !== "latest" ? requested : null;
     const sessions = await this.source.listSessions();
@@ -2759,6 +2764,7 @@ export class ConversationViewServer {
         jobs: (shot, screen) => this.jobBoard(shot, screen),
         todos: (jobs) => this.todoList(jobs),
       });
+    if (from) differ.startAt(from);
     const emitUpdate = (snapshot: ConversationSnapshot) => {
       const update = differ.next(snapshot);
       sseEvent(res, "update", {
