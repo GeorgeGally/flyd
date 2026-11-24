@@ -193,6 +193,28 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       },
     },
     {
+      // Retention is a source obligation even while initiative is disabled.
+      // Run inside the existing Core agenda, never as an extra daemon. Expired
+      // mandate/research parents also retract linked CoS report payloads.
+      name: "initiative-retention", usesModel: false,
+      run: async () => {
+        const [{ existsSync }, { IntelligenceEventStore, defaultIntelligenceDbPath }] = await Promise.all([
+          import("node:fs"), import("../intelligence/event-store.js"),
+        ]);
+        const path = defaultIntelligenceDbPath();
+        if (!existsSync(path)) return;
+        const cutoff = new Date((options.now?.() ?? new Date()).getTime() - 30 * 86_400_000);
+        const store = new IntelligenceEventStore({ path });
+        try {
+          const expired = [
+            "initiative.curated", "initiative.mandate",
+            "initiative.public-research", "initiative.public-synthesis",
+          ].reduce((count, id) => count + store.purgeSourceBefore(id, cutoff), 0);
+          return expired ? `Expired ${expired} old initiative or mandate records` : undefined;
+        } finally { store.close(); }
+      },
+    },
+    {
       // Self-started curiosity over already curated, local operational sources.
       // No model calls, external effects or new scheduler. Shadow until
       // explicitly enabled; candidates and decisions live on the event spine.

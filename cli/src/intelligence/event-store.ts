@@ -329,12 +329,22 @@ export class IntelligenceEventStore {
   purgeSourceBefore(sourceId: string, before: Date): number {
     if (!Number.isFinite(before.getTime())) throw new Error("Invalid retention cutoff");
     return this.transaction(() => {
+      const oldRows = this.db.prepare(
+        "SELECT sequence FROM personal_events WHERE source_id = ?" +
+        " AND captured_at < ? AND erased = 0",
+      ).all(sourceId, before.toISOString()) as Array<{ sequence: number }>;
+      const refs = new Set(this.eventReferences(oldRows.map(row => row.sequence)));
+      // An expired research finding or user mandate also invalidates derived
+      // CoS reports that still reference it. Retention cannot leave children.
+      const linked = sourceId.startsWith("initiative.")
+        ? this.linkedCosReportSequences(refs) : [];
       const res = this.db.prepare(
         "UPDATE personal_events SET erased = 1, payload_json = NULL, evidence_refs = '[]'," +
         " causation_ids = '[]', correlation_id = NULL WHERE source_id = ?" +
         " AND captured_at < ? AND erased = 0",
       ).run(sourceId, before.toISOString());
-      if (res.changes > 0) this.scheduleInitiativeErasureSweeps();
+      this.retractSequences(linked);
+      if (res.changes > 0 || linked.length) this.scheduleInitiativeErasureSweeps();
       return res.changes;
     });
   }

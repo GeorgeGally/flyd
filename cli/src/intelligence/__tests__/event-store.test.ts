@@ -182,6 +182,28 @@ describe("initiative source-lineage erasure and retention", () => {
     } finally { store.close(); }
   });
 
+  it("retention cascades from an expired mandate to linked CoS reports", () => {
+    const store = new IntelligenceEventStore({ path: join(dir, "mandate-ttl-" + randomUUID() + ".sqlite") });
+    try {
+      const mandate = appendValid(store, observation("initiative.mandate", "mandate-ttl", {
+        mandate: { projectId: "private-project", acceptedVia: "explicit_cli" },
+      }))!;
+      const report = appendValid(store, observation("cos.report", "mandate-report", {
+        report: {
+          outcome: "confidential follow-up", evidenceRefs: ["event:" + mandate.id],
+        },
+      }))!;
+      const unrelated = appendValid(store, observation("cos.report", "unrelated-report", {
+        report: { outcome: "unrelated", evidenceRefs: ["https://example.org/public"] },
+      }))!;
+      expect(store.purgeSourceBefore("initiative.mandate", new Date(Date.now() + 2_000))).toBe(1);
+      expect(store.getBySequence(mandate.sequence)).toMatchObject({ erased: true, payload: undefined });
+      expect(store.getBySequence(report.sequence)).toMatchObject({ erased: true, payload: undefined });
+      expect(store.getBySequence(unrelated.sequence)?.payload?.report).toBeTruthy();
+      expect(JSON.stringify(store.readSource("cos.report"))).not.toContain("confidential follow-up");
+    } finally { store.close(); }
+  });
+
   it("retention nulls old payloads without revoking the source", () => {
     const store = new IntelligenceEventStore({ path: join(dir, "ttl-" + randomUUID() + ".sqlite") });
     try {
