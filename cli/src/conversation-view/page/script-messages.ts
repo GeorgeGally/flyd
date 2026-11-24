@@ -209,7 +209,7 @@ export const MESSAGES_SCRIPT = `
   }
   // An artefact the reply carries is a compact card: a coloured dot for what kind of news it is, one line, its link, its picture.
   // No label sits above the line: what needs him says so inside the sentence, the rest is the dot's colour.
-  var STATE_LEADS = { decision: "Needs your choice", needs: "Needs your choice", blocker: "Stuck", stuck: "Stuck" };
+  var STATE_LEADS = { blocker: "Stuck", stuck: "Stuck" };
   function stateLine(state, line) {
     var lead = STATE_LEADS[state];
     line = String(line || "");
@@ -222,9 +222,8 @@ export const MESSAGES_SCRIPT = `
   function staffCard(el, message) {
     var old = el.querySelector(":scope > .card");
     if (old) old.remove();
-    // A card is an artefact Core attached (a question with its buttons, finished work with its picture); everything else is a message.
+    // A card is an artefact Core attached (finished work with its page or picture); everything else is a message.
     el.classList.toggle("carded", !!message.card);
-    el.classList.toggle("carded-decision", !!message.card && message.card.kind === "decision");
     if (!message.card) return;
     var box = document.createElement("div");
     box.className = "card card-" + message.card.kind;

@@ -209,13 +209,12 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .msg.aside.asks { color: var(--fg); }
 /* An artefact a reply carries: a compact card, never a paragraph. A coloured dot for the kind of news inside its one line, its link; never a label above it. */
 .msg.carded { color: var(--fg); }
-.msg.carded > .summary, .msg.carded-decision .choice-q { display: none; }
+.msg.carded > .summary { display: none; }
 .msg .card { display: flex; gap: 18px; align-items: flex-start; padding: 16px 20px 17px; border-radius: 14px; background: var(--tint); animation: choice-in 380ms ease both; }
 .msg .card-text { flex: 1; min-width: 0; }
 .msg .card-text > .card-line:first-child::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 10px; border-radius: 50%; vertical-align: 0.12em; background: var(--muted); }
 .msg .card-note .card-text > .card-line:first-child::before { display: none; }
 .msg .card-landed .card-text > .card-line:first-child::before { background: #7ec699; }
-.msg .card-decision .card-text > .card-line:first-child::before { background: var(--k-call); }
 .msg .card-blocker .card-text > .card-line:first-child::before { background: #d0574c; }
 .msg .card-line { margin: 8px 0 0; font: 500 19px/1.45 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
 .msg .card-link { display: inline-block; margin-top: 10px; font: 500 15px/1.4 var(--sans); color: var(--link); text-decoration: none; transition: color 140ms ease; }

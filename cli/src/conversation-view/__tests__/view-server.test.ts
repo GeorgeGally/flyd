@@ -208,14 +208,33 @@ describe("SnapshotDiffer relays", () => {
     expect(pictured!.shots).toHaveLength(1);
   });
 
-  it("cards a relayed question with its answer buttons, and tells the same words as a message once he has answered", () => {
-    const asked = "The work is green. Shall I delete the old preview servers' data?";
+  it("tells a relayed question as a message with its answer buttons, never a card for its words", () => {
+    const asked = "The work is green. Shall I push it?";
     const [shown] = new SnapshotDiffer().next({ messages: [{ id: "t1", role: "assistant", text: asked, aside: true }], working: false }).messages;
     expect(shown!.choice).toMatchObject({ options: ["Yes", "No"] });
-    expect(shown!.card).toEqual({ kind: "decision", line: shown!.choice!.question });
+    expect(shown!.card).toBeUndefined();
     const after = new SnapshotDiffer().next({ messages: [{ id: "t1", role: "assistant", text: asked, aside: true }, { id: "note:1", role: "user", text: "no, keep it" }], working: false }).messages.find((message) => message.id === "t1");
     expect(after!.choice).toBeUndefined();
     expect(after!.card).toBeUndefined();
+  });
+
+  it("never cards a screenshot the turn only looked at", () => {
+    const [shown] = new SnapshotDiffer().next({ messages: [
+      { id: "note:1", role: "user", text: "is the menu fixed?" },
+      { id: "t1", role: "assistant", text: "Still can't reproduce it, looking at the CSS next.", answers: "note:1", shots: ["/tmp/flyd-shot.png"] },
+    ], working: false }).messages.filter((message) => message.role === "assistant");
+    expect(shown!.card).toBeUndefined();
+    expect(shown!.shots).toHaveLength(1);
+  });
+
+  it("cards finished work that also asks him, with its answer buttons on the card", () => {
+    const [shown] = new SnapshotDiffer().next({ messages: [
+      { id: "u1", role: "user", text: "make the header calmer" },
+      { id: "t1", role: "assistant", text: "The header is calmer now: one line, no shadow. Want me to push it?", shots: ["/tmp/flyd-shot.png"], page: { url: "http://127.0.0.1:4000/", label: "127.0.0.1:4000" } },
+    ], working: false }).messages.filter((message) => message.role === "assistant");
+    expect(shown!.card).toBeDefined();
+    expect(shown!.card!.kind).not.toBe("decision");
+    expect(shown!.choice).toMatchObject({ options: ["Yes", "No"] });
   });
 
   it("never calls a reply that puts nothing to him his call, nor says a short one twice", () => {

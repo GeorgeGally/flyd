@@ -153,12 +153,12 @@ export interface RenderedMessage {
   /** Routine chatter (an acknowledgement, a status ping): the page mutes it. */
   routine?: boolean;
   /**
-   * An artefact the reply carries, drawn as a compact card (card-intent.ts): a
-   * relayed question with its answer buttons, or finished work with its picture
-   * or page. One line, what kind of news it is, its link; the words wait behind
-   * "more". A reply without an artefact has no card: it reads as a message.
+   * Finished work the reply carries, drawn as a compact card (card-intent.ts):
+   * the page it changed, or a picture of what landed. One line, what kind of
+   * news it is, its link; the words wait behind "more". A reply without one has
+   * no card: it reads as a message, its question's buttons under it.
    */
-  card?: { kind: "landed" | "decision" | "blocker" | "note"; line: string; sub?: string; url?: string };
+  card?: { kind: "landed" | "blocker" | "note"; line: string; sub?: string; url?: string };
   timestamp?: string;
   waiting?: string;
   waitingFailed?: boolean;
@@ -655,11 +655,9 @@ export class SnapshotDiffer {
       // Only Flyd's own copies are shown; a relayed update's transcript ids are not.
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
       const staffWords = message.aside === true || message.answers?.startsWith("note:") === true;
-      // A card only for an artefact the reply carries, known before anything is drawn; never from its words.
-      // A question put by his staff is told as its card; Flyd's own words lead to their question, asked under them.
-      const intent = cardIntentOf({ role: message.role, ...(choice ? { choice } : {}), shots, ...(message.page ? { page: message.page } : {}), ...(message.form ? { form: message.form } : {}) });
-      const card: RenderedMessage["card"] = intent === "decision" ? (staffWords ? { kind: "decision", line: choice!.question.replace(/[:;,]$/, "") } : undefined)
-        : intent === "result" && !routine && !parts.whole ? this.resultCard(message, relay, staffWords, asked) : undefined;
+      // A card only for finished work the reply carries; a question it asks keeps its buttons, card or message.
+      const intent = cardIntentOf({ role: message.role, shots, landed: relay?.kind === "landed", ...(message.page ? { page: message.page } : {}), ...(message.form ? { form: message.form } : {}) });
+      const card: RenderedMessage["card"] = intent === "result" && !routine && !parts.whole ? this.resultCard(message, relay, staffWords, asked) : undefined;
       // The card, or for his staff's words a plain line, is his glance: the reply as written waits behind it, never shown twice.
       if ((card || (staffWords && message.role === "assistant" && !message.form)) && !parts.summary) parts.summary = briefOf(staffWords ? plainSaid(message.text) : message.text);
       // What he has to act on stays open under the card, never folded behind "as written".

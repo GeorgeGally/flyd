@@ -70,7 +70,7 @@ describe("Flyd decides its staff's routine questions", () => {
     expect(statusOf({ messages: [asked, ...notes], working: false }).reply?.asks ?? false).toBe(false);
     // Before Flyd answers, the same reply asks him.
     const before = new SnapshotDiffer().next({ messages: [asked], working: false }).messages[0]!;
-    expect(before.card?.kind).toBe("decision");
+    expect(before.card).toBeUndefined();
     expect(before.choice?.steps?.length).toBe(2);
   });
 
@@ -103,8 +103,9 @@ describe("Flyd decides its staff's routine questions", () => {
     expect(notes.map((note) => note.replyQuote)).toEqual(["Shall I rebase the menu fix onto the latest and push it?"]);
     expect(openChoice([asked, ...notes])?.choice).toEqual({ question: "Shall I delete the old preview servers' data?", options: ["Yes", "No"] });
     const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
-    // Only the question still his is a card, with its buttons; the one Flyd answered is told in the message.
-    expect(shown!.card).toEqual({ kind: "decision", line: openChoice([asked, ...notes])!.choice.question });
+    // Only the question still his keeps its buttons, under the message; the one Flyd answered is told in it.
+    expect(shown!.card).toBeUndefined();
+    expect(shown!.choice?.question).toBe(openChoice([asked, ...notes])!.choice.question);
   });
 
   it("answers a short routine question of two, and shows it handled, not waiting on him", async () => {
@@ -112,8 +113,9 @@ describe("Flyd decides its staff's routine questions", () => {
     const notes = await answered(asked);
     expect(notes.map((note) => note.replyQuote)).toEqual(["Shall I push it?"]);
     const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
-    // Only the question still his is a card, with its buttons; the one Flyd answered is told in the message.
-    expect(shown!.card).toEqual({ kind: "decision", line: openChoice([asked, ...notes])!.choice.question });
+    // Only the question still his keeps its buttons, under the message; the one Flyd answered is told in it.
+    expect(shown!.card).toBeUndefined();
+    expect(shown!.choice?.question).toBe(openChoice([asked, ...notes])!.choice.question);
   });
 
   it("does not hide a near-identical question Flyd did not answer", async () => {
@@ -122,8 +124,9 @@ describe("Flyd decides its staff's routine questions", () => {
     expect(notes.map((note) => note.replyQuote)).toEqual(["Shall I update the sidebar wording?"]);
     const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
     // The wording is handled; the design is still his, on the card and in the box alike.
-    // Only the question still his is a card, with its buttons; the one Flyd answered is told in the message.
-    expect(shown!.card).toEqual({ kind: "decision", line: openChoice([asked, ...notes])!.choice.question });
+    // Only the question still his keeps its buttons, under the message; the one Flyd answered is told in it.
+    expect(shown!.card).toBeUndefined();
+    expect(shown!.choice?.question).toBe(openChoice([asked, ...notes])!.choice.question);
     expect(openChoice([asked, ...notes])?.choice.question).toBe("Shall I update the sidebar design?");
   });
 
@@ -133,8 +136,9 @@ describe("Flyd decides its staff's routine questions", () => {
     expect(notes.map((note) => note.replyQuote)).toEqual(["The old notes are still piling up. Shall I sync the local Flyd copy?"]);
     const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
     // The sync is handled; the delete is still his, on the card and in the box alike.
-    // Only the question still his is a card, with its buttons; the one Flyd answered is told in the message.
-    expect(shown!.card).toEqual({ kind: "decision", line: openChoice([asked, ...notes])!.choice.question });
+    // Only the question still his keeps its buttons, under the message; the one Flyd answered is told in it.
+    expect(shown!.card).toBeUndefined();
+    expect(shown!.choice?.question).toBe(openChoice([asked, ...notes])!.choice.question);
     expect(openChoice([asked, ...notes])?.choice.question).toBe("Shall I delete the old branches?");
   });
 
@@ -187,8 +191,9 @@ describe("Flyd decides its staff's routine questions", () => {
     expect(notes.map((note) => note.replyQuote)).toEqual(["Shall I push it?"]);
     const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
     // The push is handled; the delete is still his, on the card and in the box alike.
-    // Only the question still his is a card, with its buttons; the one Flyd answered is told in the message.
-    expect(shown!.card).toEqual({ kind: "decision", line: openChoice([asked, ...notes])!.choice.question });
+    // Only the question still his keeps its buttons, under the message; the one Flyd answered is told in it.
+    expect(shown!.card).toBeUndefined();
+    expect(shown!.choice?.question).toBe(openChoice([asked, ...notes])!.choice.question);
     expect(openChoice([asked, ...notes])?.choice.question).toBe("Shall I delete the old branches?");
   });
 
@@ -198,8 +203,9 @@ describe("Flyd decides its staff's routine questions", () => {
     expect(notes.map((note) => note.replyQuote)).toEqual(["Shall I push the fm/decide-authority branch?"]);
     const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
     // The push is handled; the delete is still his, on the card and in the box alike.
-    // Only the question still his is a card, with its buttons; the one Flyd answered is told in the message.
-    expect(shown!.card).toEqual({ kind: "decision", line: openChoice([asked, ...notes])!.choice.question });
+    // Only the question still his keeps its buttons, under the message; the one Flyd answered is told in it.
+    expect(shown!.card).toBeUndefined();
+    expect(shown!.choice?.question).toBe(openChoice([asked, ...notes])!.choice.question);
     expect(openChoice([asked, ...notes])?.choice.question).toBe("Shall I delete the old branches?");
   });
 
@@ -209,8 +215,9 @@ describe("Flyd decides its staff's routine questions", () => {
     expect(notes.map((note) => note.replyQuote)).toEqual(["Shall I push it, so the fixes reach the running Flyd?"]);
     const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
     // The push is handled; the delete is still his, on the card and in the box alike.
-    // Only the question still his is a card, with its buttons; the one Flyd answered is told in the message.
-    expect(shown!.card).toEqual({ kind: "decision", line: openChoice([asked, ...notes])!.choice.question });
+    // Only the question still his keeps its buttons, under the message; the one Flyd answered is told in it.
+    expect(shown!.card).toBeUndefined();
+    expect(shown!.choice?.question).toBe(openChoice([asked, ...notes])!.choice.question);
     expect(openChoice([asked, ...notes])?.choice.question).toBe("Shall I delete the old branches?");
   });
 
@@ -219,8 +226,9 @@ describe("Flyd decides its staff's routine questions", () => {
     const notes = await answered(asked);
     expect(notes.map((note) => note.replyQuote)).toEqual(["Should the sidebar label read 'Market'?"]);
     const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
-    // Only the question still his is a card, with its buttons; the one Flyd answered is told in the message.
-    expect(shown!.card).toEqual({ kind: "decision", line: openChoice([asked, ...notes])!.choice.question });
+    // Only the question still his keeps its buttons, under the message; the one Flyd answered is told in it.
+    expect(shown!.card).toBeUndefined();
+    expect(shown!.choice?.question).toBe(openChoice([asked, ...notes])!.choice.question);
     expect(openChoice([asked, ...notes])?.choice.question).toBe("Delete the old branches?");
   });
 
