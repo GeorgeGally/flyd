@@ -123,6 +123,15 @@ describe("inspiration parsers", () => {
     expect(threads[0]).toMatchObject({ title: "Quiet", media: "thread", url: "https://news.ycombinator.com/item?id=9" });
     expect(JSON.stringify(threads)).not.toContain("400");
   });
+
+  it("never seats a years-old Hacker News thread as today's find", () => {
+    const threads = threadsFromHn({ hits: [
+      { objectID: "2866009", title: "A white paper on enterprise intranets", url: "https://blog.example/intranet", points: 1, created_at: "2011-08-10T12:00:00Z" },
+      { objectID: "46291056", title: "Show HN: A pen plotter that draws from modem noise", url: "https://plotter.example/modem", points: 4, created_at: "2026-10-26T09:00:00Z" },
+    ] });
+    expect(threads.find((thread) => thread.title.startsWith("A white paper"))?.published).toBe("2011-08-10T12:00:00Z");
+    expect(mixInspiration(threads, focus, { now, limit: 2 }).map((item) => item.title)).toEqual(["Show HN: A pen plotter that draws from modem noise"]);
+  });
 });
 
 describe("gatherInspiration", () => {
@@ -179,6 +188,8 @@ describe("gatherInspiration", () => {
       await gatherInspiration(dir, focus, { now: new Date(now), fetchImpl });
       const joined = urls.join("\n");
       expect(joined).toContain("hn.algolia.com");
+      // Only recent threads are asked for: a keyword search of all of HN finds 2011.
+      expect(joined).toMatch(new RegExp(`hn\\.algolia\\.com[^\\n]*numericFilters=created_at_i(?:%3E|>)${Math.floor(now / 1000) - 14 * 86_400}`));
       expect(joined).toContain("zenquotes.io");
       expect(joined).toContain("trends.google.com/trending/rss");
       expect(joined).not.toContain("giphy");

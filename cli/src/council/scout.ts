@@ -691,7 +691,18 @@ function rankContext(dir: string, now: Date, sources: ScoutSource[], mode: "edit
 
 const FAILURE_PAUSE_NOTE = "paused after 5 consecutive fetch failures";
 
-function recordFailures(sources: ScoutSource[], failed: string[], now: Date): ScoutSource[] {
+/** Sources that must all fail, with none answering, before a run reads as the network being down rather than as failing feeds. */
+const OUTAGE_MIN_FAILURES = 3;
+
+/** Nothing answered at all (a Mac waking without network, a captive portal): that is the network failing, not any one source. */
+export function networkOutage(health: Pick<ScoutSourceHealth, "answered" | "empty" | "failed">): boolean {
+  return health.answered + health.empty === 0 && health.failed >= OUTAGE_MIN_FAILURES;
+}
+
+function recordFailures(sources: ScoutSource[], gathered: { failed: string[]; health: ScoutSourceHealth }, now: Date): ScoutSource[] {
+  // An outage is no evidence about any feed: counting it paused healthy feeds within a day.
+  if (networkOutage(gathered.health)) return sources;
+  const { failed } = gathered;
   return sources.map((source) => {
     if (failed.includes(source.id)) {
       const failures = source.failures + 1;
@@ -845,7 +856,7 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
   const { failed } = gathered;
   recordSourceHealth(dir, gathered.health);
   const candidates = [...gathered.candidates, ...pooled, ...(editorialMode() === "on" ? discoveryCandidates(dir, now) : [])];
-  sources = recordFailures(sources, failed, now);
+  sources = recordFailures(sources, gathered, now);
   const existingEditions = existsSync(join(dir, "editions"))
     ? readdirSync(join(dir, "editions")).filter((file) => file.endsWith(".json")).sort().slice(-30)
         .flatMap((file) => readJson<Edition | null>(join(dir, "editions", file), null)?.items ?? [])
@@ -956,7 +967,7 @@ export async function watchScout(deps: ScoutDependencies): Promise<EditionItem[]
   const gathered = await gatherCandidates(sources, { fetchFn: deps.fetchFn, includeTopics: false, now, redditLimit: REDDIT_PER_RUN, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
   const { candidates, failed } = gathered;
   recordSourceHealth(dir, gathered.health, "watch");
-  sources = recordFailures(sources, failed, now);
+  sources = recordFailures(sources, gathered, now);
   writeSources(sources, dir);
   const watched = new Set(readJsonl<{ url: string }>(join(dir, "watched.jsonl")).map((item) => item.url));
   const fresh = groupScoutStories(interleaveBySource(unseenCandidates(candidates, dir, watched))).slice(0, 80);

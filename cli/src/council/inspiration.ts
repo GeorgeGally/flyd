@@ -106,7 +106,8 @@ export const TYPE_QUOTA: Record<MediaKind, number> = {
 
 const TYPE_ORDER: MediaKind[] = ["quote", "stat", "article", "thread", "image", "gif", "video"];
 const RECYCLE = new Set<MediaKind>(["quote", "stat", "image", "gif", "video"]);
-const FRESH_MS = 14 * 86_400_000;
+/** A dated find older than this is not today's; articles and threads past it are never seated. */
+export const FRESH_MS = 14 * 86_400_000;
 const QUALIFIERS = ["practice", "history", "tools", "notes", "field"];
 const DEFAULT_PROFILE = "obscure creative tools";
 
