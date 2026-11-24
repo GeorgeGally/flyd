@@ -20,6 +20,8 @@ One buildable spec for the next Flyd: George works with one brilliant, proactive
 
 ## Decisions so far
 
+- [What Flyd can see of George's work](tickets/01-proactive-signals.md): git + Claude Code sessions, the ArtAndTech/Invention Studio repo and his GPT/Claude chats, Liesel boards as taste votes; studio repo and chat import not yet wired.
+
 ## Not yet specified
 
 - The main screen as a whole: how chat, inline artefacts, the ambient layer, creative reviews and project canvases fit on one surface (after the ambient, briefing and canvas tickets).
