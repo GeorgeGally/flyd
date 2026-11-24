@@ -240,6 +240,33 @@ function attachedWords(record: AskRecord, documentRoom: number): string {
   return [record.seen, record.read?.length ? documentsInWords(record.read, documentRoom) : ""].filter(Boolean).join("\n\n");
 }
 
+/** Exchanges before the recent ones that a follow-up's recap names, newest kept, and the room for each side of one. */
+const RECAP_EXCHANGES = 12;
+const RECAP_LINE_CHARS = 140;
+
+/** One line, cut at a word with "…" when it runs over. Pure. */
+function recapLine(text: string): string {
+  const line = text.replace(/```[\s\S]*?(?:```|$)/g, " ").replace(/\s+/g, " ").trim();
+  if (line.length <= RECAP_LINE_CHARS) return line;
+  const cut = line.lastIndexOf(" ", RECAP_LINE_CHARS - 1);
+  return `${line.slice(0, cut > RECAP_LINE_CHARS / 2 ? cut : RECAP_LINE_CHARS - 1)}…`;
+}
+
+/**
+ * The model's context is kept apart from what the window shows: it carries the newest exchanges whole
+ * and, before them, one short recap of the earlier ones (his words and the gist of each answer, oldest
+ * first, the newest few only), so a long conversation keeps its thread without the prompt growing with it. Pure.
+ */
+export function earlierRecap(older: ReadonlyArray<{ text: string; answer?: string }>): string | undefined {
+  const named = older.filter((item) => item.text.trim() && item.answer?.trim()).slice(-RECAP_EXCHANGES);
+  if (!named.length) return undefined;
+  const skipped = older.length - named.length;
+  return [
+    `(What we said earlier in this conversation, oldest first${skipped > 0 ? `, after ${skipped} earlier exchange${skipped === 1 ? "" : "s"}` : ""}:)`,
+    ...named.map((item) => `- George: ${recapLine(item.text)} → Flyd: ${recapLine(item.answer!)}`),
+  ].join("\n");
+}
+
 /** A question with what came attached to it, as a follow-up's history replays it. */
 function asAsked(record: AskRecord, documentRoom: number): string {
   return [record.text, attachedWords(record, documentRoom)].filter(Boolean).join("\n\n");
@@ -488,18 +515,22 @@ export class FlydDesk {
     const kept = record.images ?? [];
     const scope = record.scope;
     const delivered = earlier.some((item) => item.handedOff && !item.answer) ? this.deferredAnswers() : [];
-    const earlierAnswered = earlier
+    const answered = earlier
       .map((item) => {
         const answer = delivered.find((entry) => entry.turnId === `ask:${item.id}` && (entry.sessionId === conversationOf(item) || entry.sessionId === item.sessionId));
         return answer ? { ...item, answer: answer.text } : item;
       })
-      .filter((item) => item.answer)
-      .slice(-HISTORY_EXCHANGES);
-    const history = earlierAnswered
-      .flatMap((earlier) => [
+      .filter((item) => item.answer);
+    const earlierAnswered = answered.slice(-HISTORY_EXCHANGES);
+    // What came before the newest exchanges reaches the model as one short recap, never whole.
+    const recap = earlierRecap(answered.slice(0, -HISTORY_EXCHANGES));
+    const history = [
+      ...(recap ? [{ role: "assistant" as const, content: recap }] : []),
+      ...earlierAnswered.flatMap((earlier) => [
         { role: "user" as const, content: asAsked(earlier, HISTORY_READ_CHARS) },
         { role: "assistant" as const, content: earlier.artefact && !earlier.answer!.includes(earlier.artefact) ? `${earlier.answer!}\n\n${earlier.artefact}` : earlier.answer! },
-      ]);
+      ]),
+    ];
     // Each attempt is its own: a first attempt's late steps never touch the one asking again.
     const attempt = {};
     const live = (): boolean => this.inFlight.get(id) === attempt;

@@ -125,6 +125,10 @@ const sameQuestion = (left: unknown, right: unknown): boolean => {
 const ARTEFACT_CHASE_MAX_AGE_MS = 24 * 60 * 60_000;
 /** Model summaries are only asked for the newest replies; older ones use what is cached. */
 const SUMMARIZE_NEWEST = 20;
+/** The exchanges a conversation is drawn with at first; the rest of its history waits above, loaded as he scrolls up. */
+export const STREAM_EXCHANGES = 150;
+/** How many more exchanges each scroll to the top brings. */
+export const EARLIER_EXCHANGES = 100;
 
 export interface RenderedMessage {
   id: string;
@@ -216,6 +220,8 @@ export interface ShowOptions {
 interface StreamUpdate {
   /** Every visible message id, in order; the page drops ids not listed. */
   order: string[];
+  /** Exchanges older than the drawn ones, still to be loaded as he scrolls up; absent when none are. */
+  earlier?: number;
   /** Messages that are new or whose content changed. */
   messages: RenderedMessage[];
   working: boolean;
@@ -375,8 +381,36 @@ function heldAnswer(message: ConversationMessage): Pick<RenderedMessage, "summar
 export class SnapshotDiffer {
   private readonly sent = new Map<string, string>();
   private semantic: SemanticObject[] = [];
+  /** The first message drawn: fixed once chosen, so a new exchange adds at the bottom and none drops off the top. */
+  private from?: string;
+  private more = 0;
 
-  constructor(private readonly summaries?: SummaryOptions, private readonly show?: ShowOptions) {}
+  constructor(private readonly summaries?: SummaryOptions, private readonly show?: ShowOptions, private readonly exchanges = STREAM_EXCHANGES) {}
+
+  /** A page coming back to the same conversation draws again from the message it already had at the top. */
+  startAt(id: string): void {
+    this.from = id;
+  }
+
+  /** He scrolled to the top: the next update brings the exchanges before the drawn ones. */
+  showEarlier(count = EARLIER_EXCHANGES): void {
+    this.more += count;
+  }
+
+  /**
+   * Where the drawn part of the conversation starts: the newest exchanges at first (an exchange is his
+   * message and what follows it), then as many earlier ones as he has scrolled up to. Pure but for its memory.
+   */
+  private firstDrawn(messages: ConversationMessage[]): { index: number; earlier: number } {
+    const asked = messages.flatMap((message, index) => (message.role === "user" ? [index] : []));
+    const startOf = (exchange: number): number => (exchange <= 0 ? 0 : asked[exchange]!);
+    const known = this.from === undefined ? -1 : messages.findIndex((message) => message.id === this.from);
+    let exchange = known === -1 ? Math.max(0, asked.length - this.exchanges) : asked.filter((index) => index < known).length;
+    if (this.more) { exchange = Math.max(0, exchange - this.more); this.more = 0; }
+    const index = startOf(exchange);
+    this.from = messages[index]?.id;
+    return { index, earlier: exchange };
+  }
 
   /** Flyd's own reading of a message, when it has made one: its interpretation of an answer, else its summary. */
   private reading(message: ConversationMessage): string | undefined {
@@ -577,8 +611,11 @@ export class SnapshotDiffer {
     }
     // Where he last said anything: a question before it is answered or moved past.
     const lastSaid = snapshot.messages.map((message) => message.role).lastIndexOf("user");
-    let previous: ConversationMessage | undefined;
+    // A long conversation is drawn from its newest exchanges; what came before waits above them.
+    const drawn = this.firstDrawn(snapshot.messages);
+    let previous: ConversationMessage | undefined = snapshot.messages[drawn.index - 1];
     for (const [index, message] of snapshot.messages.entries()) {
+      if (index < drawn.index) continue;
       if (repeated.has(message.id)) continue;
       // Artefact or text is Flyd's call on every reply: the rule decides clear ones, its judge the rest.
       const call = message.role === "assistant" ? replyArtefact(message.text) : undefined;
@@ -748,6 +785,7 @@ export class SnapshotDiffer {
     const todos = board ? this.show?.todos?.(board.jobs) : undefined;
     return {
       order,
+      ...(drawn.earlier ? { earlier: drawn.earlier } : {}),
       messages: changed,
       working: snapshot.working,
       ...(snapshot.project ? { project: snapshot.project } : {}),
@@ -844,6 +882,8 @@ export class ConversationViewServer {
   private listedSessions: Array<{ id: string; title: string; project?: string; updatedAt: string }> = [];
   /** Open streams redraw once a stored digest lands. Render itself never asks a model. */
   private readonly jobWake = new Set<() => void>();
+  /** Each open stream's way to bring the exchanges above what it has drawn, by the id its page was told. */
+  private readonly earlierOf = new Map<string, () => void>();
   /** The jobs the column last drew: a tick on a Flyd ask is checked against these. */
   private boardJobs: Job[] = [];
   private boardJobsAt = 0;
@@ -1083,6 +1123,10 @@ export class ConversationViewServer {
       await this.send(req, res);
       return;
     }
+    if (req.method === "POST" && url.pathname === "/api/earlier") {
+      await this.earlier(req, res);
+      return;
+    }
     if (req.method === "POST" && (url.pathname === "/api/predict" || url.pathname === "/api/prediction-feedback")) {
       await this.predict(req, res, url.pathname === "/api/prediction-feedback");
       return;
@@ -1315,7 +1359,7 @@ export class ConversationViewServer {
         sendJson(res, 403, { error: "missing or wrong token" });
         return;
       }
-      await this.stream(req, res, url.searchParams.get("session"));
+      await this.stream(req, res, url.searchParams.get("session"), url.searchParams.get("from"));
       return;
     }
     sendJson(res, 404, { error: "not found" });
@@ -1361,6 +1405,22 @@ export class ConversationViewServer {
     const held = this.notices.add(input);
     if (!held) { sendJson(res, 400, { error: "a notice needs a message" }); return; }
     sendJson(res, 200, { id: held.id, kind: held.kind, count: held.count });
+  }
+
+  /** He scrolled to the top of a long conversation: its stream draws the exchanges before the ones it shows. */
+  private async earlier(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const origin = req.headers.origin;
+    if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "forbidden" }); return;
+    }
+    if (!(req.headers["content-type"] ?? "").startsWith("application/json")) { sendJson(res, 415, { error: "expected application/json" }); return; }
+    let stream: unknown;
+    try { stream = (JSON.parse(await readBody(req, 1024)) as { stream?: unknown }).stream; }
+    catch { sendJson(res, 400, { error: "invalid body" }); return; }
+    const more = typeof stream === "string" ? this.earlierOf.get(stream) : undefined;
+    if (!more) { sendJson(res, 404, { error: "no such stream" }); return; }
+    more();
+    sendJson(res, 200, { ok: true });
   }
 
   /** Suggestions and feedback share the composer's origin, host and token gates. */
@@ -2646,7 +2706,7 @@ export class ConversationViewServer {
     try { return existsSync(path); } catch { return false; }
   }
 
-  private async stream(req: IncomingMessage, res: ServerResponse, requested: string | null): Promise<void> {
+  private async stream(req: IncomingMessage, res: ServerResponse, requested: string | null, from: string | null = null): Promise<void> {
     // A session he chose by hand stays; no choice (or "latest") follows whichever holds the lock now.
     const chosen = requested && requested !== "latest" ? requested : null;
     const sessions = await this.source.listSessions();
@@ -2661,7 +2721,9 @@ export class ConversationViewServer {
       "cache-control": "no-store",
       connection: "keep-alive",
     });
-    sseEvent(res, "session", { ...session, assistantLabel: this.source.assistantLabel, answersInSession: this.source.answersInSession === true });
+    // The page asks for earlier exchanges by this stream's own id.
+    const streamId = randomUUID();
+    sseEvent(res, "session", { ...session, assistantLabel: this.source.assistantLabel, answersInSession: this.source.answersInSession === true, stream: streamId });
 
     let latest: ConversationSnapshot | null = null;
     let closed = false;
@@ -2702,6 +2764,7 @@ export class ConversationViewServer {
         jobs: (shot, screen) => this.jobBoard(shot, screen),
         todos: (jobs) => this.todoList(jobs),
       });
+    if (from) differ.startAt(from);
     const emitUpdate = (snapshot: ConversationSnapshot) => {
       const update = differ.next(snapshot);
       sseEvent(res, "update", {
@@ -2711,6 +2774,10 @@ export class ConversationViewServer {
           : message),
       });
     };
+    this.earlierOf.set(streamId, () => {
+      differ.showEarlier();
+      if (!closed && latest) emitUpdate(latest);
+    });
     const follower = this.source.follow(
       session.id,
       (snapshot) => {
@@ -2785,6 +2852,7 @@ export class ConversationViewServer {
       stopMemory?.();
       stopActivity?.();
       this.jobWake.delete(wakeJobs);
+      this.earlierOf.delete(streamId);
       stopNotices();
       follower.close();
       this.predictionContexts.delete(session.id);

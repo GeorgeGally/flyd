@@ -36,14 +36,26 @@ export const SESSION_SCRIPT = `
     carried.clear();
     first = true;
     jump.hidden = true;
+    // The new conversation's job messages are placed afresh among its words.
+    if (typeof workUnplace === "function" && typeof workPlaced !== "undefined") workUnplace();
   }
 
-  function connect(sessionId) {
+  var joins = 0;
+  function connect(sessionId, again) {
     if (!VIEW_TOKEN) return;
-    if (typingPredictions) typingPredictions.reset();
+    if (!again) {
+      joins += 1;
+      clearTimeout(rejoining);
+      rejoining = null;
+    }
     if (source) source.close();
-    reset();
-    var streamQuery = "?token=" + encodeURIComponent(VIEW_TOKEN) + (sessionId ? "&session=" + encodeURIComponent(sessionId) : "");
+    // Coming back to the conversation on the page keeps what is drawn, from its oldest message on.
+    var from = again && current && shownOrder.length ? shownOrder[0] : "";
+    if (!from) {
+      if (typingPredictions) typingPredictions.reset();
+      reset();
+    }
+    var streamQuery = "?token=" + encodeURIComponent(VIEW_TOKEN) + (sessionId ? "&session=" + encodeURIComponent(sessionId) : "") + (from ? "&from=" + encodeURIComponent(from) : "");
     source = new EventSource("/api/stream" + streamQuery);
     source.addEventListener("session", function (event) {
       var session = JSON.parse(event.data);
@@ -52,6 +64,9 @@ export const SESSION_SCRIPT = `
         reset();
       }
       current = session.id;
+      streamId = session.stream || null;
+      earlierLeft = 0;
+      earlierAsked = false;
       if (session.id.indexOf("project:") === 0) document.documentElement.setAttribute("data-thread", session.id);
       else document.documentElement.removeAttribute("data-thread");
       assistant = session.assistantLabel;
@@ -65,10 +80,11 @@ export const SESSION_SCRIPT = `
     source.addEventListener("staff", function (event) { showStaff(JSON.parse(event.data)); });
     source.onerror = function () {
       problem.textContent = "reconnecting…";
-      // The browser retries a dropped stream by itself, but gives up for good
-      // once the view refuses it: after a restart the old token is no longer
-      // the view's. Then a new view is up; load it, its code and its token.
-      if (source.readyState === 2 /* CLOSED */) rejoin(sessionId);
+      // A dropped stream comes back through rejoin, not the browser's own retry, so it can say
+      // where the page's drawn part starts. After a restart the old token is no longer the
+      // view's: then a new view is up; load it, its code and its token.
+      source.close();
+      rejoin(sessionId);
     };
     source.onopen = function () { problem.textContent = ""; rejoinDelay = 1000; };
   }
@@ -76,14 +92,17 @@ export const SESSION_SCRIPT = `
   var rejoining = null;
   function rejoin(sessionId) {
     if (rejoining) return;
+    var wanted = joins;
     rejoining = setTimeout(function () {
       fetch("/api/token").then(function (r) { return r.json(); }).then(function (data) {
+        if (wanted !== joins) return;
         rejoining = null;
         // The draft is kept on the way out (pagehide), so reloading loses nothing.
         if (data.token && data.token !== VIEW_TOKEN) { location.reload(); return; }
         rejoinDelay = Math.min(rejoinDelay * 2, 15000);
-        connect(sessionId);
+        connect(sessionId, true);
       }).catch(function () {
+        if (wanted !== joins) return;
         // The view is not up yet: try again, less often each time.
         rejoining = null;
         rejoinDelay = Math.min(rejoinDelay * 2, 15000);
@@ -228,10 +247,30 @@ export const SESSION_SCRIPT = `
     }).catch(function () {});
   }, 5000);
 
+  // A long conversation comes drawn from its newest exchanges; scrolling up to the top brings the
+  // ones before, put in above what he is reading (apply keeps his place), one batch at a time.
+  var streamId = null;
+  var earlierLeft = 0;
+  var earlierAsked = false;
+  var EARLIER_NEAR_TOP = 800;
+  function noteEarlier(update) {
+    var left = update.earlier || 0;
+    if (left !== earlierLeft) earlierAsked = false;
+    earlierLeft = left;
+  }
+  function askEarlier() {
+    if (!earlierLeft || earlierAsked || !streamId || !VIEW_TOKEN || !onConversation()) return;
+    if (window.scrollY > EARLIER_NEAR_TOP) return;
+    earlierAsked = true;
+    fetch("/api/earlier", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify({ stream: streamId }) })
+      .then(function (response) { if (!response.ok) earlierAsked = false; })
+      .catch(function () { earlierAsked = false; });
+  }
   window.addEventListener("scroll", function () {
     if (!onConversation()) return;
     pinned = nearBottom();
     if (pinned) jump.hidden = true;
+    askEarlier();
   }, { passive: true });
   // A picture loading or a summary landing grows the page: a pinned reader stays on the latest.
   if (window.ResizeObserver) new ResizeObserver(function () { if (pinned && onConversation()) toBottom(); }).observe(main);

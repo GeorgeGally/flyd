@@ -12,6 +12,53 @@ export const TIMELINE_SCRIPT = `
   var workNodes = new Map();
   // Jobs he opened from the column: they stay in the timeline for this window.
   var workKept = {};
+  // The conversation only grows at the bottom. A job's message takes its place once, when it is
+  // first said, and keeps it: its own record changing, or his words naming its project (which
+  // moves the column's time for it), changes what it says, never where it stands.
+  // Where each one was said is kept in his browser, so a reload puts it back in the same place.
+  var WORK_SAID = "flyd-timeline-said";
+  // A place kept from an earlier visit is trusted for two days; an id the board reuses later is new again.
+  var WORK_SAID_KEEP_MS = 2 * 24 * 60 * 60 * 1000;
+  // Where this page said each one, even after it left the board for a while (a worker pausing changes its card).
+  var workSeenAt = {};
+  var workSaid = {};
+  try { workSaid = JSON.parse(localStorage.getItem(WORK_SAID) || "{}") || {}; } catch (_) { workSaid = {}; }
+  function keepWorkSaid() {
+    var ids = Object.keys(workSaid);
+    if (ids.length > 400) ids.slice(0, ids.length - 400).forEach(function (id) { delete workSaid[id]; });
+    try { localStorage.setItem(WORK_SAID, JSON.stringify(workSaid)); } catch (_) {}
+  }
+  // Placed in this conversation; a new conversation places them afresh (reset, script-session.ts).
+  var workPlaced = new Set();
+  var workDrawnOnce = false;
+  function workUnplace() { workPlaced.clear(); workDrawnOnce = false; }
+  // The newest time among the conversation's own words now on the page.
+  function newestSaid() {
+    var newest = NaN;
+    main.querySelectorAll(":scope > .msg:not(.work):not(.pending)").forEach(function (msg) {
+      var ts = Date.parse(msg.dataset.ts || "");
+      if (!isNaN(ts) && !(ts <= newest)) newest = ts;
+    });
+    return newest;
+  }
+  // When the message was said: where this page said it before; on the board when the page came, where
+  // an earlier visit said it, else its own time (never one a conversation lent it); arriving later, at
+  // the bottom, after everything already said.
+  function workSaidAt(job) {
+    if (workSeenAt[job.id]) return workSeenAt[job.id];
+    var kept = Date.parse(workSaid[job.id] || "");
+    var own = Date.parse(job.toldAt || job.at || "");
+    if (!workDrawnOnce && !isNaN(kept) && Date.now() - kept < WORK_SAID_KEEP_MS) own = kept;
+    else if (workDrawnOnce) {
+      var newest = newestSaid();
+      if (isNaN(own) || own < newest) own = newest;
+      if (isNaN(own)) own = Date.now();
+    }
+    if (isNaN(own)) return "";
+    workSeenAt[job.id] = workSaid[job.id] = new Date(own).toISOString();
+    keepWorkSaid();
+    return workSeenAt[job.id];
+  }
   function workToday(iso) {
     var d = new Date(iso);
     return !isNaN(d) && d.toDateString() === new Date().toDateString();
@@ -20,8 +67,11 @@ export const TIMELINE_SCRIPT = `
   function workInTimeline(job) {
     if (job.group === "done" && cardGone(job.id)) return false;
     if (workKept[job.id] || job.group === "needs") return true;
-    if (job.group === "moving") return job.state === PLACE_STATES.running;
-    return job.group === "done" && !job.bare && workToday(job.at);
+    if (job.group === "moving" && job.state === PLACE_STATES.running) return true;
+    if (job.group === "done" && !job.bare && workToday(job.at)) return true;
+    // Once said, it stays where it was said while the board carries it: a job pausing or queueing
+    // is told in place, never taken out and said again further down.
+    return workNodes.has(job.id) && !job.bare;
   }
   function workMessage(job) {
     var node = workNodes.get(job.id);
@@ -31,7 +81,7 @@ export const TIMELINE_SCRIPT = `
       node.appendChild(el("div", "work-body"));
       workNodes.set(job.id, node);
     }
-    node.dataset.ts = job.at || "";
+    if (!workPlaced.has(job.id)) node.dataset.ts = workSaidAt(job);
     node.classList.toggle("needs", job.group === "needs");
     var body = node.firstChild;
     var line = frontLine(job);
@@ -54,10 +104,13 @@ export const TIMELINE_SCRIPT = `
       + '</div>';
     return node;
   }
-  // Each message sits where its time puts it among his words; one with no time goes last.
+  // A message sits where the time it was said puts it among his words, once; one with no time goes last.
   function placeWork(node) {
+    var id = node.dataset.job;
+    if (workPlaced.has(id) && node.parentElement === main) return;
+    workPlaced.add(id);
     var at = Date.parse(node.dataset.ts || "");
-    var before = working;
+    var before = main.querySelector(":scope > .msg.pending") || working;
     if (!isNaN(at)) {
       // Jobs at the same moment keep one order (by id), so each redraw finds them already in place.
       var later = Array.prototype.find.call(main.querySelectorAll(":scope > .msg"), function (msg) {
@@ -80,7 +133,9 @@ export const TIMELINE_SCRIPT = `
       if (shown[id]) return;
       node.remove();
       workNodes.delete(id);
+      workPlaced.delete(id);
     });
+    if (frontUpdate && Array.isArray(frontUpdate.jobs) && frontUpdate.jobsFleetKnown === true) workDrawnOnce = true;
     // A job open in the timeline holds its detail under its message.
     var open = workNodes.get(frontActive);
     if (open && jobView.parentElement !== open) open.appendChild(jobView);
