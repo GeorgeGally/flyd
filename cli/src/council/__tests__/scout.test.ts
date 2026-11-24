@@ -38,7 +38,6 @@ describe("scout sources", () => {
     const sources = readSources(dir, at("2026-09-27T08:00:00Z"));
     expect(sources.some((source) => source.name === "Simon Willison" && source.status === "active")).toBe(true);
     expect(sources.some((source) => source.name === "r/GenerativeOrdinals")).toBe(true);
-    expect(sources.some((source) => source.status === "reserve")).toBe(true);
     expect(readTaste(dir)).toBe(SEED_TASTE);
     expect(SEED_TASTE).toContain("Avoid: generic world news, politics, crypto price speculation");
   });
@@ -59,17 +58,35 @@ describe("scout sources", () => {
     expect(hermes.filter((sub) => !subreddits.has(sub.toLowerCase()))).toEqual([]);
   });
 
-  it("adds live niche feeds for George's scenes beside Hermes's, and explores niche reserve before general outlets", () => {
+  it("adds live niche feeds beside Hermes's, and carries general outlets as plain active feeds with no reserve", () => {
     const sources = readSources(dir, at("2026-11-23T08:00:00Z"));
     const active = sources.filter((source) => source.status === "active");
     for (const feed of ["Right Click Save", "Bitcoin Optech", "AI Weirdness", "Red Blob Games", "Ken Shirriff", "Old VCR", "The Digital Antiquarian", "Tedium", "The Public Domain Review"]) {
       expect(active.find((source) => source.name === feed)).toMatchObject({ kind: "rss" });
     }
     for (const sub of ["r/plotterart", "r/lostmedia", "r/demoscene"]) expect(active.some((source) => source.name === sub)).toBe(true);
-    const reserve = sources.filter((source) => source.status === "reserve").map((source) => source.name);
-    expect(reserve.indexOf("Creative Applications")).toBeLessThan(reserve.indexOf("TechCrunch"));
-    expect(reserve.indexOf("Atlas Obscura")).toBeLessThan(reserve.indexOf("The Verge"));
-    expect(reserve.slice(-4)).toEqual(["The Verge", "Uncrate", "Slashdot", "TechRadar"]);
+    for (const outlet of ["TechCrunch", "The Verge", "Slashdot", "Creative Applications", "Atlas Obscura"]) {
+      expect(active.find((source) => source.name === outlet)).toMatchObject({ kind: "rss" });
+    }
+    expect(sources.every((source) => source.status === "active")).toBe(true);
+  });
+
+  it("brings stored reserve outlets and subreddits paused by Reddit's refusals back as active", () => {
+    const base = { shown: 0, likes: 0, dislikes: 0, addedBy: "seed" as const, addedAt: "2026-09-01T00:00:00Z" };
+    writeFileSync(join(dir, "sources.json"), JSON.stringify([
+      { ...base, id: "rss:techcrunch.com/feed", kind: "rss", name: "TechCrunch", target: "https://techcrunch.com/feed/", status: "reserve", failures: 0 },
+      { ...base, id: "reddit:generative", kind: "reddit", name: "r/generative", target: "generative", status: "paused", failures: 5, note: "paused after 5 consecutive fetch failures", pausedAt: "2026-11-21T10:32:12.997Z" },
+      { ...base, id: "reddit:tezos", kind: "reddit", name: "r/tezos", target: "tezos", status: "paused", failures: 0, note: "paused by evolution 2026-11-01" },
+      { ...base, id: "rss:dead.test/feed", kind: "rss", name: "Dead", target: "https://dead.test/feed", status: "paused", failures: 5, note: "paused after 5 consecutive fetch failures", pausedAt: "2026-11-21T10:32:12.997Z" },
+    ]));
+    const sources = readSources(dir, at("2026-11-24T08:00:00Z"));
+    expect(sources.find((source) => source.name === "TechCrunch")?.status).toBe("active");
+    expect(sources.find((source) => source.name === "r/generative")).toMatchObject({ status: "active", failures: 0 });
+    expect(sources.find((source) => source.name === "r/generative")?.pausedAt).toBeUndefined();
+    // A taste pause and a failing feed are left as they were.
+    expect(sources.find((source) => source.name === "r/tezos")?.status).toBe("paused");
+    expect(sources.find((source) => source.name === "Dead")).toMatchObject({ status: "paused", failures: 5 });
+    expect(JSON.parse(readFileSync(join(dir, "sources.json"), "utf8")).every((source: ScoutSource) => (source.status as string) !== "reserve")).toBe(true);
   });
 
   it("unions defaults added later into the managed population without disturbing it", () => {
@@ -79,7 +96,7 @@ describe("scout sources", () => {
     const sources = readSources(dir, at("2026-10-18T08:00:00Z"));
     expect(sources[0]).toMatchObject({ name: "Waxy.org", shown: 9, likes: 4, addedBy: "george" });
     expect(sources.some((source) => source.name === "r/Bitcoin" && source.status === "active")).toBe(true);
-    expect(sources.some((source) => source.name === "FlowingData" && source.status === "reserve")).toBe(true);
+    expect(sources.some((source) => source.name === "FlowingData" && source.status === "active")).toBe(true);
     expect(readSources(dir).filter((source) => source.name === "r/Bitcoin")).toHaveLength(1);
   });
 
@@ -147,6 +164,46 @@ describe("edition, feedback, and watch", () => {
     await runScout({ complete: vi.fn(async () => '{"picks": []}'), fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-09-27T07:00:00Z") });
     expect(hits).toHaveLength(1);
     expect(readSources(dir).slice(0, 2).every((source) => source.failures === 0 && source.status === "active")).toBe(true);
+  });
+
+  it("reads each subreddit's own www.reddit.com RSS feed as a plain browser, with no API or key", async () => {
+    onlySources([{ kind: "reddit", name: "r/generative", target: "generative" }]);
+    const asked: Array<{ url: string; headers: Record<string, string> }> = [];
+    const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+      asked.push({ url: String(input), headers: init?.headers as Record<string, string> });
+      return new Response(rss([{ title: "Flow field from a modem log", link: "https://www.reddit.com/r/generative/comments/abc" }]), { status: 200 });
+    }) as typeof fetch;
+    await watchScout({ complete: vi.fn(async () => '{"picks": []}'), fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-09-27T07:00:00Z") });
+    expect(asked.map((request) => request.url)).toEqual(["https://www.reddit.com/r/generative/.rss"]);
+    const agent = asked[0]!.headers["User-Agent"]!;
+    expect(agent).toMatch(/^Mozilla\/5\.0 \(Macintosh;/);
+    expect(agent).not.toMatch(/bot|flyd|curl|node/i);
+    expect(Object.keys(asked[0]!.headers).some((name) => /authorization/i.test(name))).toBe(false);
+    expect(readSources(dir)[0]).toMatchObject({ status: "active", failures: 0, lastFetchedAt: "2026-09-27T07:00:00.000Z" });
+  });
+
+  it("never pauses a subreddit for fetch failures, whether Reddit refuses every one or only it", async () => {
+    onlySources([
+      { kind: "reddit", name: "r/one", target: "one" },
+      { kind: "reddit", name: "r/two", target: "two" },
+      { kind: "reddit", name: "r/three", target: "three" },
+    ]);
+    // What a refused machine gets back for every subreddit: a 404 "Not Found" Atom feed.
+    const notFound = '<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom"><id>https://rss.reddit.com/</id><title>Not Found</title></feed>';
+    const refused = (async () => new Response(notFound, { status: 404 })) as typeof fetch;
+    const complete = vi.fn(async () => '{"picks": []}');
+    for (let hour = 4; hour <= 22; hour += 3) {
+      await watchScout({ complete, fetchFn: refused, dir, redditSpacingMs: 0, now: () => at(`2026-09-27T${String(hour).padStart(2, "0")}:00:00Z`) });
+    }
+    expect(readSources(dir).slice(0, 2).map((source) => [source.status, source.failures])).toEqual([["active", 7], ["active", 7]]);
+    // r/one answers while r/two is still refused: r/two stays active all the same.
+    const partial = (async (input: string | URL | Request) => String(input).includes("/r/two/")
+      ? new Response(notFound, { status: 404 })
+      : new Response(rss([{ title: `Post from ${String(input)}`, link: `${String(input)}post` }]), { status: 200 })) as typeof fetch;
+    await watchScout({ complete, fetchFn: partial, dir, redditSpacingMs: 0, now: () => at("2026-09-28T07:00:00Z") });
+    const [one, two] = readSources(dir);
+    expect(one).toMatchObject({ status: "active", failures: 0 });
+    expect(two).toMatchObject({ status: "active", failures: 8 });
   });
 
   it("lets every source reach the ranker even when early feeds alone would fill the candidate cap", async () => {
@@ -271,23 +328,22 @@ describe("edition brief", () => {
 });
 
 describe("evolution", () => {
-  it("explores niche reserve feeds before general outlets George already had in reserve", async () => {
+  it("never switches outlets on or off: every feed stays active through evolution", async () => {
     const general = ["Fast Company", "TechCrunch", "The Verge"];
     writeSources(seedSources(at("2026-09-01T00:00:00Z")).filter((source) => general.includes(source.name)), dir);
-    const complete = vi.fn(async (prompt: string) => prompt.startsWith("Plan") ? '{"topics": []}' : '{"add": []}');
-    await evolveScout({ complete, dir, now: () => at("2026-11-23T07:00:00Z") });
-    const sources = readSources(dir);
-    const explored = sources.filter((source) => source.note === "exploring from reserve").map((source) => source.name);
-    expect(explored).toHaveLength(1);
-    expect(general).not.toContain(explored[0]);
-    expect(sources.find((source) => source.name === "TechCrunch")?.status).toBe("reserve");
+    const prompts: string[] = [];
+    const complete = vi.fn(async (prompt: string) => { prompts.push(prompt); return prompt.startsWith("Plan") ? '{"topics": []}' : '{"add": []}'; });
+    const changes = await evolveScout({ complete, dir, now: () => at("2026-11-23T07:00:00Z") });
+    expect(changes.filter((change) => change.kind === "revived")).toEqual([]);
+    expect(readSources(dir).filter((source) => general.includes(source.name)).map((source) => source.status)).toEqual(["active", "active", "active"]);
+    expect(prompts.join("\n")).not.toMatch(/reserve/i);
   });
 
-  it("pauses sources that keep missing, explores the reserve, breeds new sources, revises taste, and tells George", async () => {
+  it("pauses sources that keep missing, breeds new sources, revises taste, and tells George", async () => {
     writeSources([
       { id: "rss:dull.test/feed", kind: "rss", name: "Dull", target: "https://dull.test/feed", status: "active", shown: 10, likes: 0, dislikes: 2, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z" },
       { id: "reddit:generative", kind: "reddit", name: "r/generative", target: "generative", status: "active", shown: 4, likes: 3, dislikes: 0, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z" },
-      { id: "rss:www.creativeapplications.net/feed", kind: "rss", name: "Creative Applications", target: "https://www.creativeapplications.net/feed/", status: "reserve", shown: 0, likes: 0, dislikes: 0, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z" },
+      { id: "rss:www.creativeapplications.net/feed", kind: "rss", name: "Creative Applications", target: "https://www.creativeapplications.net/feed/", status: "reserve" as ScoutSource["status"], shown: 0, likes: 0, dislikes: 0, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z" },
     ], dir);
     const complete = vi.fn(async () => JSON.stringify({
       add: [
@@ -299,7 +355,7 @@ describe("evolution", () => {
       taste_change: "now favours generative audio",
     }));
     const changes = await evolveScout({ complete, dir, now: () => at("2026-09-27T07:00:00Z") });
-    expect(changes.map((change) => change.kind)).toEqual(["paused", "revived", "added", "taste"]);
+    expect(changes.map((change) => change.kind)).toEqual(["paused", "added", "taste"]);
     const sources = readSources(dir);
     expect(sources.find((source) => source.name === "Dull")?.status).toBe("paused");
     expect(sources.find((source) => source.name === "Creative Applications")?.status).toBe("active");
@@ -308,7 +364,7 @@ describe("evolution", () => {
     expect(readTaste(dir)).toContain("generative audio");
     expect(readFileSync(join(dir, "taste-history.jsonl"), "utf8")).toContain("crypto art");
     expect(takeEvolutionNotes(dir)).toEqual([
-      "paused: Dull: you passed on most of the 10 stories it brought", "revived: trying Creative Applications",
+      "paused: Dull: you passed on most of the 10 stories it brought",
       "added: r/algorithmicmusic — He liked on-chain generative audio", "taste: now favours generative audio",
     ]);
     expect(takeEvolutionNotes(dir)).toEqual([]);
@@ -365,14 +421,14 @@ describe("evolution", () => {
     expect(next[2]!.status).toBe("paused");
   });
 
-  it("evolves with no feedback: explores more reserve while sources are paused, and replans topics from taste", async () => {
+  it("evolves with no feedback: replans topics from taste, and stored reserve feeds are simply active", async () => {
     const base = { shown: 0, likes: 0, dislikes: 0, failures: 0, addedBy: "seed" as const, addedAt: "2026-09-01T00:00:00Z" };
     writeSources([
       { ...base, id: "reddit:a", kind: "reddit", name: "r/a", target: "a", status: "paused", note: "paused by evolution 2026-09-01" },
       { ...base, id: "reddit:b", kind: "reddit", name: "r/b", target: "b", status: "paused", note: "paused by evolution 2026-09-01" },
-      { ...base, id: "rss:one.test/feed", kind: "rss", name: "One", target: "https://one.test/feed", status: "reserve" },
-      { ...base, id: "rss:two.test/feed", kind: "rss", name: "Two", target: "https://two.test/feed", status: "reserve" },
-      { ...base, id: "rss:three.test/feed", kind: "rss", name: "Three", target: "https://three.test/feed", status: "reserve" },
+      { ...base, id: "rss:one.test/feed", kind: "rss", name: "One", target: "https://one.test/feed", status: "reserve" as ScoutSource["status"] },
+      { ...base, id: "rss:two.test/feed", kind: "rss", name: "Two", target: "https://two.test/feed", status: "reserve" as ScoutSource["status"] },
+      { ...base, id: "rss:three.test/feed", kind: "rss", name: "Three", target: "https://three.test/feed", status: "reserve" as ScoutSource["status"] },
       { ...base, id: "topic:hybrid search query rewriting", kind: "topic", name: "hybrid search query rewriting", target: "hybrid search query rewriting", status: "active", addedBy: "evolution" },
       { ...base, id: "topic:ordinals recursion", kind: "topic", name: "ordinals recursion", target: "ordinals recursion", status: "active", addedBy: "george" },
     ], dir);
@@ -387,13 +443,13 @@ describe("evolution", () => {
     });
     const changes = await evolveScout({ complete, dir, now: () => at("2026-10-24T07:00:00Z") });
     const sources = readSources(dir);
-    expect(sources.filter((source) => source.status === "active" && source.target.includes(".test/")).map((source) => source.name)).toEqual(["One", "Two"]);
+    expect(sources.filter((source) => source.status === "active" && source.target.includes(".test/")).map((source) => source.name)).toEqual(["One", "Two", "Three"]);
     expect(prompts[0]).toContain("crypto art, generative art");
     expect(prompts[0]).toContain("Already searching (do not repeat): ordinals recursion");
     const topics = sources.filter((source) => source.kind === "topic" && source.status === "active").map((source) => source.target);
     expect(topics).toEqual(["ordinals recursion", "touchdesigner audio reactive", "esp32 cyberdeck builds"]);
     expect(sources.find((source) => source.target === "hybrid search query rewriting")?.status).toBe("paused");
-    expect(changes.map((change) => change.kind)).toEqual(["revived", "revived", "topics"]);
+    expect(changes.map((change) => change.kind)).toEqual(["topics"]);
   });
 
   it("records more/less by story link or source id, for a view button", async () => {
@@ -563,7 +619,7 @@ describe("the edition draws on the whole day", () => {
     expect(prompts[0]).toContain("Found for pen plotter generative art");
   });
 
-  it("keeps every story the ranker picked, seating a stat and a captioned GIF between them, never an extra article", async () => {
+  it("judges the seats like stories: seats only the finds the curator picked, between the stories, never an extra article", async () => {
     const feeds = ["hackaday", "waxy", "cdm"];
     onlySources(feeds.map((name) => ({ kind: "rss" as const, name, target: `https://${name}.test/feed` })));
     const fetchFn = fakeFetch(Object.fromEntries(feeds.map((name) => [`${name}.test`, rss(Array.from({ length: 3 }, (_, n) => ({ title: `${name} story ${n}`, link: `https://${name}.test/${n}`, date: recent })))])));
@@ -573,14 +629,65 @@ describe("the edition draws on the whole day", () => {
       { url: "https://giphy.test/pen", title: "Pen plotter drawing", source: "Giphy", sourceId: "giphy", summary: "A pen plotter drawing a city in one continuous line.", media: "gif", mediaUrl: "https://giphy.test/pen.gif" },
       { url: "https://news.example/celebrity", title: "A celebrity re-signs", source: "Google Trends", sourceId: "trends", summary: "Trending", media: "article" },
     ];
-    const complete = rankerFor([], (prompt) => feeds.flatMap((name) => [0, 1, 2].map((n) => ({ index: indexOf(prompt, `${name} story ${n}`), kind: "relevant", why: "worth it" }))));
+    const prompts: string[] = [];
+    const complete = rankerFor(prompts, (prompt) => [
+      ...feeds.flatMap((name) => [0, 1, 2].map((n) => ({ index: indexOf(prompt, `${name} story ${n}`), kind: "relevant", why: "worth it" }))),
+      { index: indexOf(prompt, "Plotters sold"), kind: "relevant", why: "A number that frames his plotter work." },
+      { index: indexOf(prompt, "Pen plotter drawing"), kind: "relevant", why: "One continuous line, like his own drawings." },
+    ]);
     const result = await runScout({ complete, fetchFn, dir, now: () => at("2026-11-14T07:00:00Z"), focus: [], inspiration });
+    // One call judges stories and seats alike; each find is offered marked as a seat.
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]!.split("\n").find((line) => line.includes("Plotters sold"))).toMatch(/^\[\d+\] \(SEAT STAT · Wikipedia/);
+    expect(prompts[0]!.split("\n").find((line) => line.includes("Loop"))).toContain("SEAT GIF");
+    expect(prompts[0]).not.toContain("A celebrity re-signs");
     const items = result.edition!.items;
     expect(items.filter((item) => item.media === undefined)).toHaveLength(9);
     expect(items.map((item) => item.media ?? "story")).toEqual(["story", "story", "story", "stat", "story", "story", "story", "gif", "story", "story", "story"]);
-    expect(items.filter((item) => item.media === "gif")).toHaveLength(1);
+    expect(items.filter((item) => item.media === "gif").map((item) => item.title)).toEqual(["Pen plotter drawing"]);
+    expect(items.find((item) => item.media === "stat")?.why).toBe("A number that frames his plotter work.");
     expect(items.map((item) => item.n)).toEqual(items.map((_, index) => index + 1));
     expect(items.some((item) => item.source === "Google Trends")).toBe(false);
+  });
+
+  it("keeps the story rabbit hole when the curator also tags a seat as one", async () => {
+    onlySources([{ kind: "rss", name: "hackaday", target: "https://hackaday.test/feed" }]);
+    const fetchFn = fakeFetch({ "hackaday.test": rss([
+      { title: "A plotter that draws with sand", link: "https://hackaday.test/sand", date: recent },
+      { title: "The lost BBS of a lighthouse keeper", link: "https://hackaday.test/bbs", date: recent },
+    ]) });
+    const inspiration: InspirationItem[] = [
+      { url: "https://news.ycombinator.test/item?id=1", title: "Thread on 64k demos", source: "Hacker News", sourceId: "hn", summary: "A long thread", media: "thread" },
+    ];
+    const prompts: string[] = [];
+    const complete = rankerFor(prompts, (prompt) => [
+      { index: indexOf(prompt, "Thread on 64k demos"), kind: "rabbit_hole", why: "A deep thread on tiny demos." },
+      { index: indexOf(prompt, "draws with sand"), kind: "relevant", why: "Sand as a plotter medium." },
+      { index: indexOf(prompt, "lighthouse keeper"), kind: "rabbit_hole", why: "A BBS run from a lighthouse." },
+    ]);
+    const result = await runScout({ complete, fetchFn, dir, now: () => at("2026-11-14T07:00:00Z"), focus: [], inspiration, workNow: null });
+    const items = result.edition!.items;
+    expect(items.find((item) => item.title === "The lost BBS of a lighthouse keeper")?.kind).toBe("rabbit_hole");
+    expect(items.find((item) => item.title === "Thread on 64k demos")).toMatchObject({ kind: "relevant", media: "thread" });
+  });
+
+  it("drops every seat the curator passes on, with no filler, and gives it the work-now brief", async () => {
+    onlySources([{ kind: "rss", name: "hackaday", target: "https://hackaday.test/feed" }]);
+    const fetchFn = fakeFetch({ "hackaday.test": rss([{ title: "A plotter that draws with sand", link: "https://hackaday.test/sand", date: recent }]) });
+    const inspiration: InspirationItem[] = [
+      { url: "https://en.wikiquote.org/wiki/Someone", title: "Someone on work", source: "Wikiquote", sourceId: "wikiquote", summary: "A quote", media: "quote", quote: "Work hard, dream big.", attribution: "Someone" },
+      { url: "https://giphy.test/cat", title: "Cat falls off sofa", source: "Giphy", sourceId: "giphy", summary: "A cat", media: "gif", mediaUrl: "https://giphy.test/cat.gif" },
+      { url: "https://pexels.test/office", title: "Stock office", source: "Pexels", sourceId: "pexels", summary: "People at desks", media: "image", mediaUrl: "https://pexels.test/office.jpg" },
+    ];
+    const prompts: string[] = [];
+    const complete = rankerFor(prompts, (prompt) => [{ index: indexOf(prompt, "draws with sand"), kind: "relevant", why: "Sand as a plotter medium." }]);
+    const workNow = "Projects: SYNTHETIC_PROJECT (plotter toolpaths)\nCoding sessions: SYNTHETIC_SESSION_TITLE";
+    const result = await runScout({ complete, fetchFn, dir, now: () => at("2026-11-14T07:00:00Z"), focus: [], inspiration, workNow });
+    expect(prompts[0]).toContain("What he is working on right now");
+    expect(prompts[0]).toContain("SYNTHETIC_SESSION_TITLE");
+    expect(prompts[0]).toMatch(/SEAT QUOTE · Wikiquote[^\n]*"Work hard, dream big\." \(Someone\)/);
+    expect(prompts[0]).toContain("Judge each exactly as you judge a story");
+    expect(result.edition!.items.map((item) => item.title)).toEqual(["A plotter that draws with sand"]);
   });
 
   it("names every subreddit r/<name>, whether seeded, bred by evolution, or stored before the fix", async () => {
@@ -627,7 +734,7 @@ describe("what reaches an edition", () => {
     expect(stats).toEqual({ picks: 2, junk: 0 });
   });
 
-  it("curates against obvious headlines: his preferences reach the ranker, general outlets are marked and shortlisted after niche finds", async () => {
+  it("curates against obvious headlines story by story: his preferences reach the ranker, and no outlet is marked or ranked down", async () => {
     const indexOf = (prompt: string, title: string) => Number(prompt.split("\n").find((line) => line.includes(title))?.match(/^\[(\d+)\]/)?.[1]);
     onlySources([
       { kind: "rss", name: "Ars Technica", target: "https://feeds.arstechnica.com/arstechnica/index", category: "Technology" },
@@ -649,9 +756,9 @@ describe("what reaches an edition", () => {
       const prompt = prompts[0]!;
       expect(prompt).toContain("SYNTHETIC_PREF");
       expect(prompt).not.toContain("SYNTHETIC_PERSON");
-      expect(prompt.split("\n").find((line) => line.includes("flagship phone"))).toContain("GENERAL OUTLET");
-      expect(prompt.split("\n").find((line) => line.includes("BBS terminal"))).not.toContain("GENERAL OUTLET");
-      expect(indexOf(prompt, "forgotten 1980s BBS")).toBeLessThan(indexOf(prompt, "flagship phone"));
+      expect(prompt).not.toContain("GENERAL OUTLET");
+      expect(prompt).toContain("whatever outlet carried it");
+      expect(prompt.split("\n").find((line) => line.includes("flagship phone"))).toMatch(/^\[\d+\] \(Ars Technica · /);
     } finally {
       rmSync(process.env.FLYD_USER_PROFILE!, { force: true });
     }

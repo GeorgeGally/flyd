@@ -153,20 +153,24 @@ describe("gatherInspiration", () => {
     expect(calls).toBe(2);
   });
 
-  it("seats the cached finds in the day's edition", async () => {
+  it("seats the cached finds the curator picks in the day's edition", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-inspire-edition-"));
     const inspiration = [
       item({ url: "https://en.wikipedia.org/wiki/Flyd", title: "Flyd sessions", source: "Wikipedia", sourceId: "wiki", summary: "Flyd kept 12% of sessions.", media: "stat", figure: "12%", obscure: true }),
       item({ url: "https://commons.wikimedia.org/wiki/File:Loop.gif", title: "Loop", source: "Wikimedia Commons", sourceId: "commons:gif", summary: "Loop", media: "gif", mediaUrl: "https://upload.wikimedia.org/loop.gif", obscure: true }),
     ];
     const result = await runScout({
-      complete: async (prompt) => prompt.startsWith("Plan ") ? '{"topics":[]}' : '{"picks":[]}',
+      // The seats are judged like stories: here the curator picks both finds.
+      complete: async (prompt) => prompt.startsWith("Plan ") ? '{"topics":[]}' : JSON.stringify({ picks: ["Flyd sessions", "Loop"].map((title) => ({
+        index: Number(prompt.split("\n").find((line) => line.includes(`SEAT`) && line.includes(title))?.match(/^\[(\d+)\]/)?.[1]), kind: "relevant", why: `${title} earns its seat.`,
+      })) }),
       fetchFn: (async () => new Response("no", { status: 404 })) as typeof fetch,
       dir,
       redditSpacingMs: 0,
       now: () => new Date(now),
       focus,
       inspiration,
+      workNow: null,
     });
     expect(result.edition?.items.map((hit) => hit.media)).toEqual(["stat", "gif"]);
     const stories = editionStories(result.edition, "2026-10-27")?.stories;

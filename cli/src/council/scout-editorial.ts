@@ -42,20 +42,6 @@ function spam(candidate: ScoutCandidate): boolean {
     || /^(giveaway|sponsored post|discount code|use my referral)\b/i.test(candidate.title);
 }
 
-/** Front-page outlets: fine sources, but what they lead with is what everyone has already seen. */
-const GENERAL_OUTLET_HOSTS = new Set([
-  "arstechnica.com", "daringfireball.net", "theverge.com", "techcrunch.com", "techradar.com", "slashdot.org", "fastcompany.com",
-  "engadget.com", "wired.com", "gizmodo.com", "cnet.com", "zdnet.com", "9to5mac.com", "macrumors.com", "businessinsider.com",
-  "bloomberg.com", "reuters.com", "cnbc.com", "forbes.com", "nytimes.com", "bbc.com", "bbc.co.uk", "theguardian.com", "apnews.com",
-]);
-
-export function generalOutlet(candidate: Pick<ScoutCandidate, "url">): boolean {
-  try {
-    const host = new URL(candidate.url).hostname.toLowerCase().replace(/^(?:www|feeds|rss)\./, "");
-    return [...GENERAL_OUTLET_HOSTS].some((outlet) => host === outlet || host.endsWith(`.${outlet}`));
-  } catch { return false; }
-}
-
 /** Vocabulary of the scenes George follows (on-chain and generative art, creative coding, AI art, internet archaeology, obscure media, protocol history, odd hardware). */
 const NICHE = /\b(?:ordinals?|inscriptions?|inscribed|recursive inscriptions?|on-?chain art|generative(?! ?ai\b)|gen-?art|p5\.?js|processing\.org|touchdesigner|shaders?|glsl|plotters?|pen plotter|demoscene|demo ?party|creative cod(?:e|ing)|procedural|comfyui|stable diffusion|lora|glitch art|pixel art|net art|lost media|obscure|forgotten|internet archive|wayback machine|web archive|geocities|usenet|bbs|gopher|irc|rfc|protocol history|retro ?computing|vintage computer|emulat(?:or|ion)|reverse[- ]engineer(?:ed|ing)?|teardown|die shot|oscilloscope|esp32|cyberdeck|synth(?:esizer)?s?|modular synth|eurorack|microcontroller|chiptune|bitcoin optech)\b/i;
 
@@ -72,7 +58,7 @@ export function scoutEditorialScore(candidate: ScoutCandidate, feedback: ScoutFe
   const unusual = candidate.source === "Discovery" ? 0.12 : 0;
   return validation + unusual + ageScore(candidate, now)
     + (candidate.relevanceScore ?? 0.5) * 0.16
-    + nicheSignal(candidate) - (generalOutlet(candidate) ? 0.18 : 0)
+    + nicheSignal(candidate)
     + scoutPreferenceSignal(candidate, feedback);
 }
 

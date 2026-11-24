@@ -10,10 +10,11 @@ import { gatherInspiration, markShown, readShown } from "./inspiration-sources.j
 import { localDay } from "./memory-store.js";
 import { newsProfile, newsTaste } from "./news-interests.js";
 import { liveProjects } from "./projects.js";
+import { readWorkSignals, workNowBrief } from "./work-now.js";
 import { providerTrouble, recordScoutRun } from "./scout-run.js";
 import { last30daysPath, researchLast30days } from "./scout-last30days.js";
 import { discoveryCandidates } from "./scout-discovery.js";
-import { generalOutlet, prepareScoutCandidates } from "./scout-editorial.js";
+import { prepareScoutCandidates } from "./scout-editorial.js";
 import { verifiedMustKnow } from "./scout-evidence.js";
 import { writeEditorialShadow } from "./scout-eval.js";
 import { groupScoutStories, previouslyCovered, noteworthyUpdate } from "./scout-stories.js";
@@ -24,10 +25,9 @@ import { recordScoutMetrics, recordScoutResearchHealth, recordSourceHealth, type
 //
 //   Sources are a population: RSS feeds, subreddits, and last30days topics,
 //   each with a preference posterior from explicit more/less feedback. Weak
-//   sources are paused; new ones are bred from what he liked and from an
-//   untried reserve. A living taste profile — seeded from George's own
-//   curator prompt — is revised from his feedback. (Mechanics are scripts;
-//   judgment is the model.)
+//   sources are paused; new ones are bred from what he liked. A living taste
+//   profile — seeded from George's own curator prompt — is revised from his
+//   feedback. (Mechanics are scripts; judgment is the model.)
 //
 //   Daily: an edition for the morning brief. Every few hours: a cheap watch
 //   over feeds; a must-know item is pushed to him (capped) and handed to the
@@ -35,7 +35,7 @@ import { recordScoutMetrics, recordScoutResearchHealth, recordSourceHealth, type
 
 
 export type SourceKind = "rss" | "reddit" | "topic";
-export type SourceStatus = "active" | "paused" | "reserve";
+export type SourceStatus = "active" | "paused";
 
 export interface ScoutSource {
   id: string;
@@ -63,6 +63,8 @@ export interface ScoutCandidate {
   evidenceStatus?: "corroborated" | "single-source" | "unverified" | "contradicted";
   evidenceSnippets?: string[]; evidenceCheckedAt?: string; updatedFrom?: string;
   upstreamCluster?: number; freshnessVerdict?: "current" | "stale" | "contradicted" | "unsupported";
+  /** A quote, GIF, picture, stat, video or thread offered for a seat between the stories; judged like one. */
+  seat?: InspirationItem;
 }
 export type ItemKind = "must" | "relevant" | "rabbit_hole";
 export interface EditionItem {
@@ -145,9 +147,7 @@ const SEED_RSS: Array<[string, string, string]> = [
   ["Daring Fireball", "https://daringfireball.net/feeds/main", "Technology"],
   // Hermes read Two Minute Papers through a FeedBurner address that now 404s; this is the same channel's own feed.
   ["Two Minute Papers", "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg", "AI & ML"],
-  // Niche feeds for the scenes Hermes's curator favoured. Hermes's own feeds were mostly
-  // general tech, and anonymous Reddit is often rate-limited, so on a typical day these
-  // feeds supply most of the niche candidates. Each was checked to be live and recently updated (2026-11).
+  // Niche feeds for the scenes Hermes's curator favoured, each checked live and recently updated (2026-11).
   ["Right Click Save", "https://www.rightclicksave.com/rss", "Bitcoin & Crypto Art"],
   ["Bitcoin Optech", "https://bitcoinops.org/feed.xml", "Protocol History"],
   ["AI Weirdness", "https://www.aiweirdness.com/rss/", "AI Art"],
@@ -169,11 +169,10 @@ const NICHE_SUBREDDITS: Record<string, string[]> = {
 };
 
 /**
- * Untried feeds the evolve step explores, first in list order. Niche feeds come first;
- * the general outlets (from the old Discovery catalogue, legacy/rails/config/news_feeds.yml)
- * stay available but are tried last, so exploration does not fill the edition with front-page tech news.
+ * More feeds, from the old Discovery catalogue (legacy/rails/config/news_feeds.yml) and later finds.
+ * Active like every other feed: each story is judged on its own, never kept or dropped by outlet.
  */
-const RESERVE_RSS: Array<[string, string, string]> = [
+const MORE_RSS: Array<[string, string, string]> = [
   ["Creative Applications", "https://www.creativeapplications.net/feed/", "Creative Tech"],
   ["Computer History Museum", "https://computerhistory.org/feed/", "Protocol History"],
   ["The History of the Web", "https://thehistoryoftheweb.com/feed/", "Protocol History"],
@@ -213,7 +212,7 @@ export function seedSources(now = new Date()): ScoutSource[] {
   return [
     ...SEED_RSS.map(([name, url, category]) => newSource("rss", name, url, category, "active", "seed", now)),
     ...[SEED_SUBREDDITS, NICHE_SUBREDDITS].flatMap((group) => Object.entries(group)).flatMap(([category, subs]) => subs.map((sub) => newSource("reddit", redditName(sub), sub, category, "active", "seed", now))),
-    ...RESERVE_RSS.map(([name, url, category]) => newSource("rss", name, url, category, "reserve", "seed", now)),
+    ...MORE_RSS.map(([name, url, category]) => newSource("rss", name, url, category, "active", "seed", now)),
   ];
 }
 
@@ -221,6 +220,21 @@ export function seedSources(now = new Date()): ScoutSource[] {
 function withSeedDefaults(sources: ScoutSource[], now: Date): ScoutSource[] {
   const have = new Set(sources.map((source) => source.id));
   return [...sources, ...seedSources(now).filter((source) => !have.has(source.id))];
+}
+
+/**
+ * Stored sources from before two fixes. Outlets kept in an untried reserve are plain active
+ * feeds now. And a subreddit paused for "fetch failures" under the old counting was paused
+ * because Reddit refused this machine (the same 404 "Not Found" feed for every subreddit),
+ * not because the subreddit failed; it comes back with a clean slate.
+ */
+function migrated(source: ScoutSource): ScoutSource {
+  if ((source.status as string) === "reserve") return { ...source, status: "active" };
+  if (source.kind === "reddit" && source.status === "paused" && source.note === FAILURE_PAUSE_NOTE) {
+    const { pausedAt: _pausedAt, ...rest } = source;
+    return { ...rest, status: "active", failures: 0, note: "un-paused: Reddit had refused this Mac, not this subreddit" };
+  }
+  return source;
 }
 
 export function readSources(dir = scoutDir(), now = new Date()): ScoutSource[] {
@@ -233,7 +247,7 @@ export function readSources(dir = scoutDir(), now = new Date()): ScoutSource[] {
   const stored = readJson<ScoutSource[] | null>(path, null);
   if (!Array.isArray(stored)) return [];
   // Subreddits added before names were normalised keep their target but read as r/<name>.
-  const named = stored.map((source) => source.kind === "reddit" && source.name !== redditName(source.target) ? { ...source, name: redditName(source.target) } : source);
+  const named = stored.map((source) => migrated(source.kind === "reddit" && source.name !== redditName(source.target) ? { ...source, name: redditName(source.target) } : source));
   const merged = withSeedDefaults(named, now);
   if (merged.length !== stored.length || named.some((source, index) => source !== stored[index])) atomicWrite(path, `${JSON.stringify(merged, null, 2)}\n`);
   return merged;
@@ -277,9 +291,13 @@ function feedbackDigest(feedback: ScoutFeedback[]): string {
 
 // ── Fetching ───────────────────────────────────────────────────────────────
 
-// A bot marker in the user agent gets a 403 block page from Reddit.
+// A plain browser, as Hermes's curl sent: a bot marker in the user agent gets a 403 block page from Reddit.
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
-// Reddit gives an anonymous reader one feed per minute (x-ratelimit-reset ≈ 60s), so space them past that.
+/** Each subreddit's own feed, no API and no key. (old.reddit.com now sends an anonymous reader to its login page.) */
+export function redditFeedUrl(sub: string): string {
+  return `https://www.reddit.com/r/${sub}/.rss`;
+}
+// Reddit gives an anonymous reader one feed per minute (x-ratelimit-remaining 0 after one, reset ≈ 60s), so space them past that.
 const REDDIT_SPACING_MS = 61_000;
 /** Subreddits one watch visits (oldest-fetched first); the 3-hourly watches rotate through the rest. */
 export const REDDIT_PER_RUN = 2;
@@ -424,7 +442,7 @@ export async function gatherCandidates(sources: ScoutSource[], options: FetchOpt
       .slice(0, options.redditLimit ?? Infinity);
     for (const [index, source] of subs.entries()) {
       if (index > 0 && (options.redditSpacingMs ?? REDDIT_SPACING_MS) > 0) await new Promise((resolve) => setTimeout(resolve, options.redditSpacingMs ?? REDDIT_SPACING_MS));
-      const url = `https://www.reddit.com/r/${source.target}/.rss`;
+      const url = redditFeedUrl(source.target);
       try {
         let items: ScoutCandidate[];
         try {
@@ -479,16 +497,15 @@ export async function gatherCandidates(sources: ScoutSource[], options: FetchOpt
 
 export function rankPrompt(
   candidates: ScoutCandidate[],
-  context: { taste: string; profile?: string | null; feedback: ScoutFeedback[]; fitnessBySource: Record<string, number>; today: string; mode: "edition" | "watch"; policy?: "legacy" | "on" },
+  context: { taste: string; profile?: string | null; workNow?: string | null; feedback: ScoutFeedback[]; fitnessBySource: Record<string, number>; today: string; mode: "edition" | "watch"; policy?: "legacy" | "on" },
 ): string {
   const list = candidates.map((candidate, index) => {
     const prior = context.fitnessBySource[candidate.sourceId];
     const verification = candidate.evidenceStatus ? " · EVIDENCE " + candidate.evidenceStatus : "";
     const change = candidate.updatedFrom ? " · VERIFIED UPDATE TO " + candidate.updatedFrom : "";
     const sources = candidate.evidenceUrls?.length ? " · supporting links: " + candidate.evidenceUrls.slice(0, 3).join(" ") : "";
-    const general = generalOutlet(candidate) ? " · GENERAL OUTLET" : "";
     const excerpts = candidate.evidenceSnippets?.length ? " · checked excerpts: " + candidate.evidenceSnippets.slice(0, 2).join(" | ").slice(0, 520) : "";
-    return `[${index}] (${candidate.source}${general}${prior !== undefined ? ` · source fit ${prior.toFixed(2)}` : ""}${candidate.published ? ` · ${candidate.published}` : ""}${candidate.engagement ? ` · ${candidate.engagement}` : ""}${verification}${change}${sources}) ${candidate.title}${candidate.summary && candidate.summary !== candidate.title ? ` — ${candidate.summary}` : ""}${excerpts}`;
+    return `[${index}] (${candidate.seat ? `SEAT ${candidate.seat.media.toUpperCase()} · ` : ""}${candidate.source}${prior !== undefined ? ` · source fit ${prior.toFixed(2)}` : ""}${candidate.published ? ` · ${candidate.published}` : ""}${candidate.engagement ? ` · ${candidate.engagement}` : ""}${verification}${change}${sources}) ${candidate.title}${candidate.summary && candidate.summary !== candidate.title ? ` — ${candidate.summary}` : ""}${excerpts}`;
   }).join("\n");
   const legacy = (context.policy ?? editorialMode()) !== "on";
   const task = context.mode === "watch"
@@ -509,7 +526,7 @@ export function rankPrompt(
         "Never pad to reach the count with obvious headlines. A leaner edition of real finds beats filler.",
         "You live where on-chain art, generative art and creative tech meet. Lead with what he lives for: real on-chain and generative art (Ordinals, inscriptions, long-form generative, 1/1s), creative coding, and AI art experiments, meaning what people are actually building. Then the weird and niche: internet archaeology, obscure media, protocol history, odd hardware, and deep dives.",
         "Favour projects, experiments, tools, techniques and deep dives over news reports. Novel and non-obvious beats important-but-everywhere.",
-        "Obvious is a reason to drop. A story he would see on any tech front page (big-tech product launches, earnings, lawsuits, regulation, funding rounds, mainstream AI-lab announcements, gadget reviews) earns a place only when it is genuinely unusual for his world. Items marked GENERAL OUTLET clear a higher bar.",
+        "Judge every story on its own, whatever outlet carried it: would it interest or inspire him, or does it sit right next to what he is working on now? Obvious is a reason to drop: a story he would see on any tech front page (big-tech product launches, earnings, lawsuits, regulation, funding rounds, mainstream AI-lab announcements, gadget reviews) earns a place only when it is genuinely unusual for his world.",
         "Skip PFP nonsense, floor-price and NFT-market talk, and crypto price speculation. Include BTC news only if it is genuinely unusual.",
         "One rabbit hole, the single most interesting link of the batch: deep, weird or inspiring, not a news article. No other forced quotas.",
         "The numbers and source count are attention signals, not proof of a claim. A single unverified rumour cannot be reported as fact.",
@@ -521,6 +538,9 @@ export function rankPrompt(
     "You are Flyd's Scout, curating for George. Be opinionated: curate, don't list.",
     `Today is ${context.today}.`,
     ...task,
+    ...(candidates.some((candidate) => candidate.seat) ? [
+      `Items marked SEAT are a quote, GIF, picture, stat, video or thread for the ${INSPIRATION_SEATS} seats between the stories. Judge each exactly as you judge a story: pick it only if it would interest or inspire him or sits right next to what he is working on now. At most ${INSPIRATION_SEATS}; none is fine, and a seat is never filler.`,
+    ] : []),
     "'why' is one sharp, opinionated sentence on why this is worth his time, grounded in what the item actually says — never a stretch to his projects and never filler.",
     "An item that does not clear the bar is left out of the picks entirely: never pick it and write that it is not worth including.",
     "Source fit uses explicit reactions (0.5 = unknown); use it only as a tiebreaker.",
@@ -529,6 +549,7 @@ export function rankPrompt(
     'Reply with JSON only: {"picks": [{"index": 0, "kind": "must|relevant|rabbit_hole", "why": "..."}]} — {"picks": []} if nothing clears the bar.',
     `--- George's taste (he wrote the seed; it evolves with his feedback) ---\n${context.taste}`,
     ...(context.profile ? [`--- His own profile (his interests and preferences, in his words; judge what he would find interesting, never stretch a story to fit his projects) ---\n${context.profile}`] : []),
+    ...(context.workNow ? [`--- What he is working on right now (his recent commits, coding sessions, boards and projects; notice what is adjacent to it, never stretch an item to fit) ---\n${context.workNow}`] : []),
     `--- His feedback on past picks ---\n${feedbackDigest(context.feedback)}`,
     `--- Candidates ---\n${list}`,
   ].join("\n\n");
@@ -536,7 +557,7 @@ export function rankPrompt(
 
 export function parsePicks(
   text: string,
-  candidates: ScoutCandidate[],
+  candidates: ReadonlyArray<ScoutCandidate | undefined>,
   max = BRIEF_MAX,
   perSource = Infinity,
   stats?: { picks?: number; junk?: number },
@@ -678,10 +699,11 @@ function clearPool(dir: string, upTo: Date): void {
   writePool(dir, freshPool(dir, upTo).filter((entry) => Date.parse(entry.pooledAt) > upTo.getTime()));
 }
 
-function rankContext(dir: string, now: Date, sources: ScoutSource[], mode: "edition" | "watch") {
+function rankContext(dir: string, now: Date, sources: ScoutSource[], mode: "edition" | "watch", workNow: string | null = null) {
   return {
     taste: newsTaste(readTaste(dir)),
     profile: newsProfile(),
+    workNow,
     feedback: readFeedback(dir),
     fitnessBySource: Object.fromEntries(sources.map((source) => [source.id, fitness(source)])),
     today: localDay(now),
@@ -707,7 +729,7 @@ function recordFailures(sources: ScoutSource[], gathered: { failed: string[]; he
     if (failed.includes(source.id)) {
       const failures = source.failures + 1;
       // A source that keeps failing is paused, not deleted; it gets a retry later (reviveFailedSources).
-      return { ...source, failures, ...(failures >= 5 ? { status: "paused" as const, note: FAILURE_PAUSE_NOTE, pausedAt: now.toISOString() } : {}) };
+      return { ...source, failures, ...(failures >= 5 && source.kind !== "reddit" ? { status: "paused" as const, note: FAILURE_PAUSE_NOTE, pausedAt: now.toISOString() } : {}) };
     }
     return source.status === "active" ? { ...source, failures: 0 } : source;
   });
@@ -716,7 +738,7 @@ function recordFailures(sources: ScoutSource[], gathered: { failed: string[]; he
 const RETRY_PAUSED_AFTER_MS = 3 * 86_400_000;
 
 /**
- * A source paused for fetch failures (a Reddit block, a feed outage) gets one
+ * A source paused for fetch failures (a feed outage; subreddits are never paused this way) gets one
  * retry once it has rested a few days: back to active, one failure from being
  * paused again. Sources paused for low fitness stay paused — that was taste.
  */
@@ -793,6 +815,8 @@ export interface ScoutDependencies {
   focus?: WorkFocus[];
   /** Extra finds (stats, pictures, quotes, threads). Tests pass them; production gathers a cached set. */
   inspiration?: InspirationItem[];
+  /** What he is working on right now, for the curator. Tests pass this; production reads his recent work. */
+  workNow?: string | null;
 }
 
 export interface ScoutRunResult {
@@ -803,23 +827,36 @@ export interface ScoutRunResult {
 
 /** Seats beside the stories for a stat, a GIF, a video, an image, a quote and a thread. */
 export const INSPIRATION_SEATS = 2;
+/** Finds offered to the curator for those seats; the ones it does not pick are dropped. */
+const SEAT_CANDIDATES = 8;
 /** One find after every few stories keeps the deck mixed without crowding the news. */
 const STORIES_PER_FIND = 3;
 
-/** Every story the ranker picked keeps its place; the inspiration finds take their own seats between them. */
-function blendEdition(ranked: EditionItem[], extras: InspirationItem[], focus: WorkFocus[], now: Date, dir: string): EditionItem[] {
-  const picked = new Set(ranked.map((item) => item.url));
-  // The ranked stories are the articles; extras only fill the non-article seats.
-  const finds = mixInspiration(extras.filter((item) => item.media !== "article" && !picked.has(item.url)), focus, {
-    now: now.getTime(), seen: seenUrls(dir), lastShown: readShown(dir), limit: INSPIRATION_SEATS,
-  }).map((item): EditionItem => ({
+/** A find as the curator sees it: its quote or figure is the item. */
+function seatCandidate(item: InspirationItem): ScoutCandidate {
+  const said = item.quote ? `"${item.quote}"${item.attribution ? ` (${item.attribution})` : ""}` : item.figure ?? "";
+  return {
+    id: item.url, url: item.url, title: item.title, source: item.source, sourceId: item.sourceId, topic: item.match ?? item.source,
+    summary: [said, item.summary].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 280),
+    ...(item.published ? { published: item.published.slice(0, 10) } : {}),
+    seat: item,
+  };
+}
+
+function seatItem(pick: EditionItem, item: InspirationItem): EditionItem {
+  return {
     n: 0, title: item.title, url: item.url, source: item.source, sourceId: item.sourceId,
-    topic: item.match ?? item.source, why: item.summary.slice(0, 280), kind: "relevant", media: item.media,
+    topic: item.match ?? item.source, why: pick.why, kind: "relevant", media: item.media,
     ...(item.figure ? { figure: item.figure } : {}),
     ...(item.quote ? { quote: item.quote } : {}),
     ...(item.attribution ? { attribution: item.attribution } : {}),
     ...(item.mediaUrl ? { mediaUrl: item.mediaUrl } : {}),
-  }));
+  };
+}
+
+/** Every story the curator picked keeps its place; the finds it picked take their own seats between them. */
+function blendEdition(ranked: EditionItem[], seats: EditionItem[]): EditionItem[] {
+  const finds = [...seats];
   const stories = ranked.map((item) => {
     const media = classifyMedia({ url: item.url, title: item.title, summary: item.why });
     return media === "article" ? item : { ...item, media };
@@ -875,8 +912,23 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
   const fresh = editorialMode() !== "on" ? eligible.slice(0, EDITION_CANDIDATES)
     : prepareScoutCandidates(eligible, readFeedback(dir), now, EDITION_CANDIDATES);
   const maxItems = editorialMode() !== "on" ? LEGACY_BRIEF_MAX : BRIEF_MAX;
+  // The quote, GIF and picture seats are offered to the same curator, in the same call, as the stories.
+  const focus = deps.focus ?? (process.env.VITEST ? [] : workFocusFromProjects(liveProjects()));
+  let extras = deps.inspiration ?? [];
+  if (!deps.inspiration && !process.env.VITEST) {
+    try { extras = await gatherInspiration(dir, focus, { now, fetchImpl: deps.fetchFn }); } catch { extras = []; }
+  }
+  const storyUrls = new Set(fresh.map((candidate) => candidate.url));
+  const offered = mixInspiration(extras.filter((item) => item.media !== "article" && !storyUrls.has(item.url)), focus, {
+    now: now.getTime(), seen: seenUrls(dir), lastShown: readShown(dir), limit: SEAT_CANDIDATES,
+  });
+  const shortlist = [...fresh, ...offered.map(seatCandidate)];
+  const workNow = deps.workNow !== undefined ? deps.workNow : process.env.VITEST ? null : workNowBrief(await readWorkSignals(now));
   const picks = { picks: 0, junk: 0 };
-  const ranked = fresh.length ? parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "edition"))), fresh, maxItems, EDITION_PER_SOURCE, picks) : [];
+  const judgment = shortlist.length ? await deps.complete(rankPrompt(shortlist, rankContext(dir, now, sources, "edition", workNow))) : null;
+  const ranked = judgment ? parsePicks(judgment, shortlist.map((candidate) => candidate.seat ? undefined : candidate), maxItems, EDITION_PER_SOURCE, picks) : [];
+  const seats = judgment ? parsePicks(judgment, shortlist.map((candidate) => candidate.seat ? candidate : undefined), INSPIRATION_SEATS, EDITION_PER_SOURCE, picks)
+    .map((pick) => seatItem(pick, shortlist.find((candidate) => candidate.url === pick.url)!.seat!)) : [];
   if (editorialMode() === "shadow") {
     try {
     // Same base observations; include only *cached* discovery nominations in the alternative.
@@ -901,12 +953,7 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
       // A shadow candidate is observational only. It can never break the real edition.
     }
   }
-  const focus = deps.focus ?? (process.env.VITEST ? [] : workFocusFromProjects(liveProjects()));
-  let extras = deps.inspiration ?? [];
-  if (!deps.inspiration && !process.env.VITEST) {
-    try { extras = await gatherInspiration(dir, focus, { now, fetchImpl: deps.fetchFn }); } catch { extras = []; }
-  }
-  const items = blendEdition(ranked, extras, focus, now, dir);
+  const items = blendEdition(ranked, seats);
   const rotating = items.filter((item) => item.media).map((item) => item.url);
   if (rotating.length) markShown(dir, rotating, now);
 
@@ -1043,7 +1090,7 @@ export function recordScoutFeedback(target: ScoutFeedbackTarget, verdict: "more"
 export interface EvolutionChange { kind: "paused" | "added" | "revived" | "taste" | "topics"; detail: string }
 
 export function evolvePrompt(sources: ScoutSource[], feedback: ScoutFeedback[], taste: string, today: string, profile: string | null = null): string {
-  const table = sources.filter((source) => source.status !== "reserve").map((source) =>
+  const table = sources.map((source) =>
     `- ${source.id} [${source.status}] fit ${fitness(source).toFixed(2)} (shown ${source.shown}, more ${source.likes}, less ${source.dislikes})`).join("\n");
   return [
     "You are evolving Flyd's Scout so George's news gets better every week.",
@@ -1063,7 +1110,7 @@ const PRUNE_BELOW = 0.3;
 
 /**
  * Daily mutation: pause sources that keep missing, breed new ones from what
- * worked, try one from the reserve and revise the taste profile. Every
+ * worked and revise the taste profile. Every
  * change is logged and shown to George in the next briefing.
  */
 export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionChange[]> {
@@ -1081,22 +1128,10 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
     return source;
   });
 
-  // Counted before revival: a source on its one retry may well fail again.
-  const pausedFeeds = sources.filter((source) => source.status === "paused" && source.kind !== "topic").length;
-
   // Failure-paused sources that have rested get one more try.
   const revival = reviveFailedSources(sources, now);
   sources = revival.sources;
   for (const source of revival.revived) changes.push({ kind: "revived", detail: `retrying ${source.name}` });
-
-  // Exploration: one untried reserve feed each cycle, up to three while feeds or subreddits sit paused.
-  const reserveRank = new Map(RESERVE_RSS.map(([, url], index) => [sourceId("rss", url), index]));
-  const rank = (source: ScoutSource) => reserveRank.get(source.id) ?? -1;
-  const reserves = sources.filter((source) => source.status === "reserve").sort((a, b) => rank(a) - rank(b));
-  for (const reserve of reserves.slice(0, Math.max(1, Math.min(3, pausedFeeds)))) {
-    sources = sources.map((source) => source.id === reserve.id ? { ...source, status: "active" as const, note: "exploring from reserve" } : source);
-    changes.push({ kind: "revived", detail: `trying ${reserve.name}` });
-  }
 
   const tasteFile = readTaste(dir);
   const taste = newsTaste(tasteFile);
@@ -1247,7 +1282,7 @@ async function scoutTickWork(deps: ScoutDependencies, dir: string, now: Date, lo
     writeSources(revival.sources, dir);
     log.push(`retrying ${revival.revived.map((source) => source.name).join(", ")}`);
   }
-  // Daily, with or without feedback: look for new sources, revive, explore the reserve, replan topics, refine taste.
+  // Daily, with or without feedback: look for new sources, revive, replan topics, refine taste.
   if (evolutionDue(now, dir)) {
     const changes = await evolveScout(deps);
     log.push(`evolved: ${changes.map((change) => change.kind).join(", ") || "no changes"}`);

@@ -150,6 +150,26 @@ export class BoardNames {
   }
 }
 
+/** The boards Liesel has open (not ended), by their own names, for what he is working on now. */
+export function openBoardNames(stateFile = join(EASEL_HOME, "state.json")): string[] {
+  let sessions: Record<string, { key?: string; file?: string; status?: string }>;
+  try {
+    sessions = (JSON.parse(readFileSync(stateFile, "utf8")) as { sessions?: typeof sessions }).sessions ?? {};
+  } catch {
+    return [];
+  }
+  const names = new BoardNames(stateFile);
+  const out = new Set<string>();
+  for (const [id, session] of Object.entries(sessions)) {
+    const key = session.key ?? id;
+    if (session.status === "ended" || !isBoardKey(key)) continue;
+    const project = /\/([^/]+)\/\.liesel\/board\.json$/.exec(session.file ?? "")?.[1];
+    const name = names.nameOf(key) ?? project;
+    if (name) out.add(project && name !== project ? `${name} (${project})` : name);
+  }
+  return [...out];
+}
+
 /** What Liesel said about a board: it serves it, it does not know it, or nothing answered. */
 export type BoardAnswer = "ready" | "missing" | "down";
 
