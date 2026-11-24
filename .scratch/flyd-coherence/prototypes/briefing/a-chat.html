@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Briefing in chat</title>
+<link rel="stylesheet" href="briefing.css">
+<style>
+  body { height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
+  header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px var(--gutter); }
+  header.top h1 { margin: 0; font-size: 15px; font-weight: 650; }
+  .proto-bar.inline { position: static; transform: none; z-index: auto; }
+
+  .thread { flex: 1; overflow-y: auto; padding: 12px var(--gutter) 32px; }
+  .inner { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+  .msg { max-width: 100%; }
+  .msg p { margin: 0 0 10px; }
+  .msg p:last-child { margin: 0; }
+  .msg.me { align-self: flex-end; max-width: 520px; background: var(--surface); border: 1px solid var(--line); padding: 11px 16px; border-radius: 18px 18px 6px 18px; }
+  .msg.enter { animation: rise .5s ease-out both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+  .when { align-self: center; font-size: 12px; color: var(--faint); }
+
+  .artefact { background: var(--surface); border-radius: 18px; box-shadow: var(--shadow); padding: 26px 26px 28px; margin-top: 14px; }
+  .artefact .sum { margin: 0 0 28px; font-size: 16px; font-weight: 600; line-height: 1.4; }
+  .artefact .sec > h2 { font-size: 15px; }
+  .artefact .review + .review { margin-top: 36px; padding-top: 30px; border-top: 1px solid var(--line); }
+  .artefact .nexts { color: var(--ink-2); }
+
+  .composer-wrap { padding: 10px var(--gutter) 20px; }
+  .composer { max-width: 680px; margin: 0 auto; display: flex; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px; padding: 7px 7px 7px 16px; }
+  .composer input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; color: var(--ink); padding: 8px 0; }
+  .composer button { border: 0; background: var(--ink); color: var(--bg); border-radius: 11px; padding: 9px 16px; font-size: 14px; font-weight: 600; }
+
+  @media (max-width: 640px) {
+    .artefact { padding: 20px 16px 22px; border-radius: 16px; }
+    .proto-bar.inline a { padding: 6px 9px; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Flyd</h1>
+  <nav class="proto-bar inline"><a class="on" href="a-chat.html">Chat</a><a href="b-report.html">Report</a><a href="c-digest.html">Digest</a><a href="index.html">All</a></nav>
+</header>
+
+<div class="thread" id="thread"><div class="inner staged" id="inner">
+  <div class="when">09:12</div>
+  <div class="msg me"><p>Can the portfolio feel less like a slideshow between projects?</p></div>
+  <div class="msg flyd"><p>Yes. I'll try a pixel transition in three ways and keep building on the strongest one. You'll see all three.</p></div>
+  <div class="when">16:40</div>
+  <div class="msg flyd" id="brief"></div>
+  <div class="msg flyd" id="looks"></div>
+</div></div>
+
+<div class="composer-wrap">
+  <form class="composer" id="composer"><input id="input" placeholder="Message Flyd" autocomplete="off"><button type="submit">Send</button></form>
+</div>
+
+<script src="data.js"></script>
+<script src="briefing.js"></script>
+<script>
+  const { B, outcomes, experiments, decisions, review, bind, reveal } = BRIEFUI;
+  const inner = document.getElementById("inner");
+  const thread = document.getElementById("thread");
+
+  document.getElementById("brief").innerHTML = `
+    <p>Here's what you need to know since this morning.</p>
+    <div class="artefact">
+      <p class="sum rv">Four things done, five experiments running and five decisions made. Two looks are on my pick and still moving.</p>
+      <section class="sec"><h2>Done</h2>${outcomes(B.outcomes)}</section>
+      <section class="sec"><h2>Under way</h2>${experiments(B.experiments)}</section>
+      <section class="sec"><h2>Decided, and why</h2>${decisions(B.decisions)}</section>
+      <section class="sec"><h2>Next</h2><ol class="nexts rv">${B.next.map((n) => `<li>${n}</li>`).join("")}</ol></section>
+    </div>`;
+
+  document.getElementById("looks").innerHTML = `
+    <p>Two looks for your eye. Both are moving on my pick, so nothing waits on you.</p>
+    <div class="artefact">${B.reviews.map((r) => review(r)).join("")}</div>`;
+
+  function say(text, who = "flyd") {
+    const m = document.createElement("div");
+    m.className = `msg ${who} enter`;
+    m.innerHTML = `<p>${BRIEFUI.esc(text)}</p>`;
+    inner.appendChild(m);
+    thread.scrollTo({ top: thread.scrollHeight, behavior: "smooth" });
+  }
+
+  bind(inner, (type, d) => {
+    if (type === "pick") {
+      say(d.back ? `Back on ${d.option.name}.` : `Switched to ${d.option.name}. Work now moves on it, and ${BRIEFUI.byId(d.review.options, d.review.pick).name} is kept.`);
+    } else if (type === "reverse") {
+      say(d.reversed ? `Reversed “${d.decision.what}”. I'll redo what depended on it.` : "Restored.");
+    } else if (type === "live") {
+      say("Taking CapFive live now. I'll show you the six pages once they're up.");
+    }
+  });
+
+  document.getElementById("composer").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const input = document.getElementById("input");
+    const text = input.value.trim();
+    if (!text) return;
+    say(text, "me");
+    input.value = "";
+    setTimeout(() => say("Got it. I'll fold that into the next round."), 600);
+  });
+
+  reveal(inner, 70, 200);
+</script>
+</body>
+</html>
