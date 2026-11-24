@@ -7,10 +7,20 @@ import { answerBody, answerHtml } from "../answer-form.js";
 import { communicationIntent, manifestationPlan } from "../communication.js";
 import { comparisonContent, diagnosticContent } from "./fixtures/communication.js";
 import { boxesOf } from "../boxes.js";
+import { jobsFrom, type JobRun } from "../jobs.js";
 import { RECEIVED } from "../living.js";
 import { renderPage } from "../page.js";
 import { fillScreen } from "../screen/patterns.js";
 import type { ShowItem, ShowScreen } from "../show.js";
+
+// Core's one board (jobs.ts) is built here as the live view builds it. Its imports read Flyd's install root
+// through \`new URL(…, import.meta.url)\`, which vitest turns into a web address under happy-dom: the
+// config they read is Flyd's directory alone, somewhere throwaway.
+vi.mock("../../lib/config.js", async () => {
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  return { FLYD_DIR: join(tmpdir(), "flyd-page-test"), FLYD_APPLICATION_ROOT: join(tmpdir(), "flyd-page-test-root") };
+});
 
 // Runs the real page script against a fake server: EventSource streams and
 // fetch responses are scripted by each test.
@@ -3028,6 +3038,139 @@ describe("the front page", () => {
       expect(moved).toHaveLength(0);
       expect(stack()).toEqual(before);
       expect(y).toBe(300);
+    } finally {
+      box.mockRestore();
+      delete (window as { scrollY?: number }).scrollY;
+      delete (document.documentElement as { scrollHeight?: number }).scrollHeight;
+    }
+  });
+
+  it("keeps the main chat append-only when his words name a job's project: the job's message never moves", async () => {
+    // The bug: Core's one board (jobsFrom) gives a project's job the newest time of any conversation tagged
+    // with that project, and the timeline placed each job message by that time on every redraw. So talking
+    // about CleanX in the main chat pulled CleanX's message down under his newest words, and naming another
+    // project sent it back up: the conversation jumped while he read it.
+    load("");
+    await settle();
+    const base = Date.now() - 6 * 60 * 60_000;
+    const iso = (minutes: number) => new Date(base + minutes * 60_000).toISOString();
+    const said = (id: string, role: string, minutes: number) => ({ id, role, html: `<p>${id}</p>`, timestamp: iso(minutes) });
+    const messages = [said("m0", "user", 0), said("m1", "assistant", 5), said("m2", "user", 120), said("m3", "assistant", 125)];
+    const stream = open("latest", messages);
+    const cleanx = { id: "cleanx", name: "CleanX", what: "Credit packs", kind: "client" as const, status: "active" as const, now: "", next: "", people: [], repos: [], updated: "2026-11-01" };
+    // A worker on CleanX, last heard from between his two questions.
+    const worker: JobRun = { id: "run-cx", status: "working", project: "CleanX", outcome: "Build the CleanX credit packs", owner: "FirstMate", updatedAt: iso(60), artifacts: [] };
+    const board = (sessionAt: number, project: string, status = "working") => jobsFrom({
+      projects: [cleanx], runs: [{ ...worker, status }], now: Date.now(),
+      sessions: [{ id: "latest", title: "Latest", project, updatedAt: iso(sessionAt) }],
+    }).jobs;
+    const refresh = (order: typeof messages, jobs: unknown[], fresh: typeof messages = []) => ({ order: order.map((m) => m.id), messages: fresh, working: false, show: SHOW, jobsFleetKnown: true, jobs });
+    const panes = () => [...document.querySelectorAll<HTMLElement>("#stream > .msg")].map((node) => node.dataset.job ? `job:${node.dataset.job}` : node.querySelector(".body")!.textContent);
+    // His newest words already name CleanX, so the board dates its job at them.
+    const first = board(125, "CleanX");
+    expect(first.map((job) => job.id)).toEqual(["run:run-cx"]);
+    expect(first[0]!.at).toBe(iso(125));
+    stream.emit("update", refresh(messages, first));
+    await settle();
+    // It is said where its own record puts it, never at the time the conversation lent it.
+    expect(panes()).toEqual(["m0", "m1", "job:run:run-cx", "m2", "m3"]);
+    const work = document.querySelector<HTMLElement>('#stream > .msg.work[data-job="run:run-cx"]')!;
+    const moved: Node[] = [];
+    const watch = new MutationObserver((records) => records.forEach((r) => [...r.addedNodes, ...r.removedNodes].forEach((n) => { if (n === work) moved.push(n); })));
+    watch.observe(document.getElementById("stream")!, { childList: true });
+    // He asks about CleanX again: a new exchange, and the session's time moves on with it.
+    const next = [...messages, said("m4", "user", 240), said("m5", "assistant", 245)];
+    stream.emit("update", refresh(next, board(245, "CleanX"), next.slice(4)));
+    await settle();
+    expect(panes()).toEqual(["m0", "m1", "job:run:run-cx", "m2", "m3", "m4", "m5"]);
+    // He moves on to another project: CleanX's time falls back to its own.
+    stream.emit("update", refresh(next, board(245, "Northwind")));
+    await settle();
+    watch.disconnect();
+    expect(panes()).toEqual(["m0", "m1", "job:run:run-cx", "m2", "m3", "m4", "m5"]);
+    expect(moved).toHaveLength(0);
+    // The worker is queued for a while (the board files it under the project then) and starts again:
+    // its message comes back where it was said, never as something new at the bottom.
+    stream.emit("update", refresh(next, board(245, "Northwind", "queued")));
+    await settle();
+    expect(panes()).toEqual(["m0", "m1", "m2", "m3", "m4", "m5"]);
+    stream.emit("update", refresh(next, board(245, "CleanX")));
+    await settle();
+    expect(panes()).toEqual(["m0", "m1", "job:run:run-cx", "m2", "m3", "m4", "m5"]);
+  });
+
+  it("adds a job that comes after the page did at the bottom of the conversation, and a reload keeps it there", async () => {
+    load("");
+    await settle();
+    const base = Date.now() - 6 * 60 * 60_000;
+    const iso = (minutes: number) => new Date(base + minutes * 60_000).toISOString();
+    const messages = [0, 5, 120, 125].map((minutes, i) => ({ id: `m${i}`, role: i % 2 ? "assistant" : "user", html: `<p>m${i}</p>`, timestamp: iso(minutes) }));
+    const job = (id: string, at: string) => ({ id, group: "needs", state: "Needs you", title: `Ask ${id}`, at, toldAt: at, project: "", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null });
+    const panes = () => [...document.querySelectorAll<HTMLElement>("#stream > .msg")].map((node) => node.dataset.job ? `job:${node.dataset.job}` : node.querySelector(".body")!.textContent);
+    let stream = open("latest", messages);
+    stream.emit("update", { order: messages.map((m) => m.id), messages: [], working: false, show: SHOW, jobsFleetKnown: true, jobs: [] });
+    await settle();
+    // An ask the staff raised an hour ago reaches the board only now: it is new to him, so it is said last.
+    stream.emit("update", { order: messages.map((m) => m.id), messages: [], working: false, show: SHOW, jobsFleetKnown: true, jobs: [job("late", iso(60))] });
+    await settle();
+    expect(panes()).toEqual(["m0", "m1", "m2", "m3", "job:late"]);
+    // The page comes back: the ask stands where he saw it, not where its own time would first have put it.
+    intervals.splice(0).forEach((id) => clearInterval(id));
+    FakeEventSource.instances = [];
+    load("");
+    await settle();
+    stream = open("latest", messages);
+    stream.emit("update", { order: messages.map((m) => m.id), messages: [], working: false, show: SHOW, jobsFleetKnown: true, jobs: [job("late", iso(60))] });
+    await settle();
+    expect(panes()).toEqual(["m0", "m1", "m2", "m3", "job:late"]);
+  });
+
+  it("loads earlier exchanges as he scrolls to the top, above what he is reading, without moving him", async () => {
+    // happy-dom lays nothing out: every child of the pane is 100px tall, stacked in DOM order, under a window scrolled to y.
+    let y = 0;
+    const stack = () => [...document.getElementById("stream")!.children];
+    const rect = (top: number) => ({ x: 0, y: top, top, left: 0, right: 600, bottom: top + 100, width: 600, height: 100, toJSON: () => ({}) }) as DOMRect;
+    const box = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const at = stack().indexOf(this);
+      return at === -1 ? rect(0) : rect(at * 100 - y);
+    });
+    Object.defineProperty(window, "scrollY", { configurable: true, get: () => y });
+    Object.defineProperty(document.documentElement, "scrollHeight", { configurable: true, get: () => stack().length * 100 });
+    window.scrollBy = ((_x: number, dy: number) => { y += dy; }) as typeof window.scrollBy;
+    window.scrollTo = ((_x: number, to: number) => { y = to; }) as typeof window.scrollTo;
+    try {
+      load("");
+      await settle();
+      const base = Date.now() - 6 * 60 * 60_000;
+      const all = Array.from({ length: 20 }, (_, i) => ({ id: `m${i}`, role: i % 2 ? "assistant" : "user", html: `<p>m${i}</p>`, timestamp: new Date(base + i * 60_000).toISOString() }));
+      const stream = FakeEventSource.instances.at(-1)!;
+      stream.emit("session", { id: "latest", title: "latest", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "Flyd", stream: "stream-1" });
+      // Core drew the newest exchanges; five more wait above.
+      const shown = all.slice(10);
+      stream.emit("update", { order: shown.map((m) => m.id), earlier: 5, messages: shown, working: false });
+      await settle();
+      const asked = () => vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/earlier");
+      // Reading down at the bottom asks for nothing.
+      expect(asked()).toHaveLength(0);
+      // He scrolls up to the top: the page asks once for what came before, by its stream.
+      y = 150;
+      window.dispatchEvent(new Event("scroll"));
+      window.dispatchEvent(new Event("scroll"));
+      await settle();
+      expect(asked()).toHaveLength(1);
+      expect(JSON.parse(String(asked()[0]![1]!.body))).toEqual({ stream: "stream-1" });
+      const reading = document.querySelectorAll<HTMLElement>("#stream > .msg")[1]!;
+      const top = reading.getBoundingClientRect().top;
+      stream.emit("update", { order: all.map((m) => m.id), messages: all.slice(0, 10), working: false });
+      await settle();
+      // The earlier exchanges sit above, in order, and what he was reading has not moved under him.
+      expect([...document.querySelectorAll<HTMLElement>("#stream > .msg")].map((node) => node.querySelector(".body")!.textContent)).toEqual(all.map((m) => m.id));
+      expect(reading.getBoundingClientRect().top).toBe(top);
+      // Nothing more waits above: scrolling to the top again asks for nothing.
+      y = 0;
+      window.dispatchEvent(new Event("scroll"));
+      await settle();
+      expect(asked()).toHaveLength(1);
     } finally {
       box.mockRestore();
       delete (window as { scrollY?: number }).scrollY;

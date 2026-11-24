@@ -209,6 +209,30 @@ describe("FlydDesk", () => {
     expect(numbers).toEqual([1, 2, 3, 4, 5, 6, 1]);
   });
 
+  it("gives the model the newest exchanges whole and one short recap of the earlier ones, never the whole window", async () => {
+    const histories: Array<Array<{ role: string; content: string }>> = [];
+    const desk = new FlydDesk({ dir, answer: async (question, history) => {
+      histories.push(history);
+      return `Answer to ${question}. ${"More words. ".repeat(40)}`;
+    } });
+    for (let asked = 1; asked <= 7; asked += 1) {
+      desk.ask(`question ${asked}`, [], "long");
+      await until(() => (desk.exchanges().filter((exchange) => exchange.answer).length === asked ? true : undefined));
+    }
+    // Up to four exchanges there is nothing to recap.
+    expect(histories[4]!.map((turn) => turn.role)).toEqual(["user", "assistant", "user", "assistant", "user", "assistant", "user", "assistant"]);
+    const last = histories[6]!;
+    // The four newest whole, after one recap of the two before them.
+    expect(last.slice(1).filter((turn) => turn.role === "user").map((turn) => turn.content)).toEqual(["question 3", "question 4", "question 5", "question 6"]);
+    expect(last[0]!.role).toBe("assistant");
+    const recap = last[0]!.content.split("\n");
+    expect(recap[0]).toBe("(What we said earlier in this conversation, oldest first:)");
+    expect(recap.slice(1).map((line) => line.split(" → ")[0])).toEqual(["- George: question 1", "- George: question 2"]);
+    // Each answer is its gist, cut at a word, never the answer whole.
+    expect(recap[1]!.length).toBeLessThan(200);
+    expect(recap[1]).toMatch(/→ Flyd: Answer to question 1\. More words\..*…$/);
+  });
+
   it("hands Flyd's turn where he wrote it from, and nothing when the window gave no scope", async () => {
     const scopes: unknown[] = [];
     const desk = new FlydDesk({ dir, answer: async (_question, _history, _onStep, turn) => {

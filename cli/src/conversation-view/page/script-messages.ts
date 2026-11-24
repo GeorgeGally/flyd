@@ -476,6 +476,12 @@ export const MESSAGES_SCRIPT = `
   var shownOrder = [];
   setInterval(refreshWorking, 15000);
 
+  // An earlier message loaded above the page's oldest goes above a job's message said after it.
+  function saidAfter(work, el, older) {
+    if (!older) return false;
+    var said = Date.parse(work.dataset.ts || ""), at = Date.parse(el.dataset.ts || "");
+    return !isNaN(said) && !isNaN(at) && at < said;
+  }
   function apply(update) {
     drawnFrom = current;
     var stick = first || pinned;
@@ -502,11 +508,15 @@ export const MESSAGES_SCRIPT = `
     if (cursor && cursor.classList.contains("earlier")) cursor = cursor.nextElementSibling;
     var day = "";
     var previous = null;
-    update.order.forEach(function (id) {
+    // Messages before the oldest one already on the page are earlier ones he scrolled up to.
+    var standing = update.order.findIndex(function (id) { var node = nodes.get(id); return !!node && node.parentElement === main; });
+    update.order.forEach(function (id, index) {
       var el = nodes.get(id);
-      // The timeline's job messages (script-timeline.ts) are placed by their own time: stepping past
+      var older = standing > 0 && index < standing;
+      // The timeline's job messages (script-timeline.ts) stand where they were said: stepping past
       // them, rather than putting each message before them, leaves both where they already stand.
-      while (cursor && cursor !== el && cursor.classList.contains("work")) cursor = cursor.nextElementSibling;
+      // Only an earlier message loaded above one (scrolling up) goes before it.
+      while (cursor && cursor !== el && cursor.classList.contains("work") && !saidAfter(cursor, el, older)) cursor = cursor.nextElementSibling;
       if (el !== cursor) main.insertBefore(el, cursor); else cursor = cursor.nextElementSibling;
       el.classList.toggle("aside-first", el.classList.contains("aside") && !(previous && previous.classList.contains("aside")));
       previous = el;
@@ -523,6 +533,7 @@ export const MESSAGES_SCRIPT = `
     if (typeof paintConfirm === "function" && centre !== "news") paintConfirm(conversationConfirm);
     isWorking = update.working;
     shownOrder = update.order;
+    if (typeof noteEarlier === "function") noteEarlier(update);
     var projectBadge = document.getElementById("project-badge");
     if (projectBadge.textContent !== (update.project || "")) {
       projectBadge.textContent = update.project || "";

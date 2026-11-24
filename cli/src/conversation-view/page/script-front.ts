@@ -630,7 +630,7 @@ export const FRONT_SCRIPT = `
   function frontListedJob(job) {
     return {
       id: job.id, group: job.group, state: job.state || "", title: frontTitle(job.title), project: job.project || "",
-      at: job.at || "", next: job.next || "", owner: job.owner || "", ask: job.ask || "", questionIdentity: job.questionIdentity || "", because: job.because || "",
+      at: job.at || "", toldAt: job.toldAt || "", next: job.next || "", owner: job.owner || "", ask: job.ask || "", questionIdentity: job.questionIdentity || "", because: job.because || "",
       digest: job.digest || null, shots: frontShots(job.shots), links: job.links || [], files: job.files || [],
       threads: job.threads || [], detail: job.detail || "", decision: job.decision || null, task: job.task || "", domainRun: job.domainRun || "",
       choices: Array.isArray(job.choices) ? job.choices : [], recommended: job.recommended || "", labels: job.labels && typeof job.labels === "object" ? job.labels : {},

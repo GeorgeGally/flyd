@@ -36,6 +36,8 @@ export const SESSION_SCRIPT = `
     carried.clear();
     first = true;
     jump.hidden = true;
+    // The new conversation's job messages are placed afresh among its words.
+    if (typeof workUnplace === "function" && typeof workPlaced !== "undefined") workUnplace();
   }
 
   function connect(sessionId) {
@@ -52,6 +54,9 @@ export const SESSION_SCRIPT = `
         reset();
       }
       current = session.id;
+      streamId = session.stream || null;
+      earlierLeft = 0;
+      earlierAsked = false;
       if (session.id.indexOf("project:") === 0) document.documentElement.setAttribute("data-thread", session.id);
       else document.documentElement.removeAttribute("data-thread");
       assistant = session.assistantLabel;
@@ -228,10 +233,30 @@ export const SESSION_SCRIPT = `
     }).catch(function () {});
   }, 5000);
 
+  // A long conversation comes drawn from its newest exchanges; scrolling up to the top brings the
+  // ones before, put in above what he is reading (apply keeps his place), one batch at a time.
+  var streamId = null;
+  var earlierLeft = 0;
+  var earlierAsked = false;
+  var EARLIER_NEAR_TOP = 800;
+  function noteEarlier(update) {
+    var left = update.earlier || 0;
+    if (left !== earlierLeft) earlierAsked = false;
+    earlierLeft = left;
+  }
+  function askEarlier() {
+    if (!earlierLeft || earlierAsked || !streamId || !VIEW_TOKEN || !onConversation()) return;
+    if (window.scrollY > EARLIER_NEAR_TOP) return;
+    earlierAsked = true;
+    fetch("/api/earlier", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify({ stream: streamId }) })
+      .then(function (response) { if (!response.ok) earlierAsked = false; })
+      .catch(function () { earlierAsked = false; });
+  }
   window.addEventListener("scroll", function () {
     if (!onConversation()) return;
     pinned = nearBottom();
     if (pinned) jump.hidden = true;
+    askEarlier();
   }, { passive: true });
   // A picture loading or a summary landing grows the page: a pinned reader stays on the latest.
   if (window.ResizeObserver) new ResizeObserver(function () { if (pinned && onConversation()) toBottom(); }).observe(main);

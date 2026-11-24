@@ -48,6 +48,13 @@ describe("jobsFrom", () => {
     expect(board.jobs.filter((job) => job.handled).map((job) => job.id)).toEqual(["landed:sync"]);
   });
 
+  it("dates a project's job by its own records for the timeline, whatever conversation names the project", () => {
+    // A conversation tagged with the project moves the column's time for its job; where the timeline says it does not move.
+    const sessions = [{ id: "window:main", title: "Chat", project: "Cap5", updatedAt: "2026-10-26T11:50:00.000Z" }];
+    const board = jobsFrom({ projects: [project()], runs: [run({ updatedAt: "2026-10-26T11:00:00.000Z" })], sessions, now: NOW });
+    expect(board.jobs.find((job) => job.state === "Working")).toMatchObject({ at: "2026-10-26T11:50:00.000Z", toldAt: "2026-10-26T11:00:00.000Z" });
+  });
+
   it("carries the run start separately from its latest update", () => {
     const board = jobsFrom({ runs: [run({ started: "2026-10-26T09:00:00Z", updatedAt: "2026-10-26T11:59:00Z" })], now: NOW });
     expect(board.jobs.find((job) => job.group === "moving" && job.state === "Working")).toMatchObject({ started: "2026-10-26T09:00:00Z", at: "2026-10-26T11:59:00Z" });

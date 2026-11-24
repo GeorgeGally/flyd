@@ -55,7 +55,13 @@ export interface Job {
   title: string;
   /** Client, or the one-line what, shown beside the state. */
   project: string;
+  /** Its newest moment: its own records, and any conversation named for its project (the column's order). */
   at: string;
+  /**
+   * When its own records last said something, never moved by a conversation that names its project:
+   * where the timeline says it. A message there is placed once and never moves (script-timeline.ts).
+   */
+  toldAt?: string;
   started?: string;
   next: string;
   /** "you" when the next action is his; otherwise the run's owner. */
@@ -533,6 +539,7 @@ export function jobsFrom(input: {
     const paused = bucket.signals.filter((signal) => signal.state === "Paused").length;
     const state = lead.state ?? STATE[lead.group];
     const at = [...bucket.signals.map((signal) => signal.at), ...bucket.threads.map((thread) => thread.at)].filter(Boolean).sort().at(-1) ?? "";
+    const toldAt = bucket.signals.map((signal) => signal.at).filter(Boolean).sort().at(-1);
     if (lead.group === "done" && dayNumber(at || project?.updated || "", now) > DONE_KEEP_DAYS) continue;
     const digest = newestDigest(digests, bucket, lead);
     for (const source of bucket.reports) {
@@ -582,6 +589,7 @@ export function jobsFrom(input: {
       title: named ? named.title : bucket.title,
       project: bucket.project,
       at,
+      ...(toldAt ? { toldAt } : {}),
       ...(lead.started ? { started: lead.started } : {}),
       // The question is said once: a next line that only repeats it is left out.
       next: heldAsks ? "" : words ? (group === "needs" ? "" : words.body) : sameWords(lead.next, lead.ask) ? "" : shownLine(lead.next, group),
