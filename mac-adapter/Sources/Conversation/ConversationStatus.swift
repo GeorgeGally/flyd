@@ -21,6 +21,7 @@ struct ConversationStatusPayload: Decodable, Equatable {
     struct Notice: Decodable, Equatable {
         let id: String
         let text: String
+        var category: String? = nil
     }
     let session: String
     let working: Bool
@@ -35,10 +36,11 @@ enum ConversationStatusDecision: Equatable {
     case showWorking
     case clearWorking
     case announce(String, DictationPill.StatusTone)
+    case announceProvider(String, String)
 
-    /// `previous` nil means this is the first reading of a session: it sets the
-    /// baseline and announces nothing old.
-    static func decide(previous: ConversationStatusPayload?, current: ConversationStatusPayload) -> [ConversationStatusDecision] {
+    /// First readings establish a baseline for ordinary replies/notices.
+    /// Unseen provider incidents still need delivery on the first packet.
+    static func decide(previous: ConversationStatusPayload?, current: ConversationStatusPayload, shownProviderIncidents: Set<String> = []) -> [ConversationStatusDecision] {
         var decisions: [ConversationStatusDecision] = []
         let newSession = previous?.session != current.session
         if !newSession, let reply = current.reply, reply.id != previous?.reply?.id {
@@ -51,8 +53,14 @@ enum ConversationStatusDecision: Equatable {
             decisions.append(.announce(waiting.text, .failure))
         }
         // A notice that needs him (a permission prompt, a usage limit) rings once per id; each new ask gets a new id.
-        if !newSession, let notice = current.notice, notice.id != previous?.notice?.id {
-            decisions.append(.announce("Needs you: \(notice.text)", .decision))
+        if let notice = current.notice {
+            if notice.category == "provider_health" {
+                if !shownProviderIncidents.contains(notice.id), newSession || notice.id != previous?.notice?.id {
+                    decisions.append(.announceProvider(notice.id, notice.text))
+                }
+            } else if !newSession, notice.id != previous?.notice?.id {
+                decisions.append(.announce("Needs you: \(notice.text)", .decision))
+            }
         }
         if current.working {
             if previous?.working != true || newSession { decisions.append(.showWorking) }
@@ -76,6 +84,7 @@ final class ConversationStatus: NSObject, URLSessionDataDelegate {
     private var buffer = ""
     private var last: ConversationStatusPayload?
     private var working = false
+    private let providerNotices = ProviderNoticeLedger()
     /// An announcement that arrived while dictation was using the island.
     private var pending: (String, DictationPill.StatusTone)?
     private var timer: Timer?
@@ -140,7 +149,7 @@ final class ConversationStatus: NSObject, URLSessionDataDelegate {
     // MARK: - Island
 
     func apply(_ payload: ConversationStatusPayload) {
-        for decision in ConversationStatusDecision.decide(previous: last, current: payload) {
+        for decision in ConversationStatusDecision.decide(previous: last, current: payload, shownProviderIncidents: providerNotices.shown) {
             if decision != .none { ConversationServer.appendLog("island: \(decision)") }
             switch decision {
             case .none:
@@ -153,6 +162,8 @@ final class ConversationStatus: NSObject, URLSessionDataDelegate {
                 if case .status(_, .working) = island.currentPhase { island.hide() }
             case .announce(let text, let tone):
                 announce(text, tone)
+            case .announceProvider(let id, let text):
+                _ = showProviderNotice(id: id, text: text)
             }
         }
         last = payload
@@ -168,6 +179,15 @@ final class ConversationStatus: NSObject, URLSessionDataDelegate {
         island.show(.status(text, tone))
     }
 
+    @discardableResult
+    private func showProviderNotice(id: String, text: String) -> Bool {
+        guard !providerNotices.shown.contains(id), !island.isBusyWithVoice,
+              !ConversationWindow.shared.isKeyAndVisible else { return false }
+        island.show(.status("Needs you: \(text)", .decision))
+        providerNotices.recordShown(id)
+        return true
+    }
+
     private func showWorkingIfIdle() {
         guard working, !island.isBusyWithVoice, !ConversationWindow.shared.isKeyAndVisible else { return }
         if island.currentPhase == nil { island.show(.status(Self.workingText, .working)) }
@@ -176,6 +196,10 @@ final class ConversationStatus: NSObject, URLSessionDataDelegate {
     /// After dictation hands the island back: say what was waiting, or that firstmate is still working.
     private func reassert() {
         guard !island.isBusyWithVoice else { return }
+        // First-packet incidents and incidents received during voice remain
+        // pending until they can really be shown, even after a reconnect.
+        if let notice = last?.notice, notice.category == "provider_health",
+           showProviderNotice(id: notice.id, text: notice.text) { return }
         if let (text, tone) = pending {
             pending = nil
             announce(text, tone)

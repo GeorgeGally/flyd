@@ -2,6 +2,7 @@ import { HIS_TASTE, NEVER, speaksForHim } from "./auto-answers.js";
 import { forHim } from "../lib/pa-voice.js";
 import { escapeHtml, renderMarkdown } from "./markdown.js";
 import type { ManifestationEvidence, ManifestationPart, ManifestationPlan } from "./semantic.js";
+import { communicationFallback, communicationHtml, plainCommunication, validateCommunicationPlan } from "./communication.js";
 
 export type { ManifestationEvidence, ManifestationPart } from "./semantic.js";
 
@@ -68,6 +69,10 @@ export function answerBody(value: unknown): AnswerBody {
   if (typeof value === "string") return { lead: withoutObviousAsk(forHim(value)), form: "prose" };
   const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const lead = forHim(said(record.lead));
+  if (record.form === "communication") {
+    const plan = validateCommunicationPlan(value);
+    return plan ?? { form: "prose", lead: communicationFallback(value) };
+  }
   const told = [lead, ...partsFrom(record.parts).map((part) => part.text)].join("\n");
   const next = doingNotAsking(forHim(said(record.next)), told);
   if (record.form === "diagnosis") {
@@ -127,6 +132,10 @@ export function answerBody(value: unknown): AnswerBody {
 
 /** The body as one string: what history, search and every prose reader keep. */
 export function plainAnswer(body: AnswerBody): string {
+  if (body.form === "communication") {
+    const plan = validateCommunicationPlan(body);
+    return plan ? plainCommunication(plan) : communicationFallback(body);
+  }
   if (body.form === "gallery") {
     return [body.lead, ...body.items.map((item) =>
       [item.title, item.description, item.sourceUrl ?? item.imageUrl].join(" — "))].join("\n\n");
@@ -176,6 +185,10 @@ export function workingReply(body: AnswerBody): string | null {
 
 /** The body as the page shows it; prose is exactly the markdown it has always been. */
 export function answerHtml(body: AnswerBody): string {
+  if (body.form === "communication") {
+    const plan = validateCommunicationPlan(body);
+    return plan ? communicationHtml(plan) : renderMarkdown(communicationFallback(body));
+  }
   if (body.form === "prose") return renderMarkdown(body.lead);
   if (body.form === "gallery") {
     const items = body.items.map((item) => [

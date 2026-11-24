@@ -63,6 +63,7 @@ import type { CompiledContext } from "../cognition/types.js";
 import { CognitiveCurator } from "../cognition/curator/curator.js";
 import { runCuratorSweep } from "../cognition/curator/reconcile.js";
 import { chatScopeLine, type ChatScope } from "./chat-scope.js";
+import { communicationContent, DESCRIBE_ANSWER_TOOL, plainCommunication, manifestationPlan, type CommunicationContent } from "../conversation-view/communication.js";
 
 interface ConversationInput {
   source?: ConversationTurnSource;
@@ -105,6 +106,8 @@ interface ConversationInput {
   onUnderstanding?: (turn: TurnUnderstanding) => void;
   /** The surface's artefact path: a long list or table is also kept here whole; the chat answer still carries all of it. */
   onArtefact?: (body: string) => void;
+  /** Grounded data channel for a capable surface; no layout or action authority. */
+  onAnswerContent?: (content: CommunicationContent) => void;
   /** A shape this surface's answers may take, said to the model for this turn only. */
   formPrompt?: string;
   /** The article this conversation is about. Untrusted evidence: it cannot call tools or write memory. */
@@ -1345,6 +1348,7 @@ export async function respondToConversation(
   let deferredAnswer = false;
   const toolCalls: TurnToolCall[] = [];
   const toolOutputs: string[] = [];
+  let describedAnswer: CommunicationContent | null = null;
   const knownRepos = input.crossRepo?.map((r) => r.root) ?? [];
   const personalToolDeps = {
     ...unattendedPersonalTools(input.sessionId, input.background),
@@ -1373,6 +1377,24 @@ export async function respondToConversation(
       const denied = "Not available: this chat is about an article, and the article cannot make Flyd use a tool.";
       toolCalls.push({ name, input: toolInput, succeeded: false, error: denied });
       return denied;
+    }
+    if (name === DESCRIBE_ANSWER_TOOL.name && input.onAnswerContent && !mobile && (!plan || plan.route === "answer")) {
+      const denied = !selectedTools.some((tool) => tool.name === name) ? "Error: this surface does not offer structured answer content."
+        : dependencies.toolProfile?.refuse?.(name, toolInput);
+      if (denied) {
+        toolCalls.push({ name, input: toolInput, succeeded: false, error: denied });
+        return denied;
+      }
+      const groundingText = [facts, evidence, request.grounding, input.attached ?? "", ...toolOutputs].join("\n");
+      const content = communicationContent(toolInput, `answer:${txSession}:${input.turnNumber ?? txInvocation}`, groundingText);
+      const complete = content ? plainCommunication(manifestationPlan(content, { primary: "summarize_result", goals: ["summarize_result"], source: "structure", confidence: 1 })) : "";
+      const accepted = content && !ungroundedSpans(complete, groundingText, input.message).length
+        && !unsupportedClaims(complete, toolCalls, isMutatingToolCall).length;
+      const result = accepted ? "Grounded answer content accepted. Finish with a short natural takeaway; the surface chooses presentation."
+        : "Error: invalid answer content, ungrounded names/dates, unsupported action claims, or an evidence quote/URL missing from this turn's sources. Correct the facts or include the whole grounded answer in your final reply.";
+      describedAnswer = accepted ? content : null;
+      toolCalls.push({ name, input: toolInput, succeeded: Boolean(accepted), ...(!accepted ? { error: result } : {}) });
+      return result;
     }
     // The harness's gate, before anything runs: the turn's route, the tool's
     // contract, then the retry limit. An article chat skips the route gate so
@@ -1419,7 +1441,8 @@ export async function respondToConversation(
   const offered = input.article
     ? personalTools.filter((tool) => tool.name === "remember")
     : chatToolSet(plan, codeTurn, !unattended).filter(tool => !mobile || (MOBILE_TOOLS.has(tool.name) && (input.mobileAccounts || !CONNECTOR_TOOL_NAMES.has(tool.name))));
-  const selectedTools = dependencies.toolProfile ? dependencies.toolProfile.offer(offered) : offered;
+  const presentationTools = input.onAnswerContent && !input.article && !mobile && (!plan || plan.route === "answer") ? [...offered, DESCRIBE_ANSWER_TOOL] : offered;
+  const selectedTools = dependencies.toolProfile ? dependencies.toolProfile.offer(presentationTools) : presentationTools;
   if (!dependencies.readOnly) {
     try {
       const sent = `${system}\n${prompt}`;
@@ -1453,6 +1476,7 @@ export async function respondToConversation(
         canFailOver: () => !attemptMutated,
         onFailover: ({ to }) => {
           attemptMutated = false;
+          describedAnswer = null;
           input.onActivity?.(`Switching to ${apiModelId(to)} (primary model unavailable)`);
         },
       },
@@ -1468,7 +1492,7 @@ export async function respondToConversation(
     // Never ask George to approve a guess. Unattended runs refuse; in chat the
     // answer stands and the honesty check holds its claims to what is on disk.
     if (inspectionRequired && !input.askUser
-      && !toolCalls.some((call) => call.succeeded)
+      && !toolCalls.some((call) => call.succeeded && call.name !== DESCRIBE_ANSWER_TOOL.name)
       && !evidence && !facts) {
       throw new Error("Flyd refused an ungrounded project answer because no evidence tool succeeded");
     }
@@ -1499,6 +1523,13 @@ export async function respondToConversation(
     final = hedgeUngroundedAnswer(final, remaining);
     if (containsProviderToolProtocol(final)) {
       throw new Error("Flyd's configured model returned tool protocol markup instead of a user-facing answer");
+    }
+    // The presentation tool's own acknowledgment is never evidence for itself.
+    const described = describedAnswer as CommunicationContent | null;
+    if (described && input.onAnswerContent) {
+      const complete = plainCommunication(manifestationPlan(described, { primary: "summarize_result", goals: ["summarize_result"], source: "structure", confidence: 1 }));
+      if (!ungroundedSpans(complete, groundingText, input.message).length
+        && !unsupportedClaims(complete, toolCalls, isMutatingToolCall).length) input.onAnswerContent(described);
     }
     // A long list or table is also kept in Artefacts, but the chat always
     // carries the answer itself: never a pointer in its place.

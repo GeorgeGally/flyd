@@ -1501,7 +1501,7 @@ describe("ConversationViewServer", () => {
     viewToken = JSON.parse((await get(port, "/api/token")).body).token;
     const update = JSON.parse((await get(port, "/api/stream")).body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
     expect(update.leftColumn.semantic).toMatchObject([{ id: "lab:domain-lab", subject: "Five versions of the landing hero", activity: { phase: "ready" }, evidence: [{ kind: "web", ref: "http://localhost:5173/labs/hero.html" }] }]);
-    expect(update.show.needs.map((object: { id: string }) => object.id).concat(update.show.focus?.id ?? [])).toContain("lab:domain-lab");
+    expect(update.show.needs.map((object: { id: string }) => object.id)).toContain("lab:domain-lab");
   });
 
   it("rejects an unauthenticated stream before exposing artefact data", async () => {
@@ -1967,12 +1967,14 @@ describe("ConversationViewServer", () => {
       const port = await start();
       const first = (await update(port)).rail.notices;
       expect(first).toEqual([expect.objectContaining({ kind: "attention", text: expect.stringContaining("quota or credit is exhausted") })]);
-      expect((await island(port)).notice).toEqual({ id: first[0].id, text: first[0].text });
+      expect((await island(port)).notice).toEqual({ id: first[0].id, text: first[0].text, category: "provider_health" });
       await evaluate(402);
       expect((await update(port)).rail.notices).toEqual(first);
-      // Parallel/reconnecting clients share the existing one-minute delivery
-      // window, but they see the same incident ID, never a new alert per call.
+      // Delivery does not consume a provider incident. A Mac connecting after
+      // the ordinary notice window still receives the unresolved warning.
+      const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 120_000);
       expect((await island(port)).notice?.id).toBe(first[0].id);
+      clock.mockRestore();
       await evaluate(200);
       expect((await update(port)).rail.notices ?? []).toEqual([]);
       await evaluate(402);

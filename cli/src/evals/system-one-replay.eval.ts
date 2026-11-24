@@ -41,6 +41,7 @@ const SUITES = [
   "front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl", "council.jsonl", "chat-turn.jsonl",
   "skill-match.jsonl", "note-relevance.jsonl", "self-review.jsonl", "reply-artefact.jsonl",
   ...(LIVE || RECORDED.some((trace) => trace.predicateId === "answer_form") ? ["answer-form.jsonl"] : []),
+  ...(LIVE || RECORDED.some((trace) => trace.predicateId === "communication_goal") ? ["communication.jsonl"] : []),
 ];
 
 const text = (inputs: Record<string, unknown>, field: string) => String(inputs[field] ?? "");
@@ -87,6 +88,9 @@ const BASELINES: Record<string, BaselineFn> = {
   reply_artefact_kind: (inputs) => replyArtefact(text(inputs, "reply"))?.clear ? "steps" : "text",
   // Today every desk answer is flat prose.
   answer_form: () => "prose",
+  communication_goal: (inputs) => inputs.comparison ? "compare_options"
+    : (inputs.claims as Array<{ role: string }>).some((claim) => claim.role === "cause") ? "explain_cause"
+    : (inputs.claims as unknown[]).length > 1 ? "summarize_result" : "prose",
   // Every invocation that reaches a model uses the main model today.
   needs_reasoning_model: () => true,
   // outcome_supported: the incumbent is an LLM judge (transitions/judge.ts); no deterministic baseline.

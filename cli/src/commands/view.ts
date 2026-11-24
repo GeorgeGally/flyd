@@ -3,8 +3,7 @@ import type { Command } from "commander";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PA_VOICE } from "../lib/pa-voice.js";
-import { diagnosisFromText, type AnswerBody } from "../conversation-view/answer-form.js";
-import { answerForm, reshapeAnswer } from "../conversation-view/answer-shape.js";
+import { answerWithCommunication } from "../conversation-view/communication.js";
 import { ArtefactFeed } from "../conversation-view/artefact.js";
 import { artefactJudgeFromEnv } from "../conversation-view/artefact-judge.js";
 import { semanticJudgeFromEnv } from "../conversation-view/semantic-judge.js";
@@ -84,13 +83,13 @@ async function listenNear(server: ConversationViewServer, port: number, explicit
  */
 // Every answer in the view is said as his PA would say it: plain prose, outcome first, no report labels.
 // The old forced Expected/Observed/Cause/Evidence/Next form is what turned answers into engineering reports.
-const FORM_PROMPT = `This answer is in the Flyd conversation view.\n${PA_VOICE}`;
+const FORM_PROMPT = `This answer is in the Flyd conversation view.\n${PA_VOICE}\nWhen grounded findings or a comparison benefit from an interface, use describe_answer to provide facts, evidence and relationships before the final takeaway. The surface chooses presentation. Ordinary conversation needs no structure.`;
 
 /**
  * Flyd's own assistant turn, as agenda items and background jobs run one: nobody is there to approve actions.
  * Each step it takes is said under his question as it happens.
  */
-export const answerAsFlyd: Answerer = async (question, history, onStep, turn) => {
+export const answerAsFlyd: Answerer = async (question, history, onStep, turn) => answerWithCommunication(question, async (onAnswerContent) => {
   const [{ respondToConversation }, { retrieveAgentMemory, loadAgentSituation }, { refreshRepoRegistry }] = await Promise.all([
     import("../runtime/conversation-responder.js"), import("./code.js"), import("../runtime/repo-registry.js"),
   ]);
@@ -101,7 +100,7 @@ export const answerAsFlyd: Answerer = async (question, history, onStep, turn) =>
   const memory = await retrieveAgentMemory(question, turn ? { excludeConversationSessionId: turn.source.sessionId } : {}).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
   const article = turn ? await articleForTurn(turn.source.sessionId, question) : undefined;
   let deferred = false;
-  const text = await respondToConversation({ ...(turn ? { onDeferred: () => { deferred = true; }, source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact, onMutation: turn.onMutation, ...(turn.askUser ? { askUser: turn.askUser } : {}), ...(turn.outside ? { outside: true } : {}), ...(turn.attached ? { attached: turn.attached } : {}), ...(turn.scope ? { chatScope: turn.scope } : {}) } : {}), ...(article ? { article } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: FORM_PROMPT });
+  const text = await respondToConversation({ onAnswerContent, ...(turn ? { onDeferred: () => { deferred = true; }, source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact, onMutation: turn.onMutation, ...(turn.askUser ? { askUser: turn.askUser } : {}), ...(turn.outside ? { outside: true } : {}), ...(turn.attached ? { attached: turn.attached } : {}), ...(turn.scope ? { chatScope: turn.scope } : {}) } : {}), ...(article ? { article } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: FORM_PROMPT });
   if (deferred) return { deferred: true };
   // Quiet design companionship: already-curated, sourced references become
   // an ambient card, never a second spoken answer or a new remote search.
@@ -110,20 +109,8 @@ export const answerAsFlyd: Answerer = async (question, history, onStep, turn) =>
       .then(({ prepareCreativeForConversation }) => { prepareCreativeForConversation(question); })
       .catch(() => undefined);
   }
-  const declared = diagnosisFromText(text);
-  if (declared) return withAskedWhy(declared, question);
-  // A comparison may be drawn as a table; an explanation stays the plain words he was told.
-  const form = await answerForm(question, text);
-  if (!form || form === "diagnosis") return text;
-  const { quickQuery } = await import("../lib/llm.js");
-  const shaped = await reshapeAnswer(question, text, form, (prompt) => quickQuery(prompt, { json: true, source: "commands/view" }));
-  return shaped ? withAskedWhy(shaped, question) : text;
-};
-
-/** A diagnosis answering his "why" carries its cause into the short reply he reads. */
-function withAskedWhy(body: AnswerBody, question: string): AnswerBody {
-  return body.form === "diagnosis" && asksWhy(question) ? { ...body, askedWhy: true } : body;
-}
+  return text;
+});
 
 /** Whether George asked why something failed, rather than reporting it. */
 export function asksWhy(question: string): boolean {

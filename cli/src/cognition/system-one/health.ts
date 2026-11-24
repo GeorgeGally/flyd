@@ -1,6 +1,6 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { resolveFlydDir } from "../../lib/flyd-dir.js";
 import type { JevFailureKind, PredicateEvaluation } from "./types.js";
 
@@ -13,6 +13,9 @@ export interface JevHealth {
   incidentId: string;
   failureKind?: JevFailureKind;
   httpStatus?: number;
+  /** Opaque hashes only: never a credential or endpoint containing credentials. */
+  scope?: string;
+  provider?: string;
 }
 
 const FAILURE_MESSAGES: Record<JevFailureKind, string> = {
@@ -29,14 +32,21 @@ const FAILURE_MESSAGES: Record<JevFailureKind, string> = {
 
 const ACTION_REQUIRED = new Set<JevFailureKind>(["credits_exhausted", "billing", "authentication", "not_configured"]);
 
-export function jevHealthPath(): string {
-  return join(resolveFlydDir(), "cognition", "jev-health.json");
+export function jevHealthScope(endpoint: string, apiKey: string | undefined): { scope: string; provider: string } {
+  const provider = createHash("sha256").update(endpoint.replace(/\/+$/, "")).digest("hex");
+  return { provider, scope: createHash("sha256").update(JSON.stringify([provider, apiKey ?? ""])).digest("hex") };
+}
+
+export function jevHealthPath(scope?: string): string {
+  const root = join(resolveFlydDir(), "cognition");
+  if (scope && !/^[a-f0-9]{64}$/.test(scope)) throw new Error("Invalid Jev health scope");
+  return scope ? join(root, "jev-health", `${scope}.json`) : join(root, "jev-health.json");
 }
 
 /** Last observed provider health, shared by Core, the conversation view and doctor. No network probe. */
-export function readJevHealth(): JevHealth | null {
+function readHealthFile(path: string): JevHealth | null {
   try {
-    const value = JSON.parse(readFileSync(jevHealthPath(), "utf8")) as JevHealth;
+    const value = JSON.parse(readFileSync(path, "utf8")) as JevHealth;
     if (value.version !== 1 || !["ready", "degraded"].includes(value.state)
       || typeof value.incidentId !== "string"
       || !Number.isFinite(Date.parse(value.checkedAt)) || !Number.isFinite(Date.parse(value.since))) return null;
@@ -47,6 +57,20 @@ export function readJevHealth(): JevHealth | null {
   }
 }
 
+export function readJevHealths(): JevHealth[] {
+  let files: string[] = [];
+  try { files = readdirSync(dirname(jevHealthPath("0".repeat(64)))).filter((name) => /^[a-f0-9]{64}\.json$/.test(name)); } catch { /* no scoped calls yet */ }
+  return [readHealthFile(jevHealthPath()), ...files.map((name) => readHealthFile(jevHealthPath(name.slice(0, -5))))]
+    .filter((value): value is JevHealth => value !== null);
+}
+
+/** A healthy account cannot erase another account's unresolved problem. */
+export function readJevHealth(scope?: string): JevHealth | null {
+  if (scope) return readHealthFile(jevHealthPath(scope));
+  const priority = (value: JevHealth) => value.state === "degraded" ? ACTION_REQUIRED.has(value.failureKind!) ? 2 : 1 : 0;
+  return readJevHealths().sort((a, b) => priority(b) - priority(a) || b.checkedAt.localeCompare(a.checkedAt))[0] ?? null;
+}
+
 export function jevHealthMessage(health: JevHealth | null): string {
   if (!health) return "Jev has not been checked; account credit is unknown.";
   return health.state === "ready" ? "Jev's last request succeeded; account credit balance is unknown."
@@ -54,11 +78,14 @@ export function jevHealthMessage(health: JevHealth | null): string {
 }
 
 /** Provider errors remain visible even when every caller takes its ordinary fallback. */
-export function recordJevHealth(evaluation: PredicateEvaluation): void {
+export function recordJevHealth(evaluation: PredicateEvaluation, context: { scope: string; provider: string; legacyScope?: string }): void {
   // Disabled calls, local policy denials and malformed local questions say nothing
   // about provider availability. They must not clear a credit failure from another caller.
   if ((!evaluation.ok && !evaluation.failureKind) || evaluation.evaluator === "gemini") return;
-  const previous = readJevHealth();
+  // A v1 record had no account identity. Only the configured default account
+  // may adopt it; an arbitrary per-call key cannot silently mark it recovered.
+  const legacy = context.scope === context.legacyScope ? readHealthFile(jevHealthPath()) : null;
+  const previous = readJevHealth(context.scope) ?? legacy;
   const state = evaluation.ok ? "ready" : "degraded";
   // A later timeout or a disabled call is not evidence that an account problem
   // was fixed. Clear an actionable warning only on a successful provider call.
@@ -69,18 +96,29 @@ export function recordJevHealth(evaluation: PredicateEvaluation): void {
   const same = previous?.state === state && previous.failureKind === failureKind;
   const next: JevHealth = {
     version: 1, state, checkedAt: evaluation.evaluatedAt,
+    scope: context.scope, provider: context.provider,
     since: same ? previous.since : evaluation.evaluatedAt,
     incidentId: same ? previous.incidentId : randomUUID(),
     ...(!evaluation.ok && failureKind ? { failureKind } : {}),
     ...(httpStatus !== undefined ? { httpStatus } : {}),
   };
   if (state === "degraded" && !same) console.warn(`[Jev] ${jevHealthMessage(next)}`);
-  const path = jevHealthPath();
+  const path = jevHealthPath(context.scope);
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     writeFileSync(temporary, JSON.stringify(next) + "\n", { mode: 0o600 });
     renameSync(temporary, path);
+    if (legacy) rmSync(jevHealthPath(), { force: true });
+    // Successfully authenticating resolves a missing-key configuration warning
+    // for this endpoint, but never a credit/authentication failure on another key.
+    if (evaluation.ok) {
+      for (const health of readJevHealths()) {
+        if (health.scope && health.scope !== context.scope && health.provider === context.provider && health.failureKind === "not_configured") {
+          rmSync(jevHealthPath(health.scope), { force: true });
+        }
+      }
+    }
   } catch {
     // Reporting must never break a predicate/fallback, and a failed status write
     // must itself be reported without dumping a path, payload or credential.
@@ -96,13 +134,14 @@ export function jevRuntimeStatus() {
     globallyEnabled: process.env.FLYD_JEV_ENABLED === "true",
     configured: Boolean(process.env.TYPESAFE_API_KEY || process.env.FLYD_JEV_API_KEY || process.env.BEACON_JEV_API_KEY),
     health,
+    contexts: readJevHealths(),
     message: jevHealthMessage(health),
   };
 }
 
 /** Reuse the existing notice column and island, without another alert owner or scheduler. */
-export function jevHealthNotice(): { id: string; kind: "attention"; text: string; at: string } | undefined {
+export function jevHealthNotice(): { id: string; kind: "attention"; category: "provider_health"; text: string; at: string } | undefined {
   const health = readJevHealth();
   if (!health || health.state !== "degraded" || !ACTION_REQUIRED.has(health.failureKind!)) return undefined;
-  return { id: `jev:${health.incidentId}`, kind: "attention", text: jevHealthMessage(health), at: health.since };
+  return { id: `jev:${health.incidentId}`, kind: "attention", category: "provider_health", text: jevHealthMessage(health), at: health.since };
 }

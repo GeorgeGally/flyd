@@ -1,6 +1,7 @@
 import { needsGeorge as needsGeorgeState } from "../lib/work-state.js";
 import type { HoldDecision } from "./artefact.js";
 import type { ShowItem } from "./show.js";
+import type { CommunicationPlan } from "./communication.js";
 
 export const SEMANTIC_KINDS = [
   "conversation",
@@ -45,6 +46,7 @@ export interface ManifestationEvidence {
 
 /** The shape an answer takes when Flyd chooses one; prose is the shape it always had. */
 export type ManifestationPlan =
+  | CommunicationPlan
   | { form: "prose"; lead: string }
   | { form: "gallery"; lead: string; items: Array<{ title: string; imageUrl: string; description: string; sourceUrl?: string }> }
   | { form: "briefing"; lead: string; facts: Array<{ label: string; value: string; source?: string; asOf?: string }> }

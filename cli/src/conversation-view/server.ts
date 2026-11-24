@@ -41,7 +41,6 @@ import type { ArtefactJudge } from "./artefact-judge.js";
 import type { SemanticJudge } from "./semantic-judge.js";
 import { protectedFromImportance, type ImportanceJudge } from "./importance-judge.js";
 import { activityObjectsFromShow, artifactObjectsFromShow, decisionObjectsFromShow, composeSemanticSnapshot, needsGeorge, semanticEvents, semanticFocus, semanticObjectsFromShow, type SemanticObject } from "./semantic.js";
-import { fillScreen } from "./screen/patterns.js";
 import { jevHealthNotice } from "../cognition/system-one/health.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
@@ -732,15 +731,15 @@ export class SnapshotDiffer {
       monitors: show.monitors,
     });
     show.events = semanticEvents(this.semantic, semantic);
-    // The pattern catalog owns the shape: every object carries the reviewed pattern
-    // its meaning selects, filled with its own words. The page renders it.
-    const screens = semantic.map((object) => ({ ...object, screen: fillScreen(object) }));
+    // Semantics own state/navigation. Communication plans travel with answer
+    // forms and are rendered from their intent, never from the object's kind.
+    const screens = semantic;
     show.semantic = screens;
     const focus = semanticFocus(screens);
     show.focus = focus;
     // One list of what needs him: the headline count, the corner count and the
     // sheet that opens it all read this, so they can never disagree.
-    show.needs = screens.filter((object) => object.id !== focus?.id && needsGeorge(object));
+    show.needs = screens.filter((object) => needsGeorge(object));
     this.semantic = semantic;
     const found = currentPage(snapshot.messages);
     // A page on this machine that stopped answering is not where the work is: the header never offers a dead link.
@@ -2340,7 +2339,9 @@ export class ConversationViewServer {
       const found = this.notices.ringing();
       const jev = jevHealthNotice();
       const ringing = (found ? this.islandRung.onceNotice({ id: found.id, text: noticeLine(found) }) : undefined)
-        ?? (jev ? this.islandRung.onceNotice({ id: jev.id, text: jev.text }, jev.id) : undefined);
+        // Provider incidents remain in the feed until recovery. The native
+        // client records actual display, including the first connection packet.
+        ?? (jev ? { id: jev.id, text: jev.text, category: jev.category } : undefined);
       const status = JSON.stringify({ session: session.id, ...current, ...(ringing ? { notice: ringing } : {}) });
       if (status === sent) return;
       sent = status;

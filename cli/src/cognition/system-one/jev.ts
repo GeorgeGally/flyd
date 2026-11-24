@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ContextEnvelope } from "../../intelligence/context-envelope.js";
 import { EgressPolicyGateway } from "../../intelligence/egress-policy-gateway.js";
-import { recordJevHealth } from "./health.js";
+import { jevHealthScope, recordJevHealth } from "./health.js";
 import type {
   JevFailureKind,
   JevOptions,
@@ -168,7 +168,15 @@ export async function evaluatePredicates(
   egress?: PredicateEgress,
 ): Promise<PredicateEvaluation> {
   const evaluation = await evaluate(state, questions, options, egress);
-  if (options.reportHealth !== false) recordJevHealth(evaluation);
+  if (options.reportHealth !== false) {
+    const resolved = envOptions(options);
+    const defaultKey = process.env.TYPESAFE_API_KEY ?? process.env.FLYD_JEV_API_KEY ?? process.env.BEACON_JEV_API_KEY;
+    const defaultEndpoint = process.env.FLYD_JEV_ENDPOINT ?? process.env.BEACON_JEV_ENDPOINT ?? DEFAULT_ENDPOINT;
+    recordJevHealth(evaluation, {
+      ...jevHealthScope(resolved.endpoint, resolved.apiKey),
+      ...(defaultKey ? { legacyScope: jevHealthScope(defaultEndpoint, defaultKey).scope } : {}),
+    });
+  }
   return evaluation;
 }
 
@@ -178,8 +186,16 @@ async function httpFailureKind(response: Response): Promise<JevFailureKind> {
   const detail = (typeof response.text === "function"
     ? await response.text().catch(() => "")
     : JSON.stringify(await response.json().catch(() => null)) ?? "").slice(0, 4000);
+  let code = "";
+  try {
+    const body = JSON.parse(detail);
+    code = String(body?.error?.code ?? body?.code ?? body?.error?.type ?? body?.type ?? "").toLowerCase();
+  } catch { /* plain-text errors still retain their HTTP status */ }
+  // Explicit machine codes outrank descriptive wording such as token quota.
+  if (/^(?:rate_limit_exceeded|rate_limited|too_many_requests|tokens_per_second_exceeded|requests_per_second_exceeded)$/.test(code)) return "rate_limited";
+  if (/^(?:insufficient_credits|insufficient_funds|credit_balance_exhausted|insufficient_quota)$/.test(code)) return "credits_exhausted";
   if ([400, 402, 403, 429].includes(response.status)
-    && /insufficient[_ -]?(?:credits?|balance|funds|quota)|out of credits?|credit balance|(?:quota|credits?) (?:exceeded|exhausted)|(?:quota|credit)[_-]exceeded/i.test(detail)) return "credits_exhausted";
+    && /insufficient[_ -]?(?:credits?|balance|funds)|out of credits?|credit balance|credits? (?:exceeded|exhausted)|credit[_-]exceeded/i.test(detail)) return "credits_exhausted";
   if (response.status === 402) return "billing";
   if (response.status === 401 || response.status === 403) return "authentication";
   if (response.status === 429) return "rate_limited";

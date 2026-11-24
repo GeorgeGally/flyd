@@ -54,6 +54,23 @@ export const MESSAGE_STYLE = `
 
 /* A shaped answer: the lead, then each part with its name run into its sentence, what backs it, and what comes next. */
 .answer-form { display: block; }
+.communication { max-width: 960px; }
+.communication > section { margin-top: 1.3em; }
+.communication h4 { margin: 0 0 .45em; color: var(--muted); font: 500 .78em/1.4 var(--sans); }
+.communication .comm-cause > p { color: var(--strong); font-size: 1.2em; line-height: 1.5; }
+.communication .comm-contrast { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.4em; border-block: 1px solid var(--faint); padding-block: 1em; }
+.communication .comm-contrast p { margin-bottom: 0; }
+.communication .comm-fix, .communication .comm-recommendation { color: var(--strong); }
+.communication .comm-comparison { overflow-x: auto; }
+.communication table { width: 100%; border-collapse: collapse; }
+.communication th, .communication td { text-align: left; vertical-align: top; padding: .7em .9em .7em 0; border-bottom: 1px solid var(--faint); }
+.communication th { color: var(--strong); font-weight: 600; }
+.communication details { padding: .6em 0; border-top: 1px solid var(--faint); }
+.communication summary { cursor: pointer; color: var(--muted); }
+.communication blockquote { margin: .8em 0; white-space: pre-wrap; }
+.communication .comm-source { display: inline; border: 0; background: none; padding: 0; color: var(--muted); font: inherit; font-size: .8em; cursor: pointer; }
+.communication .comm-source:hover, .communication .comm-source:focus-visible { color: var(--strong); text-decoration: underline; }
+@media (max-width: 560px) { .communication .comm-contrast { grid-template-columns: 1fr; gap: 1em; } }
 .answer-form .answer-lead { margin: 0 0 0.9em; font: 500 1.08em/1.55 var(--sans); color: var(--strong); }
 .answer-form .answer-parts { display: grid; gap: 0.85em; margin: 0; }
 .answer-form dt { display: inline; margin: 0; font-weight: 600; color: var(--strong); }

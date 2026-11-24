@@ -421,6 +421,15 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
 
   // ── presentation (conversation-view/artefact-judge.ts) ────────────────
   {
+    id: "communication_goal", family: "presentation", type: "choice",
+    instructions: "Choose what George primarily needs to understand from these bounded, grounded claims and relationships. semantic_kind says what the object IS and must not select its interface. Choose explain_cause when cause and expected/actual relationships explain why something happened; compare_options when shared criteria and alternatives support a choice; summarize_result for findings/results; prose when structure adds no value. Choose the communication need, never HTML, CSS or a component tree. Only select goals supported by the provided facts.",
+    criteria: { explain_cause: "Understand a cause, its expected/actual contrast, evidence and fix.", compare_options: "Compare available alternatives across shared criteria and read a recommendation.", summarize_result: "Understand grounded findings and inspect their evidence.", prose: "A natural short answer is sufficient." },
+    threshold: 0.75, use: "choice", failureMode: "fallback_heuristic",
+    projection: ["question", "semantic_kind", "claims", "comparison", "evidence_count", "action_kinds"],
+    evaluatorVersion: "communication_goal.v1", status: "production",
+    consumer: "conversation-view/communication.ts: activation requires the existing replay bench to pass at least 12 version/model-matching cases at >=90% accuracy; until then explicit content relations choose a safe native manifestation. No activation or performance claim without those recordings.",
+  },
+  {
     id: "reply_artefact_kind", family: "presentation", type: "choice",
     instructions: "`reply` is an answer relayed to George in Flyd's conversation window, with numbered items. What are the items, for him?",
     criteria: {

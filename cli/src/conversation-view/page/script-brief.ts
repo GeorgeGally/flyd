@@ -307,7 +307,7 @@ export const BRIEF_SCRIPT = `
   function renderBrief(show) {
     lastBrief = show || null;
     var calls = (show && show.calls) || [];
-    var decisions = show && show.decisions;
+    var decisions = show && (show.needs || show.decisions);
     var done = (show && show.done) || [];
     var artifacts = show && show.artifacts && show.artifacts.filter(function (artifact) { return !(artifact.artifact && artifact.artifact.type === "plan"); });
     if (decisions) drawSemanticDecisions(decisions);

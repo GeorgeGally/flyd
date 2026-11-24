@@ -165,6 +165,14 @@ final class ConversationStatusDecisionTests: XCTestCase {
         XCTAssertEqual(ConversationStatusDecision.decide(previous: asked, current: asked), [.none])
     }
 
+    func testAnUnseenProviderIncidentIsAnnouncedOnTheFirstPacket() throws {
+        let json = #"{"session":"s1","working":false,"notice":{"id":"jev:one","text":"Jev needs credit.","category":"provider_health"}}"#
+        let incident = try JSONDecoder().decode(ConversationStatusPayload.self, from: Data(json.utf8))
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: nil, current: incident), [.announceProvider("jev:one", "Jev needs credit.")])
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: nil, current: incident, shownProviderIncidents: ["jev:one"]), [.none])
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: incident, current: incident), [.none])
+    }
+
     func testAFailedLineIsSaidOnceWithoutASpinner() throws {
         let decode = { (json: String) in try JSONDecoder().decode(ConversationStatusPayload.self, from: Data(json.utf8)) }
         let answering = try decode(#"{"session":"s1","working":false,"waiting":{"id":"ask:1","text":"Working on it"}}"#)

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -52,9 +52,9 @@ describe("Jev provider failures reach the operator even when a caller falls back
     expect(jevHealthNotice()).toEqual(first);
     expect(console.warn).toHaveBeenCalledTimes(1);
     await evaluatePredicates({}, question);
-    await evaluatePredicates({}, question, { apiKey: "test", fetchFn: async () => { throw new Error("network down"); } });
+    await evaluatePredicates({}, question, { apiKey: "private-api-key", fetchFn: async () => { throw new Error("network down"); } });
     expect(jevHealthNotice()).toEqual(first);
-    await evaluatePredicates({}, question, { apiKey: "test", fetchFn: async () => success() });
+    await evaluatePredicates({}, question, { apiKey: "private-api-key", fetchFn: async () => success() });
     expect(readJevHealth()).toMatchObject({ state: "ready" });
     expect(jevHealthNotice()).toBeUndefined();
     await response(402, { error: "out of credits" });
@@ -72,7 +72,7 @@ describe("Jev provider failures reach the operator even when a caller falls back
 
   it("persists only safe health metadata, never the key, question, predicate or provider error body", async () => {
     await response(402, { error: { code: "insufficient_credits", message: "echo private-api-key and private question" } });
-    const saved = readFileSync(jevHealthPath(), "utf8");
+    const saved = readFileSync(jevHealthPath(readJevHealth()!.scope), "utf8");
     expect(saved).toContain("credits_exhausted");
     expect(saved).not.toMatch(/private|utterance|instructions|echo|form|projection/);
     expect(JSON.stringify(jevRuntimeStatus())).not.toMatch(/private-api-key|private question/);
@@ -86,11 +86,49 @@ describe("Jev provider failures reach the operator even when a caller falls back
     expect(readJevHealth()).toEqual(first);
   });
 
+  it("never lets a different account or endpoint clear the failing account's warning", async () => {
+    await response(402, { error: "out of credits" });
+    const first = jevHealthNotice();
+    await evaluatePredicates({}, question, { apiKey: "another-account", fetchFn: async () => success() });
+    expect(jevHealthNotice()).toEqual(first);
+    await evaluatePredicates({}, question, { apiKey: "private-api-key", endpoint: "https://other.example/v1/systemone", fetchFn: async () => success() });
+    expect(jevHealthNotice()).toEqual(first);
+    await evaluatePredicates({}, question, { apiKey: "private-api-key", fetchFn: async () => success() });
+    expect(jevHealthNotice()).toBeUndefined();
+  });
+
+  it("respects a rate-limit code even when its message says token quota exceeded", async () => {
+    const result = await response(429, { error: { code: "rate_limit_exceeded", message: "Token quota exceeded; retry in 1 second" } });
+    expect(result.failureKind).toBe("rate_limited");
+    expect(jevHealthNotice()).toBeUndefined();
+  });
+
+  it("does not infer exhausted credit from a generic quota word on HTTP 429", async () => {
+    const result = await response(429, { message: "Token quota exceeded" });
+    expect(result.failureKind).toBe("rate_limited");
+    expect(jevHealthNotice()).toBeUndefined();
+  });
+
   it("reports a requested but missing key, but does not call a disabled provider broken", async () => {
     await evaluatePredicates({}, question);
     expect(readJevHealth()).toBeNull();
     await evaluatePredicates({}, question, { apiKey: "" });
     expect(jevHealthNotice()?.text).toContain("without an API key");
+    await evaluatePredicates({}, question, { apiKey: "configured-now", fetchFn: async () => success() });
+    expect(jevHealthNotice()).toBeUndefined();
+  });
+
+  it("migrates an existing unscoped warning only through the configured default account", async () => {
+    await response(402, { error: "out of credits" });
+    const { scope, provider: _provider, ...legacy } = readJevHealth()!;
+    rmSync(jevHealthPath(scope));
+    writeFileSync(jevHealthPath(), JSON.stringify(legacy));
+    await evaluatePredicates({}, question, { apiKey: "another-account", fetchFn: async () => success() });
+    expect(jevHealthNotice()?.id).toBe(`jev:${legacy.incidentId}`);
+    vi.stubEnv("TYPESAFE_API_KEY", "private-api-key");
+    await evaluatePredicates({}, question, { apiKey: "private-api-key", fetchFn: async () => success() });
+    expect(existsSync(jevHealthPath())).toBe(false);
+    expect(jevHealthNotice()).toBeUndefined();
   });
 
   it("reports unusable successful responses instead of marking the provider ready", async () => {

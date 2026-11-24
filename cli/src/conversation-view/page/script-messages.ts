@@ -36,11 +36,61 @@ export const MESSAGES_SCRIPT = `
       flush();
     });
   }
+  // Patch only Core-owned manifestations. Stable evidence nodes keep open
+  // details and keyboard focus when facts change, without changing the chrome.
+  function patchCommunicationNode(old, fresh) {
+    if (old.nodeType !== fresh.nodeType || old.nodeName !== fresh.nodeName) { old.replaceWith(fresh); return; }
+    if (old.nodeType === 3) { if (old.nodeValue !== fresh.nodeValue) old.nodeValue = fresh.nodeValue; return; }
+    if (old.nodeType !== 1) return;
+    Array.from(old.attributes).forEach(function (a) { if (!(old.tagName === "DETAILS" && a.name === "open") && !fresh.hasAttribute(a.name)) old.removeAttribute(a.name); });
+    Array.from(fresh.attributes).forEach(function (a) { if (!(old.tagName === "DETAILS" && a.name === "open") && old.getAttribute(a.name) !== a.value) old.setAttribute(a.name, a.value); });
+    var children = Array.from(old.childNodes);
+    var keyed = new Map(children.filter(function (n) { return n.nodeType === 1 && n.dataset.commKey; }).map(function (n) { return [n.dataset.commKey, n]; }));
+    var used = new Set();
+    Array.from(fresh.childNodes).forEach(function (node, index) {
+      var key = node.nodeType === 1 && node.dataset.commKey;
+      var previous = key ? keyed.get(key) : children[index];
+      if (previous && used.has(previous)) previous = null;
+      if (previous && !key && previous.nodeType === 1 && previous.dataset.commKey) previous = null;
+      if (previous) {
+        used.add(previous);
+        if (old.childNodes[index] !== previous) old.insertBefore(previous, old.childNodes[index] || null);
+        patchCommunicationNode(previous, node);
+      } else old.insertBefore(node, old.childNodes[index] || null);
+    });
+    children.forEach(function (node) { if (!used.has(node) && node.parentNode === old) node.remove(); });
+  }
+  function fillBody(body, html) {
+    if (!body.dataset.commWired) {
+      body.dataset.commWired = "1";
+      body.addEventListener("click", function (event) {
+        var ref = event.target.closest("button[data-comm-source]");
+        if (!ref) return;
+        var root = ref.closest("[data-comm-object]");
+        if (!root) return;
+        var evidence = Array.from(root.querySelectorAll("details[data-comm-source-id]")).find(function (item) { return item.dataset.commSourceId === ref.dataset.commSource; });
+        if (!evidence) return;
+        event.preventDefault(); event.stopPropagation();
+        evidence.open = true;
+        evidence.querySelector("summary").focus({ preventScroll: true });
+        evidence.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
+    }
+    var template = document.createElement("template");
+    template.innerHTML = html;
+    var fresh = template.content.firstElementChild;
+    var old = body.firstElementChild;
+    if (old && fresh && old.dataset.commObject && old.dataset.commObject === fresh.dataset.commObject) {
+      var focused = document.activeElement;
+      patchCommunicationNode(old, fresh);
+      if (focused && body.contains(focused) && document.activeElement !== focused) focused.focus({ preventScroll: true });
+    } else body.innerHTML = html;
+  }
   function fill(el, message) {
     el.dataset.ts = message.timestamp || "";
     el.firstChild.textContent = message.timestamp ? clock(message.timestamp) : "";
     var body = el.querySelector(".body");
-    body.innerHTML = message.html;
+    fillBody(body, message.html);
     if (message.role === "user") highlight(body);
     el.querySelectorAll(":scope > .shots, :scope > .reply-open-page").forEach(function (old) { old.remove(); });
     var oldDocs = el.querySelector(".docs");

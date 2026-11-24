@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { answerBody, answerHtml } from "../answer-form.js";
+import { communicationIntent, manifestationPlan } from "../communication.js";
+import { comparisonContent, diagnosticContent } from "./fixtures/communication.js";
 import { boxesOf } from "../boxes.js";
 import { RECEIVED } from "../living.js";
 import { renderPage } from "../page.js";
@@ -126,6 +128,36 @@ afterEach(() => {
 });
 
 describe("conversation page", () => {
+  it("evolves an investigation from cause to comparison while keeping its evidence open and focused", async () => {
+    load("");
+    await settle();
+    const content = diagnosticContent();
+    const first = manifestationPlan(content, await communicationIntent(content, "Why?", { calibrated: async () => false }));
+    const stream = open("latest", [{ id: "a1", role: "assistant", html: answerHtml(first) }]);
+    const root = document.querySelector('[data-comm-object="answer:review:1"]')!;
+    expect(root.getAttribute("data-communication")).toBe("explain_cause");
+    expect(root.querySelector(".comm-contrast")?.textContent).toContain("Expected");
+    const evidence = root.querySelector("details")!;
+    (root.querySelector("button[data-comm-source]") as HTMLButtonElement).click();
+    expect(evidence.open).toBe(true);
+    const link = evidence.querySelector("a")!;
+    link.focus();
+    expect(document.activeElement).toBe(link);
+    const next = comparisonContent();
+    const changed = manifestationPlan(next, await communicationIntent(next, "Which fix?", { calibrated: async () => false }));
+    stream.emit("update", { order: ["a1"], messages: [{ id: "a1", role: "assistant", html: answerHtml(changed) }], working: false });
+    expect(document.querySelector("[data-comm-object]")).toBe(root);
+    expect(root.getAttribute("data-semantic-kind")).toBe("investigation");
+    expect(root.getAttribute("data-communication")).toBe("compare_options");
+    expect(root.querySelector("table")?.textContent).toContain("Intent planner");
+    expect(root.querySelector(".comm-contrast")).toBeNull();
+    expect(root.querySelector("details")).toBe(evidence);
+    expect(evidence.open).toBe(true);
+    expect(evidence.querySelector("a")).toBe(link);
+    expect(document.activeElement).toBe(link);
+    expect(link.href).toBe("https://example.test/review/200");
+  });
+
   it("reads a shaped answer whole: every label once, and no run long enough to skim past", async () => {
     load("");
     await settle();
@@ -2217,7 +2249,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(document.querySelector(".outcomes-lead")!.textContent).toBe("Here's where the three Flyd fixes stand:");
   });
 
-  it("renders one native standalone Decision and leaves task-bound choices inside Activity", async () => {
+  it("renders the canonical needs list even when the legacy decision list disagrees", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
@@ -2242,6 +2274,8 @@ describe("what Flyd shows of its staff, at a glance", () => {
         decision: { target: "reply:a#2", replyTo: "reply:a#2", question: "Which direction?", alternatives: ["A", "B"], recommended: "B" },
       }],
     };
+    show.needs = show.decisions;
+    show.decisions = [];
     stream.emit("update", { order: [], messages: [], working: false, show, boxes: [] });
     await settle();
 
