@@ -9,7 +9,7 @@ import {
 } from "../../intelligence/sensors/source-contracts.js";
 import { synthesizePublicEvidence } from "../initiative/public-synthesis.js";
 
-const now = new Date("2026-11-23T12:00:00Z");
+const now = new Date();
 const dir = mkdtempSync(join(tmpdir(), "flyd-public-synth-"));
 afterEach(() => vi.unstubAllEnvs());
 function registry() {

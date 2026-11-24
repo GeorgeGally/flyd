@@ -133,7 +133,7 @@ describe("Flyd v10 source-grounded curiosity", () => {
           payload: { report: { objectiveId: "obj-" + index, kind: "blocked", outcome } },
         });
       }
-      const items = deriveInitiatives({ now, projects: [], reports: db.readSource("cos.report") });
+      const items = deriveInitiatives({ now: new Date(), projects: [], reports: db.readSource("cos.report") });
       expect(items.filter(x => x.origin === "cos_failure")).toHaveLength(1);
       expect(items[0]?.sources).toHaveLength(2);
       expect(items[0]?.hypothesis).toContain("possibly");

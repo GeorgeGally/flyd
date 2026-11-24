@@ -8,17 +8,18 @@ import type { Edition } from "../../council/scout.js";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import { INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
 import { deriveInitiatives, type InitiativeCandidate } from "../initiative/candidates.js";
+import { localDay } from "../../council/memory-store.js";
 import { publicResearchInput, researchInitiative, safePublicLocator, type InitiativeResearchReceipt } from "../initiative/research.js";
 import { runInitiativeResearchCycle } from "../initiative/research-cycle.js";
 
-const now = new Date("2026-11-23T12:00:00Z");
+const now = new Date();
 const project: Project = {
   id: "visual-work", name: "Interactive Typography Studio", what: "Creative code for interactive typography",
   kind: "creative", status: "active", now: "Testing interactive animation",
-  people: [], repos: [], updated: "2026-11-23",
+  people: [], repos: [], updated: localDay(now),
 };
 const edition: Edition = {
-  date: "2026-11-23", generatedAt: now.toISOString(), topics: ["creative tools"],
+  date: localDay(now), generatedAt: now.toISOString(), topics: ["creative tools"],
   items: [
     { n: 1, title: "Particle arrays for interactive typography and rendering",
       why: "Uses particle simulation in interactive type design",
