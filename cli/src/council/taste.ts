@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { FLYD_DIR } from "../lib/config.js";
 import { redactSensitiveText } from "../runtime/context-redactor.js";
@@ -819,6 +819,8 @@ export function learnTaste(options: TasteLearnOptions): Promise<TasteRunResult> 
     const seen = new Set(state.seen ?? []);
     const agent = new Set(state.agent ?? []);
     const roots = tasteSessionRoots(projects);
+    // Offsets of sessions no longer read (automated tools', other folders) are dropped, so the state stays small.
+    for (const file of Object.keys(state.files)) if (!isOwnSessionDir(basename(dirname(file)), roots)) delete state.files[file];
     for (const file of sessionFiles(options.root, state.since, roots)) {
       if (result.calls >= maxCalls) break;
       if (agent.has(file)) continue;

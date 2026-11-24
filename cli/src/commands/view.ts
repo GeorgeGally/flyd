@@ -218,12 +218,19 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, t
     }
   };
   // A note that opened a run is about the run's project: its request names it, or its code root does.
+  // A run's request never changes, so each is read once.
+  const runProjects = new Map<string, string | undefined>();
   const runProject = (message: ConversationMessage): string | undefined => {
     if (!message.run) return undefined;
+    if (runProjects.has(message.run)) return runProjects.get(message.run);
+    let named: string | undefined;
     try {
-      const project = readDomainRun(message.run)?.request.project;
-      return project?.name ?? project?.root;
-    } catch { return undefined; }
+      const run = readDomainRun(message.run);
+      named = run?.request.project?.name ?? run?.request.project?.root;
+      // A run not written yet may be read again on a later merge.
+      if (run) runProjects.set(message.run, named);
+    } catch { /* unreadable: the words and the cheap model still place it */ }
+    return named;
   };
   // What neither the words nor the metadata place goes to Flyd's own cheap model, a batch at a time.
   const tagger = process.env.VITEST ? undefined : new ProjectTagger({
