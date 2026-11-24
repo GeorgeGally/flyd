@@ -450,6 +450,30 @@ describe("FirstMate domain transport", () => {
     expect(judged).toBe(0);
   });
 
+  it("reads FirstMate's late answer to the retired re-request once, asking at most once when it is unclear", async () => {
+    saveDomainRun({
+      id: "held-late", request: { ...request(), id: "held-late" }, owner: "FirstMate", status: "working",
+      createdAt: request().createdAt, updatedAt: "2026-11-01T00:00:00.000Z", result: parseDomainResult("Looking.").result,
+      handoffRetry: { askedAt: "2026-11-01T00:00:00.000Z", cursor: "1", missing: ["report"] },
+      transport: { kind: "firstmate", requestId: "held-late", externalId: "note-held-late", replyCursor: "1" },
+    } as DomainRun);
+    const notes: string[] = [];
+    const exec: FirstmateExec = async (_script, args, options) => args[0] === "note"
+      ? (notes.push(String(options.input)), { stdout: JSON.stringify({ id: `note-${notes.length + 1}`, saved: true }), stderr: "" })
+      : { stdout: JSON.stringify({ pending: [], handled: [{ id: "note-held-late", request_id: "held-late", acknowledged: true, reply: { id: "note-held-late", body: "Hmm, still thinking it over.", cursor: "2" } }] }), stderr: "" };
+    let judged = 0;
+    const judge = async () => { judged += 1; return "unclear" as const; };
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+
+    await syncFirstmateDomainRuns({ transport, judge });
+    await syncFirstmateDomainRuns({ transport, judge });
+    const run = listDomainRuns().find((item) => item.id === "held-late") as DomainRun & { handoffRetry?: unknown };
+    expect(run.status).toBe("working");
+    expect(run.handoffRetry).toBeUndefined();
+    expect(notes).toHaveLength(1);
+    expect(judged).toBe(1);
+  });
+
   it("settles a run the retired re-request held, from its own held reply, and tells George once", async () => {
     const now = new Date("2026-11-24T00:00:00.000Z");
     const structured = parseDomainResult(JSON.stringify({ brief: "Fixed.", detailed_report: "Changed the call site." })).result;

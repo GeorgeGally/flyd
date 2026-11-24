@@ -45,6 +45,8 @@ export interface DomainRequest {
    * George, never chased as a handoff of its own, and never a candidate for his live corrections.
    */
   source?: "chat" | "self-improvement" | "system" | "view" | "flyd";
+  /** A "flyd" note that carries George's own words: its failure is his to hear and see, unlike Flyd's bookkeeping. */
+  carriesGeorgesWords?: boolean;
   /** The conversation-window session a "view" request was sent from. */
   session?: string;
   /** The conversation turn for a delegated answer. */

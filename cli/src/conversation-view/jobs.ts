@@ -100,6 +100,7 @@ export interface JobRun {
   status: string;
   transport?: DomainRun["transport"]["kind"];
   source?: DomainRun["request"]["source"];
+  carriesGeorgesWords?: boolean;
   phase?: string;
   project?: string;
   outcome: string;
@@ -210,6 +211,7 @@ export function jobRunFromDomain(run: DomainRun): JobRun {
     status: run.status,
     transport: run.transport.kind,
     source: run.request.source,
+    ...(run.request.carriesGeorgesWords ? { carriesGeorgesWords: true } : {}),
     ...(run.phase ? { phase: run.phase } : {}),
     ...(run.request.project?.name ? { project: run.request.project.name } : {}),
     outcome: one(run.request.intendedOutcome || run.request.originalMessage),
@@ -276,8 +278,8 @@ function runSignal(run: JobRun, now: number): Signal | null {
 
 function runSignalOf(run: JobRun, now: number): Signal | null {
   // Flyd's own notes (project placement, check-ins) are its bookkeeping: whatever became of one, an internal check
-  // failing included, it is never a card for George.
-  if (run.source === "flyd") return null;
+  // failing included, it is never a card for George. One carrying his own words still shows when it is held up.
+  if (run.source === "flyd" && !run.carriesGeorgesWords) return null;
   const at = run.updatedAt;
   // Where the work stands is the one work state its reply was read into; its status alone says how it is held.
   const read = run.work ?? workStateOfRun(run.status as DomainRunStatus);
@@ -287,6 +289,7 @@ function runSignalOf(run: JobRun, now: number): Signal | null {
   // Closed in firstmate's record, or retired by his own word: it never asks again.
   if (run.closed) return work === "ready" || work === "landed" ? { ...placed("closed"), at, next: run.outcome || "Done", owner: "", ask: "", because: `Run ${run.id} was closed: ${run.closed}` } : null;
   if (work === "needs_you") {
+    if (run.source === "flyd") return null;
     // An unanswered ask stays his, however old: it is never parked where he would not look.
     return { ...placed("asks"), at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
   }
@@ -300,6 +303,7 @@ function runSignalOf(run: JobRun, now: number): Signal | null {
     return { ...placed("running"), at, ...(run.started ? { started: run.started } : {}), next: run.outcome || "Under way", owner: "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
   }
   if (work === "ready") {
+    if (run.source === "flyd") return null;
     return { ...placed("ready"), at, next: run.outcome || STATE_WORDS.ready, owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is ready to land` };
   }
   if (work === "landed") return { ...placed("landed"), at, next: run.outcome || "Landed", owner: "", ask: "", because: `Run ${run.id} completed` };

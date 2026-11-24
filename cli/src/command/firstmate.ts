@@ -235,6 +235,7 @@ export class FirstmateDomainTransport {
       doneWhen: note.doneWhen?.length ? note.doneWhen : FLYD_NOTE_DONE_WHEN,
       createdAt: new Date().toISOString(),
       source: "flyd",
+      ...(note.georgesWords?.trim() ? { carriesGeorgesWords: true } : {}),
       ...(note.parentRequestId ? { parentRequestId: note.parentRequestId } : {}),
       ...(note.contextRefs?.length ? { contextRefs: note.contextRefs } : {}),
     };
@@ -500,7 +501,7 @@ export async function syncFirstmateDomainRuns(options: {
       // never a fresh decision for George.
       const predates = Boolean(reply.at) && Date.parse(reply.at!) < Date.parse(run.createdAt);
       const status: DomainRunStatus = outcome === "unclear" ? "working" : predates && outcome === "needs_decision" ? "cancelled" : outcome;
-      const { notified, failure, incompleteReason: _previous, statusAskedAt, ...rest } = next;
+      const { notified, failure, incompleteReason: _previous, statusAskedAt, handoffRetry: _retry, ...rest } = next as DomainRun & { handoffRetry?: unknown };
       const news = !predates && (status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result));
       const settledAt = reply.at ?? (options.now ?? (() => new Date()))().toISOString();
       next = {
