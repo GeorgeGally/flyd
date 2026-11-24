@@ -33,4 +33,4 @@ One buildable spec for the next Flyd: George works with one brilliant, proactive
 - Bad news feed: being fixed separately as a bug (PC second mate).
 - Main-chat jumping: fixed separately (append-only chat, 150-exchange window).
 - Interface taste polish pass: paused until the main-screen shape is decided.
-- Token quick fixes (taste learner reading automated transcripts, project tagging via firstmate, full loop for one-word replies): shipped separately if George agrees.
+- Token quick fixes (taste learner own sessions only, project tags from job metadata, light path for short replies, per-job usage): shipped separately, approved 2026-11-24.
