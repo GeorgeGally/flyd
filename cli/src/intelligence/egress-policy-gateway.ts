@@ -27,6 +27,14 @@ export interface EgressRequest {
   schema?: PayloadSchema;
 }
 
+
+/** A strict opt-in, purpose-bound provider allowlist for initiative sources. */
+export interface EgressSourcePolicy {
+  enabled: boolean;
+  destinations: readonly string[];
+  purposes: readonly string[];
+}
+
 export interface EgressReceipt {
   receiptId: string;
   allowed: boolean;
@@ -43,7 +51,10 @@ export interface EgressReceipt {
 const DEFAULT_MAX_PAYLOAD_BYTES = 64 * 1024;
 
 export class EgressPolicyGateway {
-  constructor(private readonly consentLookup: ConsentLookup) {}
+  constructor(
+    private readonly consentLookup: ConsentLookup,
+    private readonly initiativePolicy?: (sourceId: string) => EgressSourcePolicy | null,
+  ) {}
 
   /**
    * Decide + redact in one pass. Callers must send `receipt.outboundPayload`
@@ -51,6 +62,21 @@ export class EgressPolicyGateway {
    * inputs, so retrying through the gateway re-applies the same policy.
    */
   check(envelope: ContextEnvelope, request: EgressRequest, now = new Date()): EgressReceipt {
+    // Initiative-derived personal data has no implicit egress permission. It
+    // requires an explicit, current source/destination/purpose grant even
+    // when the individual field names look innocuous.
+    if (envelope.sourceId.startsWith("initiative.")) {
+      const policy = this.initiativePolicy?.(envelope.sourceId);
+      if (!policy?.enabled || !policy.destinations.includes(request.destination)
+        || !policy.purposes.includes(request.purpose)) {
+        return {
+          receiptId: randomUUID(), allowed: false, destination: request.destination,
+          purpose: request.purpose, outboundFields: [], deniedFields: [...request.fields],
+          reason: "initiative source/destination/purpose is not explicitly authorized",
+          decidedAt: now.toISOString(),
+        };
+      }
+    }
     const decision = decideEgress(envelope, request, this.consentLookup, now);
 
     const schema: PayloadSchema = request.schema ?? {

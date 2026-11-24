@@ -80,11 +80,13 @@ export interface Objective {
   revision: number;
   createdAt: string;
   updatedAt: string;
-  origin: { surface: "chat" | "view" | "agenda" | "live"; sessionId?: string; turnId?: string };
+  origin: { surface: "chat" | "view" | "agenda" | "live" | "initiative"; sessionId?: string; turnId?: string };
   /** This objective answers a conversation turn rather than announcing work. */
   answerTurn?: true;
-  /** George's exact words; never rewritten. */
+  /** George's exact words on user-authored objectives; for initiative-origin this is a generated scoped brief. */
   words: string;
+  /** Initiative origin is not a chat utterance; original mandate is this event ID. */
+  initiative?: { candidateId: string; sourceRevision: string; mandateEventId: string; researchEventId: string; readOnly: true };
   /** What Flyd knew and judged at handoff (project, people, taste, urgency). */
   flydNotes: string;
   contextRefs: string[];

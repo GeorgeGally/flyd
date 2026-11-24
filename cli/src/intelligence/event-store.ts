@@ -309,6 +309,160 @@ export class IntelligenceEventStore {
     return { file: this.db.name, head: row.head, count: row.n, erased: row.erased };
   }
 
+  /** Invalidate cached/derived views whenever initiative content is retracted. */
+  private scheduleInitiativeErasureSweeps(): void {
+    const episodeTable = this.db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'episode_nodes'",
+    ).get();
+    if (episodeTable) this.db.prepare("DELETE FROM episode_nodes").run();
+    for (const surface of ["projections", "indexes", "replay_snapshots", "legacy_copies"] as const) {
+      this.db.prepare(
+        "INSERT INTO erasure_sweeps (sweep_id, source_id, surface, status) VALUES (?, ?, ?, 'pending')",
+      ).run(crypto.randomUUID(), "initiative.curated", surface);
+    }
+  }
+
+  /**
+   * Remove event content without revoking the whole source. An expired event
+   * keeps an opaque idempotency tombstone, so a restart cannot resurrect it.
+   */
+  purgeSourceBefore(sourceId: string, before: Date): number {
+    if (!Number.isFinite(before.getTime())) throw new Error("Invalid retention cutoff");
+    return this.transaction(() => {
+      const oldRows = this.db.prepare(
+        "SELECT sequence FROM personal_events WHERE source_id = ?" +
+        " AND captured_at < ? AND erased = 0",
+      ).all(sourceId, before.toISOString()) as Array<{ sequence: number }>;
+      const refs = new Set(this.eventReferences(oldRows.map(row => row.sequence)));
+      // An expired research finding or user mandate also invalidates derived
+      // CoS reports that still reference it. Retention cannot leave children.
+      const linked = sourceId.startsWith("initiative.")
+        ? this.linkedCosReportSequences(refs) : [];
+      const res = this.db.prepare(
+        "UPDATE personal_events SET erased = 1, payload_json = NULL, evidence_refs = '[]'," +
+        " causation_ids = '[]', correlation_id = NULL WHERE source_id = ?" +
+        " AND captured_at < ? AND erased = 0",
+      ).run(sourceId, before.toISOString());
+      this.retractSequences(linked);
+      if (res.changes > 0 || linked.length) this.scheduleInitiativeErasureSweeps();
+      return res.changes;
+    });
+  }
+
+  /** Find derived initiative events that depend on the precise upstream keys. */
+  private derivedInitiativeSequences(keys: ReadonlySet<string>, prefixes: string[] = []): number[] {
+    const rows = this.db.prepare(
+      "SELECT sequence, payload_json FROM personal_events" +
+      " WHERE source_id = 'initiative.curated' AND erased = 0 AND payload_json IS NOT NULL",
+    ).all() as Array<{ sequence: number; payload_json: string }>;
+    const hit = (key: string): boolean => keys.has(key) || prefixes.some(prefix => key.startsWith(prefix));
+    return rows.flatMap(row => {
+      let payload: { source_keys?: unknown; sources?: unknown };
+      try { payload = JSON.parse(row.payload_json) as typeof payload; } catch { return []; }
+      const direct = Array.isArray(payload.source_keys) ? payload.source_keys : [];
+      const nested = Array.isArray(payload.sources)
+        ? payload.sources.map(item => (item as { id?: unknown } | null)?.id) : [];
+      return [...direct, ...nested].some(key => typeof key === "string" && hit(key)) ? [row.sequence] : [];
+    });
+  }
+
+  /** CoS research reports inherit the research/mandate source's privacy. */
+  private linkedCosReportSequences(keys: ReadonlySet<string>): number[] {
+    if (!keys.size) return [];
+    const rows = this.db.prepare(
+      "SELECT sequence, payload_json FROM personal_events WHERE source_id = 'cos.report'" +
+      " AND erased = 0 AND payload_json IS NOT NULL",
+    ).all() as Array<{ sequence: number; payload_json: string }>;
+    return rows.flatMap(row => {
+      try {
+        const p = JSON.parse(row.payload_json) as { report?: { evidenceRefs?: unknown } };
+        const refs = p.report?.evidenceRefs;
+        return Array.isArray(refs) && refs.some(ref => typeof ref === "string" && keys.has(ref))
+          ? [row.sequence] : [];
+      } catch { return []; }
+    });
+  }
+
+  private eventReferences(sequences: number[]): string[] {
+    if (!sequences.length) return [];
+    const lookup = this.db.prepare("SELECT id FROM personal_events WHERE sequence = ?");
+    return sequences.flatMap(sequence => {
+      const row = lookup.get(sequence) as { id: string } | undefined;
+      return row ? ["event:" + row.id] : [];
+    });
+  }
+
+  private retractSequences(sequences: number[]): void {
+    const update = this.db.prepare(
+      "UPDATE personal_events SET erased = 1, payload_json = NULL, evidence_refs = '[]'," +
+      " causation_ids = '[]', correlation_id = NULL WHERE sequence = ? AND erased = 0",
+    );
+    for (const sequence of sequences) update.run(sequence);
+  }
+
+  /**
+   * Erase derived initiative text when one source key becomes stale or is
+   * explicitly withdrawn. This doesn't disable unrelated initiative consent.
+   */
+  retractInitiativeBySourceKeys(sourceKeys: string[]): number {
+    const keys = new Set(sourceKeys.filter(key =>
+      /^(?:project|council|scout|cos):[^\s]{1,400}$/.test(key)));
+    if (!keys.size) return 0;
+    return this.transaction(() => {
+      const sequences = this.derivedInitiativeSequences(keys);
+      const cos = this.linkedCosReportSequences(new Set(this.eventReferences(sequences)));
+      this.retractSequences([...sequences, ...cos]);
+      if (sequences.length || cos.length) this.scheduleInitiativeErasureSweeps();
+      return sequences.length + cos.length;
+    });
+  }
+
+  /** Retract an obsolete question/revision without removing a newly revised case. */
+  retractInitiativeCases(cases: Array<{ candidateId: string; revision: string }>): number {
+    const match = new Set(cases.map(c => c.candidateId + "@" + c.revision));
+    if (!match.size) return 0;
+    return this.transaction(() => {
+      const rows = this.db.prepare(
+        "SELECT sequence, payload_json FROM personal_events WHERE source_id = 'initiative.curated'" +
+        " AND erased = 0 AND payload_json IS NOT NULL",
+      ).all() as Array<{ sequence: number; payload_json: string }>;
+      const erase = rows.flatMap(row => {
+        try {
+          const p = JSON.parse(row.payload_json) as Record<string, unknown>;
+          const id = p.candidate_id;
+          const rev = p.revision ?? p.source_revision;
+          return typeof id === "string" && typeof rev === "string" && match.has(id + "@" + rev)
+            ? [row.sequence] : [];
+        } catch { return []; }
+      });
+      const cos = this.linkedCosReportSequences(new Set(this.eventReferences(erase)));
+      this.retractSequences([...erase, ...cos]);
+      if (erase.length || cos.length) this.scheduleInitiativeErasureSweeps();
+      return erase.length + cos.length;
+    });
+  }
+
+  /** Public research consent is separate from local candidate consent. */
+  retractInitiativeResearch(): number {
+    return this.transaction(() => {
+      const rows = this.db.prepare(
+        "SELECT sequence, payload_json FROM personal_events WHERE source_id = 'initiative.curated'" +
+        " AND erased = 0 AND payload_json IS NOT NULL",
+      ).all() as Array<{ sequence: number; payload_json: string }>;
+      const found = rows.flatMap(row => {
+        try {
+          const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
+          return payload.type === "research_claim" || payload.type === "investigation"
+            || payload.type === "initiative_review" ? [row.sequence] : [];
+        } catch { return []; }
+      });
+      const cos = this.linkedCosReportSequences(new Set(this.eventReferences(found)));
+      this.retractSequences([...found, ...cos]);
+      if (found.length || cos.length) this.scheduleInitiativeErasureSweeps();
+      return found.length + cos.length;
+    });
+  }
+
   /**
    * Source erasure (PRD §3.2): destroy every readable payload for the
    * source, write a non-identifying tombstone (count + time only), queue
@@ -316,35 +470,44 @@ export class IntelligenceEventStore {
    * Returns the sequences whose projections must retract.
    */
   eraseSource(sourceId: string): { tombstone: ErasureTombstone; affectedSequences: number[]; sweeps: PendingErasureSweep[] } {
-    const affected = (
-      this.db
-        .prepare(`SELECT sequence FROM personal_events WHERE source_id = ? AND erased = 0`)
-        .all(sourceId) as Array<{ sequence: number }>
-    ).map((r) => r.sequence);
+    const original = this.db.prepare(
+      "SELECT id, sequence FROM personal_events WHERE source_id = ? AND erased = 0",
+    ).all(sourceId) as Array<{ id: string; sequence: number }>;
+    const own = original.map(row => row.sequence);
 
-    const erase = this.db.transaction((ids: number[]) => {
+    // Prior to removing the original records, find any private synthesis that
+    // cites their event identities or the registered source family. This must
+    // happen in the SAME transaction as the parent erasure.
+    const family = sourceId === "cos.report" ? ["cos:"]
+      : sourceId === "council.advisory" ? ["council:"]
+      : sourceId === "scout.edition" ? ["scout:"]
+      : sourceId === "project.curated" ? ["project:"] : [];
+    const keys = new Set<string>([
+      sourceId,
+      ...original.flatMap(row => ["event:" + row.id, "cos:" + row.id]),
+    ]);
+    const impacted = this.transaction(() => {
+      const dependent = this.derivedInitiativeSequences(keys, family);
+      const cos = this.linkedCosReportSequences(new Set([
+        ...this.eventReferences(own), ...this.eventReferences(dependent),
+      ]));
+      this.retractSequences([...own, ...dependent, ...cos]);
       const now = new Date().toISOString();
-      const mark = this.db.prepare(
-        `UPDATE personal_events SET erased = 1, payload_json = NULL WHERE source_id = ? AND erased = 0`,
-      );
-      mark.run(sourceId);
-      this.db
-        .prepare(`INSERT INTO erasure_tombstones (source_id, erased_at, event_count) VALUES (?, ?, ?)`)
-        .run(sourceId, now, ids.length);
+      this.db.prepare(
+        "INSERT INTO erasure_tombstones (source_id, erased_at, event_count) VALUES (?, ?, ?)",
+      ).run(sourceId, now, own.length);
       const episodeTable = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'episode_nodes'").get();
       if (episodeTable) this.db.prepare("DELETE FROM episode_nodes").run();
-
       for (const surface of ["projections", "indexes", "replay_snapshots", "legacy_copies"] as const) {
-        this.db
-          .prepare(`INSERT INTO erasure_sweeps (sweep_id, source_id, surface) VALUES (?, ?, ?)`)
-          .run(crypto.randomUUID(), sourceId, surface);
+        this.db.prepare(
+          "INSERT INTO erasure_sweeps (sweep_id, source_id, surface, status) VALUES (?, ?, ?, 'pending')",
+        ).run(crypto.randomUUID(), sourceId, surface);
       }
+      return [...new Set([...own, ...dependent, ...cos])];
     });
-    erase(affected);
-
     return {
       tombstone: this.latestTombstone(sourceId) as ErasureTombstone,
-      affectedSequences: affected,
+      affectedSequences: impacted,
       sweeps: this.pendingSweeps(sourceId),
     };
   }

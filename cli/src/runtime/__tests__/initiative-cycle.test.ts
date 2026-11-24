@@ -95,6 +95,13 @@ describe("Flyd v10 source-grounded curiosity", () => {
     expect(a.id).toBe(b.id);
     expect(initiativeRevision(a.sources)).toBe(initiativeRevision(b.sources));
     expect(initiativeRevision(a.sources.map(s => ({ ...s, revision: s.revision + "-revised" })))).not.toBe(initiativeRevision(a.sources));
+    // A same-day project edit changes the material revision even if its
+    // date field does not change; refreshing a timestamp without content does not.
+    const revised = deriveInitiatives({ now, projects: [{ ...project, now: "Newly confirmed different experimental generative typography approach" }], edition });
+    expect(initiativeRevision(revised.find(x => x.origin === "scout")!.sources)).not.toBe(initiativeRevision(a.sources));
+    const retimed = deriveInitiatives({ now, projects: [project], edition: { ...edition, generatedAt: "2026-11-23T11:00:00Z" } });
+    expect(initiativeRevision(retimed.find(x => x.origin === "scout")!.sources)).toBe(initiativeRevision(a.sources));
+
   });
 
   it("preserves uncertain findings separately from verified outcomes and action authority", () => {
@@ -126,7 +133,7 @@ describe("Flyd v10 source-grounded curiosity", () => {
           payload: { report: { objectiveId: "obj-" + index, kind: "blocked", outcome } },
         });
       }
-      const items = deriveInitiatives({ now, projects: [], reports: db.readSource("cos.report") });
+      const items = deriveInitiatives({ now: new Date(), projects: [], reports: db.readSource("cos.report") });
       expect(items.filter(x => x.origin === "cos_failure")).toHaveLength(1);
       expect(items[0]?.sources).toHaveLength(2);
       expect(items[0]?.hypothesis).toContain("possibly");
@@ -140,7 +147,7 @@ describe("Flyd v10 source-grounded curiosity", () => {
         edition: () => edition, advisories: () => [advisory], mode: "shadow" as const, consented: () => true };
       const first = await runInitiativeCycle(deps);
       expect(first.generated).toBeGreaterThanOrEqual(2);
-      expect(first.investigated).toBeGreaterThanOrEqual(1);
+      expect(first.triaged).toBeGreaterThanOrEqual(1);
       expect(first.published).toBe(0);
       const initial = db.readSource("initiative.curated");
       expect(initial.some(e => e.kind === "proposed_action")).toBe(true);
@@ -164,7 +171,7 @@ describe("Flyd v10 source-grounded curiosity", () => {
       expect(db.readSource("initiative.curated").every(e => e.erased && !e.payload)).toBe(true);
       db.renewSource("initiative.curated");
       const fresh = await runInitiativeCycle(deps);
-      expect(fresh.investigated).toBeGreaterThanOrEqual(1);
+      expect(fresh.triaged).toBeGreaterThanOrEqual(1);
       const events = db.readSource("initiative.curated");
       expect(events.some(e => !e.erased && !!e.payload)).toBe(true);
       expect(events.filter(e => e.erased)).toHaveLength(original.length);
@@ -184,7 +191,7 @@ describe("Flyd v10 source-grounded curiosity", () => {
         edition: () => edition, advisories: () => advices,
         mode: "shadow", consented: () => true, maxInvestigations: 2,
       });
-      expect(result.investigated).toBe(2);
+      expect(result.triaged).toBe(2);
       const proposals = db.readSource("initiative.curated")
         .filter(event => event.kind === "proposed_action").map(event => event.payload);
       expect(proposals.some(item => item?.origin === "scout")).toBe(true);
@@ -223,7 +230,7 @@ describe("Flyd v10 source-grounded curiosity", () => {
       enabled: true, current: refs => initiativeSourcesCurrent(refs, { ...current, projects: [] }),
     })).toEqual([]);
     expect(visibleInitiativeRecords([card], {
-      enabled: true, current: refs => initiativeSourcesCurrent(refs, { ...current, edition: { ...edition, generatedAt: "2026-11-23T15:00:00Z" } }),
+      enabled: true, current: refs => initiativeSourcesCurrent(refs, { ...current, edition: { ...edition, items: edition.items.map((item) => ({ ...item, why: "Materially revised public evidence" })) } }),
     })).toEqual([]);
   });
 

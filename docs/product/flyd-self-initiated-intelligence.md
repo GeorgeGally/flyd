@@ -1,6 +1,6 @@
-# Flyd — Self-Initiated Intelligence (v10, R1)
+# Flyd — Self-Initiated Intelligence (v10: local curiosity, public evidence and scoped research follow-through)
 
-**Status:** First governed vertical slice implemented in source; disabled until explicit LEARN opt-in. Full v10 plan remains incomplete.
+**Status:** R1 local curiosity merged. R2–R6 **implementation branch** extends it with source erasure, optional public-only evidence investigation, read-only user-accepted CoS reporting, explicit feedback, safety replay and Mac pilot runbook. Production readiness still depends on green CI, on-device consent testing and measured usefulness.
 **Plan:** [2026-11-23 self-initiated intelligence v10](../plans/2026-11-23-flyd-self-initiated-intelligence-v10.md)
 **Product authority:** [Flyd Personal Intelligence PRD](flyd-personal-intelligence-prd.md), especially source consent, action authority and provenance.
 
@@ -27,7 +27,7 @@ For each eligible candidate, the code records source identity/revision, an answe
        ↳ enabled: up to one quiet existing Activity item/day
        ↳ ActivityReader rechecks parent sources and source contract on every refresh
 
-No provider/API/model call is made by this release, and no additional source is sensed. Its local inspection is deliberately modest: it contrasts *the actual recorded observations* and proposes a falsifiable follow-up. It does **not** claim to have performed a code audit, visited the external article, prototyped a design or verified the idea.
+The **R1 local triage** makes no provider/API/model call and senses no additional source. A separate, explicitly enabled **public-only research pass** may call existing EvidenceEngine to check already-public Scout references; it does not transmit private project data. Its local inspection is deliberately modest: it contrasts *the actual recorded observations* and proposes a falsifiable follow-up. It does **not** claim to have performed a code audit, visited the external article, prototyped a design or verified the idea.
 
 ### Controls
 
@@ -60,3 +60,36 @@ The new local LEARN source is **disabled by default**, has a declared 30-day ret
 `cli/src/runtime/__tests__/initiative-cycle.test.ts` covers new-source novelty, stalled venture dates, Council evidence, repeated CoS failures, source revocation, no-consent/no-read, safe unverified event kinds, idempotency and the live Activity reader. The existing `runtime/agenda-tick.ts` runs the new job through the same model-backoff-independent tick and existing source checks.
 
 **Next release gate:** replay ≥120 source-grounded, privacy-safe cases, compare against existing Council/daemon curiosity and run an explicit consented Mac pilot. If new questions are not materially better than the baseline, improve the existing sources instead of creating more infrastructure.
+
+
+## Subsequent R2–R6 source changes — scope and acceptance boundary
+
+**What is implemented in source on PR #343:**
+
+- **P0 / R2 groundwork:** project/advisory/Scout sources now carry content-based revisions; R1 shadow counts are **triaged** rather than “investigated.” Source changes invalidate stale derived events and UI. The event spine can retract derived cases, research, feedback and associated CoS reports when their parents are erased; derived payloads have a 30-day retention purge and invalidated episode/replay projections.
+- **P1:** explicit `initiative.public-research` opt-in (90-day renewable standing permission) lets EvidenceEngine check public Scout URLs/titles within bounded query/time/attempt limits. Query projection is gated by source+destination+purpose checks and excludes private project details. It records **source_confirmed / inconclusive / contradictory / no_evidence / stale / failed / not_permitted**. An **optional fourth** `initiative.public-synthesis` opt-in allows one bounded configured quick-model critique of public evidence snippets only; its output is explicitly an **unverified model interpretation**, never proof of project improvement.
+- **P2 (restricted, safe slice):** a separate explicit CLI acceptance stores an expiring, project-content-fingerprinted `initiative.mandate` for **read-only evidence reports only**. A qualifying independently checked result is recorded in an idempotent, CoS-owned `initiative` objective and `cos.report`. No unrestricted FirstMate, Librarian, coding, design, repo-write, email or publication dispatch is authorized.
+- **P3:** the existing Activity UI can show one quiet, source-backed research result or an authorized CoS research follow-up, with live source/consent checks. It does not inject private initiative notes into Jev or a chat model, which would otherwise violate the local-only LEARN consent. Full context-sensitive, content-generated conversation manifestation remains an expansion gate.
+- **P4:** explicit `flyd initiative review <candidate-id> helpful|not_helpful` produces local user-feedback evidence; `stats` keeps feedback distinct from **unknown external impact**. Frozen, synthetic 120-case safety replay counts missed opportunities, false positive initiative, protected regressions and cost coverage; it is **not** real-world model-quality proof and cannot auto-promote a policy.
+- **P5:** the on-device acceptance runbook specifies install, consent, privacy erasure and useful-output drills. A GitHub build does not establish that these passed on George's Mac.
+- **P6:** `doctor`, `stats`, per-day claim budget, separate research and mandate revoke/renew, independent kill switches and canonical receipts. There is no automatic unattended rollout of new higher-impact capabilities.
+
+**New controls** (in addition to R1):
+- `flyd initiative research-enable` / `research-disable` / `research-revoke` / `research-renew` / `research-run`
+- `flyd initiative synthesis-enable` / `synthesis-disable` / `synthesis-revoke` / `synthesis-renew` (public-only, separate model provider consent)
+- `flyd initiative authorize-readonly <project-id>` / `revoke-mandates` / `renew-mandates`
+- `flyd initiative review <candidate-id> helpful|not_helpful`
+- `flyd initiative stats` / `doctor`
+- `FLYD_INITIATIVE_RESEARCH=0` (public research kill switch)
+
+Four independent, disabled-by-default consents govern local curated intelligence, public research, optional public-evidence-only model interpretation, and accepted project-scoped read-only follow-through. **No consent here permits sending private project context to a model, editing code repositories, external messages, purchases or deployments.** The optional public-model scope may incur configured provider usage; real metered spend is not yet measured in the pilot.
+
+### Unfinished before v10 can honestly be called complete
+
+1. **Actual installed Mac proof and real source/provider trace.** Requires the user's device, Core instance, configured provider/account and affirmative permission.
+2. **Broader, original multimodal curiosity with selectively permitted model synthesis:** current tests prove source-bound public evidence checking and narrow project/waiting/CoS signals, not a world-class independent creative or business strategist.
+3. **Sandboxed, reversible implementation/design experiments under durable grants:** the shipped CoS follow-through writes only an existing research report, deliberately not automatic code changes.
+4. **Outcome-based policy optimization against real held-out work:** synthetic safety fixtures are not a blinded quality baseline, user reviews are not measured effects, and the existing in-memory PolicyRegistry cannot alone ensure durable rollout after a crash.
+5. **Cross-surface visual/voice proof and sensitive-source expansion:** needs separately reviewed egress permissions and source-specific end-to-end tests.
+
+**Mac pilot instructions:** [Flyd v10 proactive acceptance](flyd-v10-proactive-intelligence-mac-acceptance.md). The full plan remains [v10 R2–R6](../plans/2026-11-23-flyd-v10-r2-r6-proactive-intelligence-implementation.md).

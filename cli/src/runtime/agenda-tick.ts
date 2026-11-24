@@ -193,6 +193,34 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       },
     },
     {
+      // Retention is a source obligation even while initiative is disabled.
+      // Run inside the existing Core agenda, never as an extra daemon. Expired
+      // mandate/research parents also retract linked CoS report payloads.
+      name: "initiative-retention", usesModel: false,
+      run: async () => {
+        const [{ existsSync }, { IntelligenceEventStore, defaultIntelligenceDbPath }] = await Promise.all([
+          import("node:fs"), import("../intelligence/event-store.js"),
+        ]);
+        const path = defaultIntelligenceDbPath();
+        if (!existsSync(path)) return;
+        const cutoff = new Date((options.now?.() ?? new Date()).getTime() - 30 * 86_400_000);
+        const store = new IntelligenceEventStore({ path });
+        try {
+          const expired = [
+            "initiative.curated", "initiative.mandate",
+            "initiative.public-research", "initiative.public-synthesis",
+          ].reduce((count, id) => count + store.purgeSourceBefore(id, cutoff), 0);
+          const { reconcileInitiativeObjectives } = await import("./initiative/follow-through.js");
+          const scrubbed = reconcileInitiativeObjectives({
+            store, ...(options.now ? { now: options.now } : {}),
+          });
+          return expired || scrubbed
+            ? `Expired ${expired} old initiative records; scrubbed ${scrubbed} invalid CoS objective copies`
+            : undefined;
+        } finally { store.close(); }
+      },
+    },
+    {
       // Self-started curiosity over already curated, local operational sources.
       // No model calls, external effects or new scheduler. Shadow until
       // explicitly enabled; candidates and decisions live on the event spine.
@@ -201,9 +229,35 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
         if (process.env.FLYD_INITIATIVE === "0" || process.env.FLYD_INITIATIVE === "off") return;
         const { runInitiativeCycle } = await import("./initiative/cycle.js");
         const result = await runInitiativeCycle({ ...(options.now ? { now: options.now } : {}) });
-        return result.investigated || result.published
-          ? `Investigated ${result.investigated} grounded questions; ${result.published} quiet insight cards`
+        return result.triaged || result.published
+          ? `Triaged ${result.triaged} grounded questions; ${result.published} quiet insight cards`
           : undefined;
+      },
+    },
+    {
+      // Separate, opt-in public evidence pass. Uses the SAME agenda clock,
+      // never a second daemon, and never sends private project context.
+      name: "initiative-research", usesModel: false,
+      run: async () => {
+        if (process.env.FLYD_INITIATIVE === "0" || process.env.FLYD_INITIATIVE === "off"
+          || process.env.FLYD_INITIATIVE_RESEARCH === "0") return;
+        const { runInitiativeResearchCycle } = await import("./initiative/research-cycle.js");
+        const result = await runInitiativeResearchCycle({ ...(options.now ? { now: options.now } : {}) });
+        return result.attempted
+          ? `Checked ${result.attempted} public initiative references; ${result.confirmed} independently corroborated`
+          : undefined;
+      },
+    },
+    {
+      // A separate explicit, project-scoped accepted mandate is required
+      // before a source-confirmed finding may become a CoS work receipt.
+      name: "initiative-follow-through", usesModel: false,
+      run: async () => {
+        if (process.env.FLYD_COS !== "1" || process.env.FLYD_INITIATIVE === "off"
+          || process.env.FLYD_INITIATIVE === "0") return;
+        const { runInitiativeFollowThrough } = await import("./initiative/follow-through.js");
+        const result = await runInitiativeFollowThrough({ ...(options.now ? { now: options.now } : {}) });
+        return result.reported ? `Completed ${result.reported} accepted read-only research follow-ups` : undefined;
       },
     },
     {

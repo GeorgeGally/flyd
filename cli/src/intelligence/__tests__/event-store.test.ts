@@ -139,3 +139,81 @@ it('reads only the requested source family in canonical order and retracts erase
     expect(store.readSourcePrefix('initiative.session.').filter(event => !event.erased).map(event => event.payload?.value)).toEqual(['b']);
   } finally { store.close(); }
 });
+
+
+describe("initiative source-lineage erasure and retention", () => {
+  it("erases a derived decision and finding atomically with a revoked CoS source", () => {
+    const store = new IntelligenceEventStore({ path: join(dir, "lineage-" + randomUUID() + ".sqlite") });
+    try {
+      const upstream = appendValid(store, observation("cos.report", "parent", { report: { outcome: "private client details" } }))!;
+      const decision = appendValid(store, observation("initiative.curated", "decision", {
+        source_keys: ["cos:" + upstream.id], why_now: "private client details",
+      }))!;
+      const finding = appendValid(store, observation("initiative.curated", "finding", {
+        sources: [{ id: "cos:" + upstream.id }], known: "private client details",
+      }))!;
+      const independent = appendValid(store, observation("initiative.curated", "independent", {
+        sources: [{ id: "project:unrelated" }], known: "other",
+      }))!;
+      const result = store.eraseSource("cos.report");
+      expect(result.affectedSequences).toEqual(expect.arrayContaining([
+        upstream.sequence, decision.sequence, finding.sequence,
+      ]));
+      expect(store.getBySequence(decision.sequence)).toMatchObject({ erased: true, payload: undefined, evidenceRefs: [] });
+      expect(store.getBySequence(finding.sequence)).toMatchObject({ erased: true, payload: undefined, evidenceRefs: [] });
+      expect(store.getBySequence(independent.sequence)?.erased).toBe(false);
+      expect(JSON.stringify(store.readSource("initiative.curated"))).not.toContain("private client details");
+    } finally { store.close(); }
+  });
+
+  it("can retract one project parent without globally revoking initiative", () => {
+    const store = new IntelligenceEventStore({ path: join(dir, "project-retract-" + randomUUID() + ".sqlite") });
+    try {
+      appendValid(store, observation("initiative.curated", "a", {
+        sources: [{ id: "project:p1" }], known: "stale statement",
+      }));
+      appendValid(store, observation("initiative.curated", "b", {
+        sources: [{ id: "project:p2" }], known: "still current",
+      }));
+      expect(store.retractInitiativeBySourceKeys(["project:p1"])).toBe(1);
+      expect(store.retractInitiativeBySourceKeys(["project:p1"])).toBe(0);
+      expect(store.isRevoked("initiative.curated")).toBe(false);
+      expect(store.readSource("initiative.curated").filter(e => !e.erased).map(e => e.payload?.known)).toEqual(["still current"]);
+    } finally { store.close(); }
+  });
+
+  it("retention cascades from an expired mandate to linked CoS reports", () => {
+    const store = new IntelligenceEventStore({ path: join(dir, "mandate-ttl-" + randomUUID() + ".sqlite") });
+    try {
+      const mandate = appendValid(store, observation("initiative.mandate", "mandate-ttl", {
+        mandate: { projectId: "private-project", acceptedVia: "explicit_cli" },
+      }))!;
+      const report = appendValid(store, observation("cos.report", "mandate-report", {
+        report: {
+          outcome: "confidential follow-up", evidenceRefs: ["event:" + mandate.id],
+        },
+      }))!;
+      const unrelated = appendValid(store, observation("cos.report", "unrelated-report", {
+        report: { outcome: "unrelated", evidenceRefs: ["https://example.org/public"] },
+      }))!;
+      expect(store.purgeSourceBefore("initiative.mandate", new Date(Date.now() + 2_000))).toBe(1);
+      expect(store.getBySequence(mandate.sequence)).toMatchObject({ erased: true, payload: undefined });
+      expect(store.getBySequence(report.sequence)).toMatchObject({ erased: true, payload: undefined });
+      expect(store.getBySequence(unrelated.sequence)?.payload?.report).toBeTruthy();
+      expect(JSON.stringify(store.readSource("cos.report"))).not.toContain("confidential follow-up");
+    } finally { store.close(); }
+  });
+
+  it("retention nulls old payloads without revoking the source", () => {
+    const store = new IntelligenceEventStore({ path: join(dir, "ttl-" + randomUUID() + ".sqlite") });
+    try {
+      const previous = appendValid(store, observation("initiative.curated", "ttl-1", { known: "private text" }))!;
+      appendValid(store, observation("other", "ttl-other", { known: "keep" }));
+      expect(store.purgeSourceBefore("initiative.curated", new Date(Date.now() + 5_000))).toBe(1);
+      expect(store.getBySequence(previous.sequence)).toMatchObject({ erased: true, payload: undefined, evidenceRefs: [] });
+      expect(store.purgeSourceBefore("initiative.curated", new Date(Date.now() + 5_000))).toBe(0);
+      expect(store.readSource("other")[0]?.payload?.known).toBe("keep");
+      expect(store.isRevoked("initiative.curated")).toBe(false);
+    } finally { store.close(); }
+  });
+});
