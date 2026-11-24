@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd sidebar</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .app { display: grid; grid-template-columns: 1fr 360px; height: 100vh; }
+
+  /* Chat */
+  .chat { display: flex; flex-direction: column; min-width: 0; }
+  .chat header { display: flex; align-items: center; gap: 12px; padding: 18px 28px; }
+  .chat header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+  .thread { flex: 1; overflow-y: auto; padding: 24px 28px 32px; }
+  .thread-inner { max-width: 660px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+  .msg { max-width: 560px; }
+  .msg.me { align-self: flex-end; background: var(--surface); border: 1px solid var(--line); padding: 12px 16px; border-radius: 18px 18px 6px 18px; }
+  .msg.flyd { color: var(--ink); }
+  .msg p, .msg .p { margin: 0 0 10px; }
+  .msg p:last-child, .msg .p:last-child { margin: 0; }
+  .msg ol { margin: 6px 0 10px; padding-left: 20px; }
+  .msg.enter { animation: rise-in 0.35s ease-out both; }
+
+  .composer-wrap { padding: 12px 28px 24px; }
+  .composer-inner { max-width: 660px; margin: 0 auto; }
+  .suggest { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .suggest button {
+    border: 1px solid var(--line-2); background: transparent; border-radius: 999px; padding: 7px 14px;
+    font-size: 13px; color: var(--ink-2);
+  }
+  .suggest button:hover { background: var(--surface); color: var(--ink); }
+  .composer { display: flex; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px; padding: 8px 8px 8px 16px; }
+  .composer input { flex: 1; border: 0; outline: 0; background: transparent; font: inherit; color: var(--ink); padding: 8px 0; }
+  .composer button { border: 0; background: var(--ink); color: var(--bg); border-radius: 11px; padding: 9px 16px; font-size: 14px; font-weight: 500; }
+
+  /* Sidebar */
+  .side { border-left: 1px solid var(--line); background: var(--surface-2); overflow-y: auto; padding: 20px 20px 40px; }
+  .side h2 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+  .now { margin-bottom: 36px; }
+  .job {
+    display: grid; grid-template-columns: 8px 1fr; gap: 4px 12px; align-items: center;
+    padding: 10px 10px; margin: 0 -10px; border-radius: 10px; text-decoration: none; color: inherit;
+  }
+  .job:hover { background: var(--surface); }
+  .job .name { font-size: 13px; font-weight: 600; }
+  .job .swap { grid-column: 2; font-size: 14px; color: var(--ink-2); }
+  .job .dot { grid-row: 1; }
+
+  .for-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .terms { margin: 0 0 16px; font-size: 13px; color: var(--muted); min-height: 1.5em; }
+  .refresh { border: 0; background: transparent; color: var(--muted); font-size: 13px; padding: 2px 0; }
+  .refresh:hover { color: var(--ink); }
+
+  .cards { display: flex; flex-direction: column; gap: 12px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+    animation: rise-in 0.4s ease-out both;
+  }
+  .card .media { aspect-ratio: 16 / 9; position: relative; background: #ecebe6; }
+  .card .media svg { width: 100%; height: 100%; display: block; }
+  .card .media .len { position: absolute; right: 8px; bottom: 8px; font-size: 12px; color: #fff; background: rgba(0,0,0,.6); padding: 1px 6px; border-radius: 6px; }
+  .card .body { padding: 14px 16px 14px; }
+  .card .quote { font-family: Georgia, "New York", serif; font-size: 18px; line-height: 1.4; margin: 0; }
+  .card .big { font-size: 28px; font-weight: 600; line-height: 1.15; margin: 0 0 4px; font-variant-numeric: tabular-nums; }
+  .card .title { font-size: 15px; font-weight: 500; margin: 0; }
+  .card .text { font-size: 14px; color: var(--ink-2); margin: 4px 0 0; }
+  .card footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; font-size: 13px; color: var(--muted); }
+  .card footer button {
+    border: 1px solid var(--line-2); background: transparent; border-radius: 999px; padding: 5px 12px; font-size: 13px; color: var(--ink-2); white-space: nowrap;
+  }
+  .card footer button:hover { background: var(--surface-2); color: var(--ink); }
+  .card footer button.added { color: var(--moving); border-color: transparent; }
+
+  .ghost { height: 96px; border-radius: var(--radius); background: linear-gradient(90deg, var(--line) 0%, transparent 50%, var(--line) 100%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; opacity: .7; }
+
+  /* Phone: the live lines become one strip; tapping it opens the sidebar as a sheet. */
+  .strip { display: none; }
+  .sheet-back { display: none; }
+  @media (max-width: 820px) {
+    .app { grid-template-columns: 1fr; }
+    .chat header { padding: 14px 16px 8px; }
+    .thread { padding: 12px 16px 24px; }
+    .composer-wrap { padding: 8px 16px 16px; }
+    .strip {
+      display: flex; align-items: center; gap: 10px; margin: 0 16px 4px; padding: 10px 14px;
+      border-radius: 12px; background: var(--surface); border: 1px solid var(--line); font-size: 14px; text-align: left; width: calc(100% - 32px);
+    }
+    .strip .swap { flex: 1; color: var(--ink-2); }
+    .strip .more { color: var(--muted); font-size: 13px; white-space: nowrap; }
+    .side {
+      position: fixed; left: 0; right: 0; bottom: 0; top: 64px; z-index: 5; border: 0;
+      border-radius: 20px 20px 0 0; box-shadow: 0 -10px 40px rgba(0,0,0,.15);
+      transform: translateY(105%); transition: transform 0.35s cubic-bezier(.2,.9,.3,1); padding: 12px 16px 40px;
+    }
+    .side.up { transform: none; }
+    .side .grab { display: block; width: 40px; height: 5px; border-radius: 3px; background: var(--line-2); margin: 0 auto 20px; border: 0; padding: 0; }
+    .sheet-back { position: fixed; inset: 0; z-index: 4; background: rgba(0,0,0,.25); }
+    .sheet-back.on { display: block; }
+  }
+  .grab { display: none; }
+</style>
+</head>
+<body>
+<div class="app">
+  <main class="chat">
+    <header><h1>Flyd</h1></header>
+    <button class="strip" id="strip"><span class="dot" id="stripDot"></span><span class="swap" id="stripText"></span><span class="more">Now &amp; ideas</span></button>
+    <div class="thread" id="thread"><div class="thread-inner" id="threadInner"></div></div>
+    <div class="composer-wrap">
+      <div class="composer-inner">
+        <div class="suggest" id="suggest"></div>
+        <form class="composer" id="composer">
+          <input id="input" placeholder="Message Flyd" autocomplete="off">
+          <button type="submit">Send</button>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <aside class="side" id="side">
+    <button class="grab" id="grab" aria-label="Close"></button>
+    <section class="now">
+      <h2>Now</h2>
+      <div id="jobs"></div>
+    </section>
+    <section>
+      <div class="for-head"><h2>For this chat</h2><button class="refresh" id="refresh">Find more</button></div>
+      <p class="terms" id="terms"></p>
+      <div class="cards" id="cards"></div>
+    </section>
+  </aside>
+</div>
+<div class="sheet-back" id="sheetBack"></div>
+
+<script src="shared.js"></script>
+<script>
+  const { jobs, startLive, swapText, thumb } = FLYD;
+
+  // Three conversations from today's work. Each carries the terms Flyd pulls
+  // from the chat and the inspirations those terms find.
+  const topics = [
+    {
+      id: "aat",
+      match: /artandtech|hero|studio|invent|homepage|copy/i,
+      me: "I'm stuck on the ArtAndTech hero. “We make things that don’t exist yet” is close but a bit cute.",
+      flyd: [
+        "It's close. The charter calls you a research and invention studio, so the line should earn the word invention.",
+        "Three tries:<ol><li>We invent the thing before the brief exists.</li><li>From the first strange idea to the working thing.</li><li>Research you can touch.</li></ol>The second is already in your v1 draft. I'd promote it to the hero.",
+      ],
+      terms: ["invention studio", "hero line", "creative technology"],
+      cards: [
+        { type: "quote", quote: "The best way to predict the future is to invent it.", by: "Alan Kay, 1971" },
+        { type: "video", shot: "video", len: "54:18", title: "Inventing on Principle", text: "Bret Victor on building tools that let ideas be seen.", by: "CUSEC 2012" },
+        { type: "fact", title: "Xerox PARC built the Alto in 1973", text: "A research lab, not a product team, gave us the windowed desktop.", by: "Fact" },
+        { type: "image", shot: "type", title: "One-line studio heroes", text: "Studio sites that lead with a sentence, not a reel.", by: "6 references" },
+        { type: "news", title: "Studios are selling R&D retainers, not campaigns", text: "A shift your three-model charter already bets on.", by: "3h ago" },
+      ],
+    },
+    {
+      id: "gg",
+      match: /pixel|transition|blocks|georgegalanakis|site|scroll/i,
+      me: "Look at the pixel transition on my site. Rising blocks, or the image pixelating?",
+      flyd: [
+        "Rising blocks. It's one decisive move and it reads as yours; the pixelate feels like a filter.",
+        "One thing to try: let the blocks rise on the grid's columns so the transition and the layout agree. I've started that as take three.",
+      ],
+      terms: ["pixel transition", "scroll", "portfolio"],
+      cards: [
+        { type: "video", shot: "video", len: "3:02", title: "Vertigo title sequence", text: "Saul Bass, 1958. Geometry that moves with intent.", by: "Video" },
+        { type: "quote", quote: "Less, but better.", by: "Dieter Rams" },
+        { type: "image", shot: "grid", title: "Column-driven transitions", text: "Portfolios where motion follows the grid.", by: "4 references" },
+        { type: "fact", title: "Scroll-driven animation needs no JavaScript now", text: "CSS animation-timeline: scroll() runs it on the compositor.", by: "Fact" },
+        { type: "image", shot: "blocks", title: "Your take two", text: "Black blocks rise, 14:00 today.", by: "georgegalanakis" },
+      ],
+    },
+    {
+      id: "polybot",
+      match: /poly|btc|bitcoin|trade|backtest|market/i,
+      me: "How's polybot looking? Worth paper trading yet?",
+      flyd: [
+        "Not yet. The late-window taker leads at +9.75 over 6 trades, but a t of 1.39 on six trades is noise.",
+        "I'll keep the recorder running. At this rate we'll have 200 resolved windows in about a week, enough to calibrate the TWAP model properly.",
+      ],
+      terms: ["Polymarket", "BTC TWAP", "backtest"],
+      cards: [
+        { type: "stat", big: "1.75¢", title: "Most a taker pays per share", text: "At p = 0.5. Makers pay nothing.", by: "Polymarket fees" },
+        { type: "news", title: "Crypto up/down markets now settle on a Chainlink TWAP", text: "5m windows average the last 30s; 15m and 4h the last 60s.", by: "Aug 7" },
+        { type: "stat", big: "9 of 9", title: "Windows where the final-30s TWAP called it", text: "The full-window TWAP got 8 of 9.", by: "polybot data" },
+        { type: "image", shot: "candles", title: "Today's 5m windows", text: "37 resolved, recorder still running.", by: "polybot" },
+        { type: "quote", quote: "It's not whether you're right or wrong, but how much you make when you're right.", by: "George Soros" },
+      ],
+    },
+  ];
+
+  const threadInner = document.getElementById("threadInner");
+  const thread = document.getElementById("thread");
+  const cardsEl = document.getElementById("cards");
+  const termsEl = document.getElementById("terms");
+  let current = null;
+  let shown = 0;
+
+  const paras = (list) => list.map((x) => `<div class="p">${x}</div>`).join("");
+
+  function addMsg(who, html) {
+    const m = document.createElement("div");
+    m.className = `msg ${who} enter`;
+    m.innerHTML = html;
+    threadInner.appendChild(m);
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  function renderCard(c) {
+    const media = c.shot ? `<div class="media">${thumb(c.shot)}${c.len ? `<span class="len">${c.len}</span>` : ""}</div>` : "";
+    let main = "";
+    if (c.type === "quote") main = `<p class="quote">“${c.quote}”</p>`;
+    else if (c.type === "stat") main = `<p class="big">${c.big}</p><p class="title">${c.title}</p><p class="text">${c.text}</p>`;
+    else main = `<p class="title">${c.title}</p>${c.text ? `<p class="text">${c.text}</p>` : ""}`;
+    const label = { quote: "Quote", video: "Video", fact: "Fact", image: "Image", news: "News", stat: "Stat" }[c.type];
+    const by = c.by === label ? label : `${label} · ${c.by}`;
+    return `<article class="card">${media}<div class="body">${main}<footer><span>${by}</span><button data-add>Add to canvas</button></footer></div></article>`;
+  }
+
+  // Like Posttraction: wait for the conversation to settle, show what Flyd is
+  // looking for, then fill. Cards come in one by one rather than all at once.
+  function fill(topic, { more = false } = {}) {
+    termsEl.textContent = "Looking for " + topic.terms.join(", ") + "…";
+    termsEl.classList.add("shimmer");
+    if (!more) cardsEl.innerHTML = '<div class="ghost"></div><div class="ghost"></div><div class="ghost"></div>';
+    setTimeout(() => {
+      termsEl.classList.remove("shimmer");
+      termsEl.textContent = "From " + topic.terms.join(", ");
+      const list = more ? topic.cards.slice().reverse() : topic.cards;
+      cardsEl.innerHTML = "";
+      list.forEach((c, i) => {
+        setTimeout(() => cardsEl.insertAdjacentHTML("beforeend", renderCard(c)), i * 140);
+      });
+    }, 1300);
+  }
+
+  cardsEl.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-add]");
+    if (!b) return;
+    b.textContent = "Added"; b.classList.add("added");
+  });
+  document.getElementById("refresh").addEventListener("click", () => current && fill(current, { more: true }));
+
+  function say(topic, text) {
+    addMsg("me", `<p>${text}</p>`);
+    setTimeout(() => {
+      addMsg("flyd", paras(topic.flyd));
+    }, 700);
+    if (!current || current.id !== topic.id) {
+      current = topic;
+      setTimeout(() => fill(topic), 900);
+    }
+    renderSuggest();
+  }
+
+  function renderSuggest() {
+    const s = document.getElementById("suggest");
+    s.innerHTML = "";
+    topics.filter((t) => t !== current).forEach((t) => {
+      const b = document.createElement("button");
+      b.textContent = t.me.length > 46 ? t.me.slice(0, t.me.lastIndexOf(" ", 44)).replace(/[.,?!]$/, "") + "…" : t.me;
+      b.title = t.me;
+      b.onclick = () => say(t, t.me);
+      s.appendChild(b);
+    });
+  }
+
+  document.getElementById("composer").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = document.getElementById("input").value.trim();
+    if (!v) return;
+    document.getElementById("input").value = "";
+    const t = topics.find((x) => x.match.test(v));
+    if (t) {
+      addMsg("me", `<p>${v.replace(/</g, "&lt;")}</p>`);
+      setTimeout(() => addMsg("flyd", paras(t.flyd)), 700);
+      if (current !== t) { current = t; setTimeout(() => fill(t), 900); }
+      renderSuggest();
+    } else {
+      addMsg("me", `<p>${v.replace(/</g, "&lt;")}</p>`);
+      setTimeout(() => addMsg("flyd", "<p>On it. The ideas on the right will follow the conversation as it moves.</p>"), 600);
+    }
+  });
+
+  // Live lines at the top of the sidebar; each opens its project overview.
+  const jobsEl = document.getElementById("jobs");
+  const jobEls = {};
+  jobs.forEach((j) => {
+    const a = document.createElement("a");
+    a.className = "job"; a.href = "c-overview.html#" + (j.id === "news" ? "flyd" : j.id);
+    a.innerHTML = `<span class="dot"></span><span class="name">${j.project}</span><span class="swap"></span>`;
+    jobsEl.appendChild(a);
+    jobEls[j.id] = a;
+  });
+  const stripText = document.getElementById("stripText");
+  const stripDot = document.getElementById("stripDot");
+  startLive((job, step) => {
+    const a = jobEls[job.id];
+    a.querySelector(".dot").dataset.tone = step.tone;
+    swapText(a.querySelector(".swap"), step.text);
+    stripDot.dataset.tone = step.tone;
+    swapText(stripText, `${job.project}: ${step.text}`);
+  });
+
+  // Phone sheet.
+  const side = document.getElementById("side");
+  const back = document.getElementById("sheetBack");
+  const sheet = (on) => { side.classList.toggle("up", on); back.classList.toggle("on", on); };
+  document.getElementById("strip").onclick = () => sheet(true);
+  back.onclick = () => sheet(false);
+  document.getElementById("grab").onclick = () => sheet(false);
+
+  // Open on the ArtAndTech conversation, already under way.
+  say(topics[0], topics[0].me);
+</script>
+</body>
+</html>

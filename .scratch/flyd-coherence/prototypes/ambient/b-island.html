@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd island</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { overflow: hidden; }
+
+  /* A plain desktop so the island is seen in context, not on a stage. */
+  .desk {
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(120% 80% at 20% 0%, #e9e5dc 0%, transparent 60%),
+      radial-gradient(90% 70% at 100% 100%, #dfe3e2 0%, transparent 60%),
+      var(--bg);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .desk {
+      background:
+        radial-gradient(120% 80% at 20% 0%, #24221f 0%, transparent 60%),
+        radial-gradient(90% 70% at 100% 100%, #1d2122 0%, transparent 60%),
+        var(--bg);
+    }
+  }
+  .menubar {
+    position: fixed; top: 0; left: 0; right: 0; height: 28px;
+    display: flex; align-items: center; gap: 18px; padding: 0 16px;
+    font-size: 13px; color: var(--ink-2);
+    background: color-mix(in srgb, var(--surface) 55%, transparent);
+    backdrop-filter: blur(20px);
+  }
+  .menubar b { font-weight: 600; color: var(--ink); }
+  .menubar .clock { margin-left: auto; }
+
+  .window {
+    position: fixed; left: 8%; right: 8%; top: 96px; bottom: 120px;
+    background: var(--surface); border-radius: 12px; box-shadow: var(--shadow);
+    border: 1px solid var(--line); overflow: hidden;
+  }
+  .window .bar { height: 40px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; padding: 0 14px; }
+  .window .bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--line-2); }
+  .window .bar span { margin-left: 12px; font-size: 13px; color: var(--muted); }
+  .window pre {
+    margin: 0; padding: 28px 32px; font: 13px/1.7 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink-2);
+    white-space: pre-wrap;
+  }
+
+  /* The island. Resting: a calm black pill. Open: the live lines. */
+  .island {
+    position: fixed; top: 6px; left: 50%; transform: translateX(-50%);
+    z-index: 10;
+    width: 236px; height: 34px; border-radius: 17px;
+    background: #0b0b0c; color: #f2f2f4;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+    overflow: hidden;
+    transition: width 0.42s cubic-bezier(.3,1.3,.5,1), height 0.42s cubic-bezier(.3,1.3,.5,1), border-radius 0.42s;
+    cursor: default;
+  }
+  .island.peek { width: 380px; }
+  .island.open { width: 540px; height: var(--open-h, 300px); border-radius: 26px; }
+
+  .rest {
+    position: absolute; inset: 0; display: flex; align-items: center; gap: 10px; padding: 0 14px;
+    font-size: 13px; transition: opacity 0.2s;
+  }
+  .island.open .rest { opacity: 0; pointer-events: none; }
+  .dots { display: flex; gap: 4px; flex: none; }
+  .dots .dot { width: 6px; height: 6px; }
+  .rest .swap { flex: 1; color: #d8d8dc; }
+  .rest .swap > span { color: #d8d8dc; }
+
+  .panel {
+    position: absolute; left: 0; right: 0; top: 0; padding: 18px 18px 18px;
+    opacity: 0; transition: opacity 0.2s; pointer-events: none;
+  }
+  .island.open .panel { opacity: 1; pointer-events: auto; transition-delay: 0.12s; }
+  .panel h2 { margin: 2px 6px 10px; font-size: 13px; font-weight: 600; color: #8e8e93; }
+
+  .row {
+    display: grid; grid-template-columns: 8px 112px 1fr; align-items: center; gap: 12px;
+    width: 100%; padding: 10px 8px; border: 0; background: transparent; border-radius: 12px;
+    text-align: left; font-size: 14px;
+  }
+  .row:hover { background: rgba(255, 255, 255, 0.07); }
+  .row .name { color: #f2f2f4; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .swap > span { color: #c7c7cc; }
+  .island [data-tone="moving"] ~ .swap > .swap-in {
+    background-image: linear-gradient(90deg, #c7c7cc 0%, #c7c7cc 40%, #fff 50%, #c7c7cc 60%, #c7c7cc 100%);
+  }
+  .rest [data-tone] + .swap > .swap-in { color: #d8d8dc; }
+
+  /* Tapping a line shows what happened, in order, inside the island. */
+  .detail { display: none; padding: 4px 8px 2px; }
+  .island.detail-on .rows { display: none; }
+  .island.detail-on .detail { display: block; }
+  .detail .back { border: 0; background: transparent; color: #8e8e93; font-size: 13px; padding: 4px 0; margin-bottom: 8px; }
+  .detail .back:hover { color: #f2f2f4; }
+  .detail h3 { margin: 0 0 14px; font-size: 17px; font-weight: 600; }
+  .steps { list-style: none; margin: 0; padding: 0; }
+  .steps li { display: grid; grid-template-columns: 48px 1fr; gap: 10px; padding: 6px 0; font-size: 14px; color: #c7c7cc; }
+  .steps li time { color: #6e6e73; font-variant-numeric: tabular-nums; }
+  .steps li.now { color: #f2f2f4; }
+  .detail .open-link {
+    display: inline-flex; margin-top: 24px; padding: 9px 16px; border-radius: 999px;
+    background: #f2f2f4; color: #0b0b0c; border: 0; font-size: 14px; font-weight: 500;
+  }
+
+  /* The one case that earns attention: it holds the island, no OK needed. */
+  .island.alerting { width: 400px; }
+  .island.alerting .rest .swap > span { color: #fff; }
+
+  .guide {
+    position: fixed; left: 16px; right: 16px; bottom: 24px; margin: 0 auto; max-width: 560px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    padding: 14px 18px; border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow);
+    border: 1px solid var(--line); font-size: 14px; color: var(--ink-2);
+  }
+  .guide p { margin: 0; }
+  .guide button {
+    padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface-2); font-size: 14px;
+  }
+  .guide a { color: var(--ink-2); }
+
+  @media (max-width: 640px) {
+    .menubar { display: none; }
+    .window { left: 0; right: 0; top: 0; bottom: 0; border-radius: 0; border: 0; }
+    .window .bar { height: 88px; align-items: flex-end; padding-bottom: 12px; }
+    .window pre { padding: 24px 20px; font-size: 12px; }
+    .island { top: 10px; width: 140px; }
+    .island .rest .swap { display: none; }
+    .island .rest { justify-content: center; }
+    .island.peek { width: calc(100vw - 24px); }
+    .island.peek .rest .swap, .island.alerting .rest .swap { display: block; }
+    .island.peek .rest, .island.alerting .rest { justify-content: flex-start; }
+    .island.open, .island.alerting { width: calc(100vw - 24px); }
+    .row { grid-template-columns: 8px 1fr; gap: 2px 12px; font-size: 14px; }
+    .row .dot { grid-row: 1; }
+    .row .swap { grid-column: 2; }
+    .row .swap > span { white-space: normal; }
+    .panel h2 { margin-bottom: 6px; }
+    .guide { bottom: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="desk"></div>
+<div class="menubar"><b>Code</b><span>File</span><span>Edit</span><span>View</span><span class="clock" id="clock">Tue 14:12</span></div>
+
+<div class="window">
+  <div class="bar"><i></i><i></i><i></i><span>georgegalanakis / pixel-demo.js</span></div>
+<pre>// Black blocks rise from the bottom and take over the screen
+const cols = 24, rows = 14;
+function frame(t) {
+  for (let x = 0; x &lt; cols; x++) {
+    const h = ease(clamp(t * 1.4 - x / cols * 0.4));
+    fillColumn(x, rows - Math.round(h * rows));
+  }
+}</pre>
+</div>
+
+<div class="island" id="island" aria-live="polite">
+  <div class="rest" id="rest">
+    <div class="dots" id="dots"></div>
+    <div class="swap" id="restText"></div>
+  </div>
+  <div class="panel" id="panel">
+    <div class="rows" id="rows"><h2>Going on now</h2></div>
+    <div class="detail" id="detail">
+      <button class="back" id="back">‹ All work</button>
+      <h3 id="dTitle"></h3>
+      <ol class="steps" id="dSteps"></ol>
+      <button class="open-link" id="dOpen">Open its canvas</button>
+    </div>
+  </div>
+</div>
+
+<div class="guide">
+  <p id="guideText">Hover the island to see what's going on.</p>
+  <button id="alertBtn">Show a client waiting</button>
+</div>
+
+<script src="shared.js"></script>
+<script>
+  const { jobs, startLive, swapText } = FLYD;
+  const island = document.getElementById("island");
+  const rows = document.getElementById("rows");
+  const dots = document.getElementById("dots");
+  const restText = document.getElementById("restText");
+  const touch = matchMedia("(hover: none)").matches;
+  if (touch) document.getElementById("guideText").textContent = "Tap the island to see what's going on.";
+
+  const state = {};       // job id -> { step, history: [{t, text}] }
+  const rowEls = {};
+  let alerting = false;
+  let peekTimer = null;
+  let detailJob = null;
+
+  jobs.forEach((job) => {
+    const d = document.createElement("span");
+    d.className = "dot"; d.id = "dot-" + job.id;
+    dots.appendChild(d);
+
+    const r = document.createElement("button");
+    r.className = "row";
+    r.innerHTML = `<span class="dot"></span><span class="name">${job.project}</span><span class="swap"></span>`;
+    r.addEventListener("click", (e) => { e.stopPropagation(); showDetail(job); });
+    rows.appendChild(r);
+    rowEls[job.id] = r;
+    state[job.id] = { history: [] };
+  });
+
+  const restCalm = () => {
+    if (alerting) return;
+    const look = jobs.filter((j) => state[j.id].step?.tone === "look").length;
+    const moving = jobs.filter((j) => state[j.id].step?.tone === "moving").length;
+    const parts = [];
+    if (moving) parts.push(`${moving} moving`);
+    if (look) parts.push(`${look} ready to look at`);
+    swapText(restText, parts.join(" · ") || "All quiet");
+  };
+
+  const clock = () => {
+    const d = new Date();
+    return d.toTimeString().slice(0, 5);
+  };
+
+  startLive((job, step) => {
+    const s = state[job.id];
+    s.step = step;
+    s.history.push({ t: clock(), text: step.text });
+    if (s.history.length > 6) s.history.shift();
+    if (alerting && job.id === "capfive") return;
+
+    document.getElementById("dot-" + job.id).dataset.tone = step.tone;
+    const r = rowEls[job.id];
+    r.querySelector(".dot").dataset.tone = step.tone;
+    swapText(r.querySelector(".swap"), step.text);
+    if (detailJob === job) renderDetail();
+
+    // A change peeks out for a few seconds, then the island settles again.
+    // Only changes that mean something peek: a finish or something to look at.
+    if (!island.classList.contains("open") && !alerting && (step.tone === "done" || step.tone === "look")) {
+      island.classList.add("peek");
+      swapText(restText, `${job.project}: ${step.text}`);
+      clearTimeout(peekTimer);
+      peekTimer = setTimeout(() => { island.classList.remove("peek"); restCalm(); }, 4200);
+    } else if (!island.classList.contains("peek")) {
+      restCalm();
+    }
+  });
+
+  function fitHeight() {
+    const panel = document.getElementById("panel");
+    island.style.setProperty("--open-h", panel.scrollHeight + "px");
+  }
+
+  let closeTimer = null;
+  function open() {
+    clearTimeout(closeTimer);
+    island.classList.remove("peek");
+    island.classList.add("open");
+    fitHeight();
+  }
+  function close() {
+    island.classList.remove("open", "detail-on");
+    detailJob = null;
+    restCalm();
+  }
+
+  function showDetail(job) {
+    detailJob = job;
+    island.classList.add("detail-on");
+    renderDetail();
+  }
+  function renderDetail() {
+    document.getElementById("dTitle").textContent = detailJob.project;
+    const h = state[detailJob.id].history;
+    document.getElementById("dSteps").innerHTML = h
+      .map((x, i) => `<li class="${i === h.length - 1 ? "now" : ""}"><time>${x.t}</time><span>${x.text}</span></li>`)
+      .join("");
+    fitHeight();
+  }
+  document.getElementById("back").addEventListener("click", (e) => {
+    e.stopPropagation(); island.classList.remove("detail-on"); detailJob = null; fitHeight();
+  });
+  document.getElementById("dOpen").addEventListener("click", (e) => {
+    e.stopPropagation();
+    location.href = "c-overview.html#" + (detailJob?.id === "news" ? "flyd" : detailJob?.id || "");
+  });
+
+  if (touch) {
+    island.addEventListener("click", (e) => { e.stopPropagation(); island.classList.contains("open") ? null : open(); });
+    document.addEventListener("click", close);
+  } else {
+    island.addEventListener("mouseenter", open);
+    island.addEventListener("mouseleave", () => { closeTimer = setTimeout(close, 350); });
+  }
+
+  // One of the four interruptions. It holds the resting island in red text
+  // until the situation changes; there is nothing to OK or close.
+  const alertBtn = document.getElementById("alertBtn");
+  alertBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    alerting = !alerting;
+    island.classList.toggle("alerting", alerting);
+    const capRow = rowEls.capfive;
+    if (alerting) {
+      clearTimeout(peekTimer); island.classList.remove("peek");
+      document.querySelectorAll("#dot-capfive, #rows .row:first-of-type .dot").forEach((d) => (d.dataset.tone = "alert"));
+      capRow.querySelector(".dot").dataset.tone = "alert";
+      swapText(restText, "CapFive client is waiting on the deploy");
+      swapText(capRow.querySelector(".swap"), "Client is waiting on the deploy");
+      alertBtn.textContent = "Client answered";
+    } else {
+      const s = state.capfive.step;
+      document.getElementById("dot-capfive").dataset.tone = s.tone;
+      capRow.querySelector(".dot").dataset.tone = s.tone;
+      swapText(capRow.querySelector(".swap"), s.text);
+      alertBtn.textContent = "Show a client waiting";
+      restCalm();
+    }
+  });
+
+  const tick = () => {
+    const d = new Date();
+    document.getElementById("clock").textContent =
+      d.toLocaleDateString("en-GB", { weekday: "short" }) + " " + d.toTimeString().slice(0, 5);
+  };
+  tick(); setInterval(tick, 30000);
+</script>
+</body>
+</html>

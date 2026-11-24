@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd overview</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { overflow: hidden; }
+
+  /* Chat underneath */
+  .chat { display: flex; flex-direction: column; height: 100vh; }
+  .chat header { padding: 18px 28px; font-size: 15px; font-weight: 600; }
+  .thread { flex: 1; overflow-y: auto; padding: 24px 28px; }
+  .thread-inner { max-width: 660px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+  .msg { max-width: 560px; }
+  .msg p { margin: 0; }
+  .msg.me { align-self: flex-end; background: var(--surface); border: 1px solid var(--line); padding: 12px 16px; border-radius: 18px 18px 6px 18px; }
+  .composer-wrap { padding: 12px 28px 24px; }
+  .composer-inner { max-width: 660px; margin: 0 auto; position: relative; }
+  .hint { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+  .hint kbd { font: inherit; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line-2); border-radius: 6px; padding: 1px 7px; }
+  .composer { display: flex; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px; padding: 8px 8px 8px 16px; }
+  .composer input { flex: 1; border: 0; outline: 0; background: transparent; font: inherit; color: var(--ink); padding: 8px 0; }
+  .composer button { border: 0; background: var(--ink); color: var(--bg); border-radius: 11px; padding: 9px 16px; font-size: 14px; font-weight: 500; }
+
+  .menu {
+    position: absolute; left: 0; right: 0; bottom: 100%; margin-bottom: 10px;
+    background: var(--surface); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: var(--shadow);
+    padding: 6px; display: none;
+  }
+  .menu.on { display: block; animation: rise-in 0.18s ease-out both; }
+  .menu.on ~ .hint { visibility: hidden; }
+  .menu button {
+    display: flex; width: 100%; align-items: center; gap: 12px; border: 0; background: transparent;
+    padding: 10px 12px; border-radius: 9px; text-align: left; font-size: 14px;
+  }
+  .menu button b { font-weight: 600; min-width: 136px; }
+  .menu button span { color: var(--muted); }
+  .menu button.sel { background: var(--surface-2); }
+
+  /* Overview layer */
+  .ov {
+    position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column;
+    background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(18px);
+    opacity: 0; pointer-events: none; transition: opacity 0.3s;
+  }
+  .ov.on { opacity: 1; pointer-events: auto; }
+  .ov-top { display: flex; align-items: center; gap: 16px; padding: 20px 28px; }
+  .ov-top h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  .ov-top .spacer { flex: 1; }
+  .seg { display: inline-flex; background: var(--line); border-radius: 10px; padding: 3px; }
+  .seg button { border: 0; background: transparent; padding: 6px 14px; border-radius: 8px; font-size: 13px; color: var(--ink-2); }
+  .seg button.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .pill { border: 1px solid var(--line-2); background: var(--surface); border-radius: 999px; padding: 7px 14px; font-size: 14px; }
+  .pill:hover { background: var(--surface-2); }
+
+  .stage { flex: 1; position: relative; min-height: 0; }
+
+  /* Carousel: a shallow arc. Small angles, soft shadow, no glow. */
+  .carousel { position: absolute; inset: 0; perspective: 1800px; display: flex; align-items: center; justify-content: center; touch-action: pan-y; }
+  .ring { position: relative; width: 340px; height: 430px; transform-style: preserve-3d; }
+  .pc {
+    position: absolute; inset: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 20px;
+    box-shadow: var(--shadow); padding: 22px; display: flex; flex-direction: column; gap: 16px; cursor: pointer;
+    transition: transform 0.6s cubic-bezier(.2,.8,.2,1), opacity 0.6s, filter 0.6s;
+    user-select: none;
+  }
+  .pc > * { opacity: var(--fade, 1); transition: opacity 0.6s; }
+  .pc .live .swap { height: 3em; }
+  .pc .live .swap > span { white-space: normal; }
+  .pc .live { align-items: flex-start; }
+  .pc .live .dot { margin-top: 7px; }
+  .pc h2 { margin: 0; font-size: 20px; font-weight: 600; }
+  .pc .live { font-size: 14px; color: var(--ink-2); }
+  .pc .live .swap { flex: 1; }
+  .mosaic { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-height: 0; }
+  .mosaic > div { border-radius: 10px; overflow: hidden; background: var(--surface-2); min-height: 0; }
+  .mosaic svg { width: 100%; height: 100%; display: block; }
+  .mosaic .note { padding: 10px 12px; font-size: 12px; color: var(--ink-2); line-height: 1.4; }
+  .mosaic .note b { display: block; color: var(--ink); font-weight: 600; margin-bottom: 2px; }
+  .pc .counts { font-size: 13px; color: var(--muted); }
+
+  .nav { position: absolute; left: 0; right: 0; bottom: 28px; display: flex; justify-content: center; align-items: center; gap: 20px; }
+  .nav .arrow { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--surface); font-size: 18px; line-height: 1; }
+  .pips { display: flex; gap: 8px; }
+  .pips i { width: 6px; height: 6px; border-radius: 50%; background: var(--line-2); transition: background 0.3s, transform 0.3s; }
+  .pips i.on { background: var(--ink); transform: scale(1.2); }
+
+  /* Board: columns on a plane that tilts a degree or two with the pointer. */
+  .board-wrap { position: absolute; inset: 0; overflow: auto; perspective: 2200px; padding: 8px 28px 56px; }
+  .board { display: grid; gap: 20px; transform-style: preserve-3d; transition: transform 0.4s ease-out; max-width: 1200px; margin: 0 auto; }
+  .board-line { max-width: 1200px; margin: 0 auto 28px; font-size: 15px; color: var(--ink-2); }
+  .col h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+  .col h3 span { color: var(--muted); font-weight: 400; }
+  .col .live { font-size: 13px; color: var(--ink-2); margin: -4px 0 14px; }
+  .col .live .swap { flex: 1; }
+  .item {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 10px;
+    animation: rise-in 0.4s ease-out both;
+  }
+  .item .shot { margin: -14px -16px 12px; border-radius: 13px 13px 0 0; overflow: hidden; aspect-ratio: 16 / 9; }
+  .item .shot svg { width: 100%; height: 100%; display: block; }
+  .item b { display: block; font-size: 14px; font-weight: 600; }
+  .item span { display: block; font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+  .open-proj { border: 0; background: transparent; padding: 0; font-weight: 600; font-size: 14px; }
+  .open-proj span { color: var(--muted); font-weight: 400; margin-left: 2px; }
+  .open-proj:hover span { color: var(--ink); }
+  .col .live { align-items: flex-start; }
+  .col .live .dot { margin-top: 6px; }
+  .col .live .swap { height: 3em; }
+  .col .live .swap > span { white-space: normal; }
+
+  @media (max-width: 720px) {
+    .chat header { padding: 14px 16px; }
+    .thread { padding: 16px; }
+    .composer-wrap { padding: 8px 16px 16px; }
+    .menu button b { min-width: 112px; }
+    .menu button span { font-size: 13px; }
+    .ov-top { padding: 14px 16px; gap: 10px; flex-wrap: wrap; }
+    .ov-top h1 { font-size: 18px; flex: 1 0 100%; order: -1; margin-bottom: 4px; }
+    .ov-top .spacer { display: none; }
+    .ring { width: 74vw; height: 400px; }
+    .board-wrap { padding: 8px 16px 48px; perspective: none; }
+    .board { grid-template-columns: 1fr !important; }
+  }
+</style>
+</head>
+<body>
+<main class="chat">
+  <header>Flyd</header>
+  <div class="thread"><div class="thread-inner">
+    <div class="msg me"><p>Deploy the phone notes on CapFive when they pass.</p></div>
+    <div class="msg"><p>Notes 53 to 58 passed on phone and desktop. They're live on Kinsta now.</p></div>
+  </div></div>
+  <div class="composer-wrap">
+    <div class="composer-inner">
+      <div class="menu" id="menu"></div>
+      <p class="hint">Type <kbd>/flyd</kbd> for all your projects, or <kbd>/</kbd> and a project name.</p>
+      <form class="composer" id="composer">
+        <input id="input" placeholder="Message Flyd" autocomplete="off">
+        <button type="submit">Send</button>
+      </form>
+    </div>
+  </div>
+</main>
+
+<section class="ov" id="ov" aria-hidden="true">
+  <div class="ov-top">
+    <h1 id="ovTitle">All projects</h1>
+    <div class="seg" id="seg"><button data-v="carousel" class="on">Carousel</button><button data-v="board">Board</button></div>
+    <button class="pill" id="allBtn" hidden>All projects</button>
+    <div class="spacer"></div>
+    <button class="pill" id="closeBtn">Back to chat</button>
+  </div>
+  <div class="stage" id="stage"></div>
+</section>
+
+<script src="shared.js"></script>
+<script>
+  const { projects, jobs, startLive, swapText, thumb } = FLYD;
+  const jobFor = { capfive: "capfive", polybot: "polybot", gg: "gg", aat: "aat", flyd: "news" };
+  const live = {}; // project id -> latest step
+  const commands = [
+    { cmd: "/flyd", label: () => "All projects", go: () => openAll() },
+    ...projects.filter((p) => p.id !== "flyd").map((p) => ({ cmd: "/" + p.name.toLowerCase(), label: () => (live[p.id] || p).text || p.line, go: () => openProject(p.id) })),
+  ];
+
+  // Slash menu
+  const input = document.getElementById("input");
+  const menu = document.getElementById("menu");
+  let matches = [], sel = 0;
+  function renderMenu() {
+    const v = input.value.trim().toLowerCase();
+    if (!v.startsWith("/")) { menu.classList.remove("on"); return; }
+    matches = commands.filter((c) => c.cmd.startsWith(v) || (v.length > 1 && c.cmd.includes(v.slice(1))));
+    if (!matches.length) { menu.classList.remove("on"); return; }
+    sel = Math.min(sel, matches.length - 1);
+    menu.innerHTML = matches.map((c, i) => `<button class="${i === sel ? "sel" : ""}" data-i="${i}"><b>${c.cmd}</b><span>${c.label()}</span></button>`).join("");
+    menu.classList.add("on");
+  }
+  input.addEventListener("input", () => { sel = 0; renderMenu(); });
+  input.addEventListener("keydown", (e) => {
+    if (!menu.classList.contains("on")) return;
+    if (e.key === "ArrowDown") { sel = (sel + 1) % matches.length; renderMenu(); e.preventDefault(); }
+    if (e.key === "ArrowUp") { sel = (sel - 1 + matches.length) % matches.length; renderMenu(); e.preventDefault(); }
+    if (e.key === "Escape") menu.classList.remove("on");
+  });
+  menu.addEventListener("mousedown", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    e.preventDefault(); run(matches[+b.dataset.i]);
+  });
+  document.getElementById("composer").addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (menu.classList.contains("on") && matches[sel]) run(matches[sel]);
+  });
+  function run(c) { input.value = ""; menu.classList.remove("on"); c.go(); }
+
+  // Overview layer
+  const ov = document.getElementById("ov");
+  const stage = document.getElementById("stage");
+  const seg = document.getElementById("seg");
+  const allBtn = document.getElementById("allBtn");
+  let view = "carousel", active = 2, level = "";
+
+  function show() { ov.classList.add("on"); ov.setAttribute("aria-hidden", "false"); }
+  function hide() { ov.classList.remove("on"); ov.setAttribute("aria-hidden", "true"); history.replaceState(null, "", location.pathname); setTimeout(() => input.focus(), 50); }
+  document.getElementById("closeBtn").onclick = hide;
+  allBtn.onclick = () => openAll();
+  seg.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    view = b.dataset.v; [...seg.children].forEach((x) => x.classList.toggle("on", x === b)); openAll();
+  });
+
+  const lineHTML = (p) => {
+    const s = live[p.id] || { text: p.line, tone: p.tone };
+    return `<div class="live" data-live="${p.id}"><span class="dot" data-tone="${s.tone}"></span><span class="swap"><span>${s.text}</span></span></div>`;
+  };
+  const counts = (p) => {
+    const n = (k) => p.items.filter((i) => i.kind === k).length;
+    const pl = (k, w) => `${n(k)} ${w}${n(k) === 1 ? "" : "s"}`;
+    return [n("work") && `${n("work")} under way`, n("note") && pl("note", "note"), n("artefact") && pl("artefact", "artefact")].filter(Boolean).join(" · ");
+  };
+
+  function openAll() {
+    if (level !== "all" || !ov.classList.contains("on")) active = 2; // open on the middle project
+    level = "all"; show();
+    document.getElementById("ovTitle").textContent = "All projects";
+    seg.hidden = false; allBtn.hidden = true;
+    if (view === "carousel") renderCarousel(); else renderAllBoard();
+  }
+
+  function renderCarousel() {
+    stage.innerHTML = `<div class="carousel" id="car"><div class="ring" id="ring"></div></div>
+      <div class="nav"><button class="arrow" id="prev" aria-label="Previous">‹</button><div class="pips" id="pips"></div><button class="arrow" id="next" aria-label="Next">›</button></div>`;
+    const ring = document.getElementById("ring");
+    projects.forEach((p, i) => {
+      const tiles = p.items.filter((x) => x.shot).slice(0, 2).map((x) => `<div>${thumb(x.shot)}</div>`);
+      const notes = p.items.filter((x) => !x.shot).slice(0, 4 - tiles.length).map((x) => `<div class="note"><b>${x.title}</b>${x.sub}</div>`);
+      const el = document.createElement("article");
+      el.className = "pc"; el.dataset.i = i;
+      el.innerHTML = `<h2>${p.name}</h2>${lineHTML(p)}<div class="mosaic">${[...tiles, ...notes].join("")}</div><div class="counts">${counts(p)}</div>`;
+      el.onclick = () => { if (dragMoved) return; i === active ? openProject(p.id) : go(i); };
+      ring.appendChild(el);
+    });
+    document.getElementById("pips").innerHTML = projects.map(() => "<i></i>").join("");
+    document.getElementById("prev").onclick = () => go(active - 1);
+    document.getElementById("next").onclick = () => go(active + 1);
+    layout();
+    bindDrag(document.getElementById("car"));
+  }
+
+  function layout() {
+    const phone = innerWidth < 720;
+    const step = phone ? innerWidth * 0.62 : 300;
+    document.querySelectorAll(".pc").forEach((el) => {
+      const o = +el.dataset.i - active;
+      const a = Math.abs(o);
+      el.style.transform = `translateX(${o * step}px) translateZ(${-a * 160}px) rotateY(${-o * 12}deg)`;
+      el.style.opacity = a > 2 ? 0 : 1;
+      el.style.setProperty("--fade", 1 - a * 0.4);
+      el.style.zIndex = 10 - a;
+      el.style.pointerEvents = a > 2 ? "none" : "auto";
+    });
+    document.querySelectorAll(".pips i").forEach((p, i) => p.classList.toggle("on", i === active));
+  }
+  function go(i) { active = Math.max(0, Math.min(projects.length - 1, i)); layout(); }
+
+  let dragMoved = false;
+  function bindDrag(el) {
+    let x0 = null;
+    el.addEventListener("pointerdown", (e) => { x0 = e.clientX; dragMoved = false; });
+    el.addEventListener("pointermove", (e) => { if (x0 !== null && Math.abs(e.clientX - x0) > 8) dragMoved = true; });
+    el.addEventListener("pointerup", (e) => {
+      if (x0 === null) return;
+      const dx = e.clientX - x0; x0 = null;
+      if (Math.abs(dx) > 50) go(active + (dx < 0 ? 1 : -1));
+      setTimeout(() => (dragMoved = false), 0);
+    });
+    el.addEventListener("wheel", (e) => {
+      if (Math.abs(e.deltaX) < 20) return;
+      e.preventDefault(); clearTimeout(el._w); el._w = setTimeout(() => go(active + Math.sign(e.deltaX)), 40);
+    }, { passive: false });
+  }
+
+  function itemHTML(x) {
+    return `<div class="item">${x.shot ? `<div class="shot">${thumb(x.shot)}</div>` : ""}<b>${x.title}</b><span>${x.sub}</span></div>`;
+  }
+
+  function renderAllBoard() {
+    stage.innerHTML = `<div class="board-wrap"><div class="board" id="board" style="grid-template-columns: repeat(${projects.length}, minmax(200px, 1fr))"></div></div>`;
+    const board = document.getElementById("board");
+    projects.forEach((p) => {
+      const top = p.items.slice(0, 3).map(itemHTML).join("");
+      board.insertAdjacentHTML("beforeend", `<div class="col"><h3><button class="open-proj" data-p="${p.id}">${p.name} <span>›</span></button></h3>${lineHTML(p)}${top}</div>`);
+    });
+    board.querySelectorAll(".open-proj").forEach((el) => (el.onclick = () => openProject(el.dataset.p)));
+    tilt(board);
+  }
+
+  function openProject(id) {
+    const p = projects.find((x) => x.id === id); if (!p) return;
+    level = "project"; show();
+    active = projects.indexOf(p);
+    document.getElementById("ovTitle").textContent = p.name;
+    seg.hidden = true; allBtn.hidden = false;
+    history.replaceState(null, "", "#" + id);
+    const by = (k) => p.items.filter((x) => x.kind === k);
+    const cols = [["Under way", by("work")], ["Notes", by("note")], ["Artefacts", by("artefact")]];
+    stage.innerHTML = `<div class="board-wrap"><div class="board-line">${lineHTML(p)}</div><div class="board" id="board" style="grid-template-columns: repeat(3, minmax(220px, 1fr))"></div></div>`;
+    const board = document.getElementById("board");
+    cols.forEach(([name, list]) => {
+      board.insertAdjacentHTML("beforeend", `<div class="col"><h3>${name}<span>${list.length}</span></h3>${list.map(itemHTML).join("")}</div>`);
+    });
+    tilt(board);
+  }
+
+  // The board tilts a degree or two with the pointer: depth you feel, not see.
+  function tilt(board) {
+    if (innerWidth < 720 || matchMedia("(hover: none)").matches) return;
+    stage.onpointermove = (e) => {
+      const r = stage.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5;
+      board.style.transform = `rotateY(${x * 3}deg) rotateX(${-y * 2}deg)`;
+    };
+    stage.onpointerleave = () => (board.style.transform = "none");
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (!ov.classList.contains("on")) return;
+    if (e.key === "Escape") level === "project" ? openAll() : hide();
+    if (level === "all" && view === "carousel") {
+      if (e.key === "ArrowRight") go(active + 1);
+      if (e.key === "ArrowLeft") go(active - 1);
+      if (e.key === "Enter") openProject(projects[active].id);
+    }
+  });
+  addEventListener("resize", () => level === "all" && view === "carousel" && layout());
+
+  // Live lines keep moving inside the overview too.
+  startLive((job, step) => {
+    const pid = Object.keys(jobFor).find((k) => jobFor[k] === job.id);
+    live[pid] = step;
+    document.querySelectorAll(`[data-live="${pid}"]`).forEach((el) => {
+      el.querySelector(".dot").dataset.tone = step.tone;
+      swapText(el.querySelector(".swap"), step.text);
+    });
+  });
+
+  // Deep links from the sidebar and island prototypes.
+  const route = () => {
+    const h = location.hash.slice(1);
+    if (h === "all") openAll(); else if (h) openProject(h);
+  };
+  route();
+  addEventListener("hashchange", route);
+</script>
+</body>
+</html>

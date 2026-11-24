@@ -1,0 +1,77 @@
+:root {
+  --bg: #f4f3ef;
+  --surface: #ffffff;
+  --surface-2: #faf9f6;
+  --ink: #1c1c1e;
+  --ink-2: #48484a;
+  --muted: #8a8a8e;
+  --line: rgba(0, 0, 0, 0.08);
+  --line-2: rgba(0, 0, 0, 0.14);
+  --moving: #3a8f5c;
+  --look: #c98a1b;
+  --done: #a3a3a7;
+  --alert: #c4473a;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 28px rgba(0, 0, 0, 0.06);
+  --radius: 14px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131314;
+    --surface: #1c1c1e;
+    --surface-2: #232325;
+    --ink: #f2f2f4;
+    --ink-2: #c7c7cc;
+    --muted: #8e8e93;
+    --line: rgba(255, 255, 255, 0.08);
+    --line-2: rgba(255, 255, 255, 0.14);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 28px rgba(0, 0, 0, 0.35);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+[hidden] { display: none !important; }
+
+/* Live line: a status dot and text that swaps in place. */
+.live { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.live .swap { flex: 1; }
+.dot {
+  flex: none; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--done); transition: background 0.4s;
+}
+.dot[data-tone="moving"] { background: var(--moving); animation: breathe 2.4s ease-in-out infinite; }
+.dot[data-tone="look"] { background: var(--look); }
+.dot[data-tone="alert"] { background: var(--alert); }
+@keyframes breathe { 50% { opacity: 0.45; } }
+
+.swap { position: relative; display: block; overflow: hidden; min-width: 0; height: 1.5em; }
+.swap > span {
+  position: absolute; inset: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.swap-in { animation: rise-in 0.32s ease-out both; }
+.swap-out { animation: rise-out 0.32s ease-in both; }
+@keyframes rise-in { from { transform: translateY(60%); opacity: 0; } }
+@keyframes rise-out { to { transform: translateY(-60%); opacity: 0; } }
+
+/* Work under way shimmers softly, like a mobile assistant's status line. */
+[data-tone="moving"] ~ .swap > .swap-in, .shimmer {
+  background: linear-gradient(90deg, var(--ink-2) 0%, var(--ink-2) 40%, var(--muted) 50%, var(--ink-2) 60%, var(--ink-2) 100%);
+  background-size: 300% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: rise-in 0.32s ease-out both, shimmer 3.2s linear infinite;
+}
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -50% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
