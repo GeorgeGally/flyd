@@ -45,6 +45,7 @@ A calm black pill sits at the top centre over a normal desktop.
 
 - **Resting.** One small dot in a black pill, with no text. The pill has one fixed size (56 × 34) that never changes while it rests. The dot is green and breathes while work is moving, turns amber when something is ready to look at, and is grey when all is quiet. Routine steps and finishes change nothing you can see.
 - **Hover** (tap on a phone). The pill opens into the live lines (one line per job, no dots). When it closes it returns to exactly the resting size. Clicking a line shows that job's recent steps with times, plus **Open its canvas**. Moving the pointer away collapses it.
+- **Motion: ease out, never bounce.** Every island open, close and rollover transition uses `cubic-bezier(.22,.61,.36,1)`: no overshoot, spring or bounce keyframes. The real Mac island (B) must do the same.
 - **Show a client waiting** demonstrates one of the four interruptions agreed in ticket 03 (a client is waiting, money is at risk, something live is broken, or a creative review is holding work up). The pill widens to show one short plain sentence in red ("CapFive client is waiting on the deploy"). It holds that state until the situation changes, not until George clicks OK, then returns to the resting dot.
 
 ## C. Project overview from chat (`c-overview.html`)
