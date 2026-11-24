@@ -1,13 +1,11 @@
 import { parseExecutiveDecision } from "../../intelligence/executive/decision-step.js";
-import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defaultFirstmateExec, FirstmateDomainTransport, firstmateRequestBody, sessionLaunchFailures, startFirstmateSession, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
+import { FIRSTMATE_WAITING, FirstmateDomainTransport, firstmateRequestBody, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
 import { captainNotice } from "../notice.js";
 import { parseDomainResult } from "../result.js";
-import { createLaunchFailureCache } from "../../runtime/repeat-guard.js";
 import { notifyRun } from "../scheduler.js";
 import { listDomainRuns, saveDomainRun } from "../store.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
@@ -21,7 +19,6 @@ describe("FirstMate domain transport", () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-command-"));
     oldDir = process.env.FLYD_COMMAND_DIR;
     process.env.FLYD_COMMAND_DIR = dir;
-    sessionLaunchFailures.clear();
   });
 
   afterEach(() => {
@@ -89,139 +86,6 @@ describe("FirstMate domain transport", () => {
     expect(firstmateRequestBody(request())).not.toContain("USE SKILL:");
   });
 
-  it("starts a session only when the inbox cannot receive work and no harness is live", async () => {
-    const calls: string[] = [];
-    const exec: FirstmateExec = async (script) => {
-      calls.push(script);
-      return { stdout: "", stderr: "" };
-    };
-    const result = await startFirstmateSession({
-      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
-      readiness: { available: true, canReceive: false, liveHarness: false },
-      recordAttempt: vi.fn(),
-    });
-    expect(result.started).toBe(true);
-    expect(calls).toEqual(["claude"]);
-  });
-
-  it("does not start a second session while a harness is live", async () => {
-    const exec = vi.fn<FirstmateExec>();
-    const result = await startFirstmateSession({
-      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
-      readiness: { available: true, canReceive: false, liveHarness: true },
-      recordAttempt: vi.fn(),
-    });
-    expect(result).toEqual({ started: false });
-    expect(exec).not.toHaveBeenCalled();
-  });
-
-  it("waits for Claude instead of falling back when it reports a usage limit", async () => {
-    const calls: string[] = [];
-    const exec: FirstmateExec = async (runtime) => {
-      calls.push(runtime);
-      if (runtime === "claude") return { stdout: "Claude usage limit reached", stderr: "" };
-      return { stdout: "started", stderr: "" };
-    };
-    const result = await startFirstmateSession({
-      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
-      readiness: { available: true, canReceive: false, liveHarness: false },
-      recordAttempt: vi.fn(),
-    });
-    expect(result.started).toBe(false);
-    expect(calls).toEqual(["claude"]);
-  });
-
-  it("never starts a session on Codex, even when it is configured", async () => {
-    const calls: string[] = [];
-    const exec: FirstmateExec = async (runtime) => { calls.push(runtime); return { stdout: "started", stderr: "" }; };
-    const result = await startFirstmateSession({
-      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-codex",
-      readiness: { available: true, canReceive: false, liveHarness: false },
-      env: { FLYD_FIRSTMATE_RUNTIMES: "codex,claude" },
-      recordAttempt: vi.fn(),
-    });
-    expect(result.started).toBe(true);
-    expect(calls).toEqual(["claude"]);
-  });
-
-  it("returns one plain failure after every runtime fails", async () => {
-    const calls: string[] = [];
-    const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("not installed"); };
-    const result = await startFirstmateSession({
-      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
-      readiness: { available: true, canReceive: false, liveHarness: false },
-      recordAttempt: vi.fn(),
-    });
-    expect(result).toEqual({ started: false, failure: "I couldn't start the work right now. I'll keep it safe and try again when I can." });
-    expect(calls).toEqual(["claude"]);
-  });
-
-  it("starts a session without the paid Anthropic API variables in its environment", async () => {
-    const previous = {
-      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-      ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
-      ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
-    };
-    process.env.ANTHROPIC_API_KEY = "sk-paid-api-key";
-    process.env.ANTHROPIC_AUTH_TOKEN = "paid-auth-token";
-    process.env.ANTHROPIC_BASE_URL = "https://api.anthropic.com";
-    try {
-      const launchedEnv: NodeJS.ProcessEnv[] = [];
-      const exec: FirstmateExec = async (_script, _args, options) => {
-        launchedEnv.push(options.env);
-        return { stdout: "started", stderr: "" };
-      };
-      const result = await startFirstmateSession({
-        home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
-        readiness: { available: true, canReceive: false, liveHarness: false },
-        recordAttempt: vi.fn(),
-      });
-      expect(result.started).toBe(true);
-      expect(launchedEnv).toHaveLength(1);
-      expect(launchedEnv[0].ANTHROPIC_API_KEY).toBeUndefined();
-      expect(launchedEnv[0].ANTHROPIC_AUTH_TOKEN).toBeUndefined();
-      expect(launchedEnv[0].ANTHROPIC_BASE_URL).toBeUndefined();
-    } finally {
-      for (const [name, value] of Object.entries(previous)) {
-        if (value === undefined) delete process.env[name];
-        else process.env[name] = value;
-      }
-    }
-  });
-
-  it("keeps a run queued and retryable when no runtime can start, and matches a later reply", async () => {
-    let readyCalls = 0;
-    const exec: FirstmateExec = async (_script, args) => {
-      if (args[0] === "ready") { readyCalls += 1; return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" }; }
-      if (args[0] === "note") return { stdout: JSON.stringify({ id: "note-1", saved: true, acknowledged: false }), stderr: "" };
-      throw new Error("not installed");
-    };
-    const run = await new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }).submit(request());
-
-    expect(run.status).toBe("queued");
-    expect(run.failure).toBe("I couldn't start the work right now. I'll keep it safe and try again when I can.");
-    expect(run.launchRetry?.attempts).toBe(1);
-    expect(readyCalls).toBe(1);
-    expect(listDomainRuns()).toHaveLength(1);
-
-    const reply: FirstmateExec = async (_script, args) => {
-      if (args[0] === "receipts") {
-        return { stdout: JSON.stringify({
-          pending: [],
-          handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-09T02:00:00.000Z", body: JSON.stringify({ status: "completed", brief: "Fixed the call site.", detailed_report: "Changed where it was called.", evidence: ["commit abc"] }), cursor: "000000000001" } }],
-        }), stderr: "" };
-      }
-      return { stdout: "", stderr: "" };
-    };
-    const changed = await syncFirstmateDomainRuns({
-      transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec: reply }),
-      now: () => new Date("2026-10-09T02:00:00.000Z"),
-    });
-
-    expect(changed[0]!.status).toBe("completed");
-    expect(listDomainRuns()[0]!.launchRetry).toBeUndefined();
-  });
-
   it("submits with an idempotent request id", async () => {
     const calls: Array<{ args: string[]; input?: string }> = [];
     const exec: FirstmateExec = async (_script, args, options) => {
@@ -236,6 +100,68 @@ describe("FirstMate domain transport", () => {
     expect(calls[1]!.input).toContain("ORIGINAL REQUEST");
     expect(run.transport.externalId).toBe("note-1");
     expect(listDomainRuns()).toHaveLength(1);
+  });
+
+  it("queues a note while FirstMate is not running, says why, and starts no session or helper for it", async () => {
+    const calls: string[][] = [];
+    const exec: FirstmateExec = async (script, args) => {
+      calls.push([script, ...args]);
+      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
+      if (args[0] === "note") return { stdout: JSON.stringify({ id: "note-1", saved: true, acknowledged: false, announced: true }), stderr: "" };
+      return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, announced: true, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+    };
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+    const run = await transport.submit(request());
+
+    expect(run.status).toBe("queued");
+    expect(run.waiting).toBe(FIRSTMATE_WAITING);
+    expect(run.failure).toBeUndefined();
+    expect(listDomainRuns()[0]!.waiting).toBe("waiting for FirstMate to be running");
+
+    // Hours of syncs while it stays down: the note stays queued with its reason, and nothing is launched.
+    for (const hour of [1, 2, 6]) await syncFirstmateDomainRuns({ transport, now: () => new Date(`2026-10-09T0${hour}:00:00.000Z`) });
+    expect(listDomainRuns()[0]).toMatchObject({ status: "queued", waiting: FIRSTMATE_WAITING });
+    // Only the inbox script is ever run: its note, readiness and receipts, never a session runtime or an announce.
+    expect(calls.every(([script]) => script === "/fake/fm-inbox.sh")).toBe(true);
+    expect([...new Set(calls.map((call) => call[1]))].sort()).toEqual(["note", "ready", "receipts"]);
+    expect(existsSync(join(dir, "firstmate-helpers.json"))).toBe(false);
+  });
+
+  it("delivers the notes queued while FirstMate was down, in order, once it is running, and clears why they waited", async () => {
+    saveDomainRun({ ...queuedRun(), waiting: FIRSTMATE_WAITING });
+    saveDomainRun({ ...queuedRun(), id: "domain-test-2", request: { ...request(), id: "domain-test-2" }, transport: { kind: "firstmate", requestId: "domain-test-2", externalId: "note-2" }, waiting: FIRSTMATE_WAITING });
+    let running = false;
+    let acknowledged = false;
+    const announced: string[] = [];
+    const exec: FirstmateExec = async (_script, args) => {
+      if (args[0] === "ready") return { stdout: JSON.stringify(running ? { can_receive: true, lock: { live_harness: true } } : { can_receive: false, lock: { live_harness: false } }), stderr: "" };
+      if (args[0] === "announce") { announced.push(args.at(-1)!); return { stdout: "{}", stderr: "" }; }
+      if (args[0] !== "receipts") throw new Error(`unexpected ${args[0]}`);
+      // Saved while FirstMate was down, their wakes not yet on its queue: newest listed first.
+      const notes = [
+        { id: "note-2", request_id: "domain-test-2", acknowledged, announced: announced.includes("note-2"), at: "2026-10-09T00:05:00.000Z" },
+        { id: "note-1", request_id: "domain-test-1", acknowledged, announced: announced.includes("note-1"), at: "2026-10-09T00:00:00.000Z" },
+      ];
+      return { stdout: JSON.stringify(acknowledged ? { pending: [], handled: notes } : { pending: notes }), stderr: "" };
+    };
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+    const now = () => new Date("2026-10-09T01:00:00.000Z");
+
+    await syncFirstmateDomainRuns({ transport, now });
+    expect(announced).toEqual([]);
+    expect(listDomainRuns().map((run) => run.waiting)).toEqual([FIRSTMATE_WAITING, FIRSTMATE_WAITING]);
+
+    running = true;
+    await syncFirstmateDomainRuns({ transport, now });
+    expect(announced).toEqual(["note-1", "note-2"]);
+    expect(listDomainRuns().map((run) => [run.status, run.waiting])).toEqual([["queued", undefined], ["queued", undefined]]);
+
+    // Delivered once: a later sync announces nothing again, and FirstMate taking them moves them on.
+    await syncFirstmateDomainRuns({ transport, now });
+    expect(announced).toEqual(["note-1", "note-2"]);
+    acknowledged = true;
+    await syncFirstmateDomainRuns({ transport, now });
+    expect(listDomainRuns().map((run) => run.status)).toEqual(["accepted", "accepted"]);
   });
 
   it("stores the whole reply while exposing its layers", async () => {
@@ -307,7 +233,7 @@ describe("FirstMate domain transport", () => {
     expect(changed!.result?.informationLossRisk).toBe("high");
   });
 
-  it("takes a prose reply as the outcome its words give, keeps it whole, and notes the format gap", async () => {
+  it("accepts a plain prose reply verbatim as the report, with no re-request sent", async () => {
     const prose = "Done and live: the heading now reads 'What we look for in brands' on the partners page.";
     saveDomainRun({
       id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
@@ -315,7 +241,11 @@ describe("FirstMate domain transport", () => {
       transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
     });
     const replies = [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-09T01:00:00.000Z", body: prose, cursor: "000000000001" } }];
-    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled: replies }), stderr: "" });
+    const notes: string[] = [];
+    const exec: FirstmateExec = async (_script, args, options) => {
+      if (args[0] === "note") { notes.push(String(options.input)); return { stdout: JSON.stringify({ id: "note-2", saved: true }), stderr: "" }; }
+      return { stdout: JSON.stringify({ pending: [], handled: replies }), stderr: "" };
+    };
     const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
     const sent: string[] = [];
     const judged: string[] = [];
@@ -325,10 +255,15 @@ describe("FirstMate domain transport", () => {
     const [settled] = await syncFirstmateDomainRuns({ transport, onChanged, judge });
     expect(judged).toEqual([`${request().intendedOutcome}|${prose}`]);
     expect(settled!.status).toBe("completed");
-    expect(settled!.incompleteReason).toBe("domain handoff contract unmet: missing brief, report, evidence");
+    expect(settled!.incompleteReason).toBeUndefined();
     expect(settled!.result?.raw).toEqual([prose]);
     expect(settled!.result?.detailedReport).toBe(prose);
     expect(sent).toEqual([prose]);
+    // Nothing asked again: no re-request, no check-in, and a second read leaves it as it is.
+    expect(notes).toEqual([]);
+    expect(await syncFirstmateDomainRuns({ transport, onChanged, judge })).toEqual([]);
+    expect(notes).toEqual([]);
+    expect(listDomainRuns()[0]!.status).toBe("completed");
   });
 
   it("closes a run from FirstMate's own status/brief reply, without a model, never leaving it working", async () => {
@@ -378,7 +313,7 @@ describe("FirstMate domain transport", () => {
     expect(judged).toBe(0);
     expect(settled!.status).toBe("completed");
     expect(settled!.result?.format).toBe("structured");
-    expect(settled!.incompleteReason).toBe("domain handoff contract unmet: missing evidence");
+    expect(settled!.incompleteReason).toBeUndefined();
   });
 
   it("leaves a prose reply no model could judge open, and asks the staff how it ended", async () => {
@@ -434,168 +369,12 @@ describe("FirstMate domain transport", () => {
 
     reply = { body: JSON.stringify({ status: "completed", brief: "Merged; the footer link works." }), cursor: "5" };
     await sync();
-    expect(status()).toBe("working");
-    // The outcome is taken; its missing report and evidence are asked for once, in the contract's shape.
-    expect(notes).toHaveLength(3);
-    expect(notes[2]).toContain("misses the report and evidence layers");
+    // The outcome is taken as it is: nothing is asked of its shape.
+    expect(status()).toBe("completed");
+    expect(notes).toHaveLength(2);
   });
 
-  it("asks an unstructured FirstMate handoff exactly once to restate itself, then names the layer still missing", async () => {
-    saveDomainRun({ ...queuedRun(), status: "accepted" });
-    const prose = "Done and merged: the call site now goes through the existing abstraction.";
-    const notes: string[] = [];
-    const handled: unknown[] = [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-09T01:00:00.000Z", body: prose, cursor: "000000000001" } }];
-    const exec: FirstmateExec = async (_script, args, options) => {
-      if (args[0] === "note") { notes.push(String(options.input)); return { stdout: JSON.stringify({ id: `note-${notes.length + 1}`, saved: true }), stderr: "" }; }
-      return { stdout: JSON.stringify({ pending: [], handled }), stderr: "" };
-    };
-    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
-    const sent: string[] = [];
-    const sync = () => syncFirstmateDomainRuns({
-      transport, judge: async () => "completed" as const,
-      onChanged: (run) => notifyWithTestDecision(run, async (_title, message) => { sent.push(message); }),
-    });
-
-    const [first] = await sync();
-    // The outcome is recorded and told once; the missing layers are asked for once, in the contract's shape.
-    expect(first!.status).toBe("working");
-    expect(notes).toHaveLength(1);
-    expect(notes[0]).toContain("misses the brief, report and evidence layers of the handoff contract");
-    expect(notes[0]).toContain('"detailed_report"');
-    expect(first!.handoffRetry).toMatchObject({ cursor: "000000000001", missing: ["brief", "report", "evidence"] });
-    expect(first!.handoffRetry?.answeredAt).toBeUndefined();
-    expect(sent).toHaveLength(0);
-
-    // FirstMate answers the re-request with a brief and report but still no evidence.
-    const reRequest = listDomainRuns().find((run) => run.id === "domain-test-1")!.messages!.find((message) => message.from === "flyd")!;
-    handled.push({ id: "note-2", request_id: reRequest.id, acknowledged: true, reply: { id: "note-2", at: "2026-10-09T02:00:00.000Z", body: JSON.stringify({ status: "completed", brief: "Fixed the call site.", detailed_report: "Routed the caller through the abstraction." }), cursor: "000000000002" } });
-    const [second] = await sync();
-    expect(second!.status).toBe("completed");
-    expect(second!.handoffRetry?.answeredAt).toBe("2026-10-09T02:00:00.000Z");
-    expect(second!.incompleteReason).toBe("handoff contract unmet after one structured re-request: missing evidence (no link, commit, file, id or command output to check it against)");
-    // Never a second re-request, and the restated outcome is not told to George again.
-    expect(notes).toHaveLength(1);
-    expect(sent).toHaveLength(1);
-
-    // Read again later: nothing new, nothing sent.
-    expect(await sync()).toEqual([]);
-    expect(notes).toHaveLength(1);
-  });
-
-  it("fails a report-less handoff after one re-request and notifies once", async () => {
-    saveDomainRun({ ...queuedRun(), status: "accepted" });
-    const body = JSON.stringify({ status: "completed", brief: "Fixed the call site.", evidence: ["src/call.ts"] });
-    const notes: string[] = [];
-    const handled: Array<Record<string, unknown>> = [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { body, cursor: "1" } }];
-    const exec: FirstmateExec = async (_script, args, options) => {
-      if (args[0] === "note") { notes.push(String(options.input)); return { stdout: JSON.stringify({ id: "note-2", saved: true }), stderr: "" }; }
-      return { stdout: JSON.stringify({ pending: [], handled }), stderr: "" };
-    };
-    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
-    const sent: string[] = [];
-    const sync = () => syncFirstmateDomainRuns({ transport, onChanged: (run) => notifyWithTestDecision(run, async (_title, message) => { sent.push(message); }) });
-    const [first] = await sync();
-    expect(first!.status).toBe("working");
-    expect(notes).toHaveLength(1);
-    expect(sent).toHaveLength(0);
-    const message = listDomainRuns()[0]!.messages!.find((item) => item.from === "flyd")!;
-    handled.push({ id: "note-2", request_id: message.id, acknowledged: true, reply: { body, cursor: "2" } });
-    const [failed] = await sync();
-    expect(failed!.status).toBe("failed");
-    expect(failed!.failure).toContain("report (no prose account of what was done)");
-    expect(failed!.incompleteReason).toBe(failed!.failure);
-    expect(notes).toHaveLength(1);
-    expect(sent).toHaveLength(1);
-    await sync();
-    expect(notes).toHaveLength(1);
-    expect(sent).toHaveLength(1);
-  });
-
-  it("leaves a settled run as it was when the answer to its re-request is not an outcome", async () => {
-    saveDomainRun({ ...queuedRun(), status: "accepted" });
-    const notes: string[] = [];
-    const handled: unknown[] = [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-09T01:00:00.000Z", body: "Done and merged.", cursor: "000000000001" } }];
-    const exec: FirstmateExec = async (_script, args, options) => {
-      if (args[0] === "note") { notes.push(String(options.input)); return { stdout: JSON.stringify({ id: `note-${notes.length + 1}`, saved: true }), stderr: "" }; }
-      return { stdout: JSON.stringify({ pending: [], handled }), stderr: "" };
-    };
-    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
-    let verdict: "completed" | "working" | "unclear" = "completed";
-    const sent: string[] = [];
-    const sync = () => syncFirstmateDomainRuns({
-      transport, judge: async () => verdict,
-      onChanged: (run) => notifyWithTestDecision(run, async (_title, message) => { sent.push(message); }),
-    });
-
-    const [first] = await sync();
-    expect(first!.status).toBe("working");
-    expect(notes).toHaveLength(1);
-    expect(sent).toHaveLength(0);
-
-    // The run as stored once George was told: what every later read must leave as it was.
-    const settled = listDomainRuns().find((run) => run.id === "domain-test-1")!;
-    expect(settled.notified).toBeUndefined();
-    const reRequest = settled.messages!.find((message) => message.from === "flyd")!;
-    for (const [cursor, answer, judged] of [["000000000002", "Still working on it.", "working"], ["000000000003", "Hmm, let me look.", "unclear"]] as const) {
-      verdict = judged;
-      handled.push({ id: `note-${cursor}`, request_id: reRequest.id, acknowledged: true, reply: { id: `note-${cursor}`, at: "2026-10-09T02:00:00.000Z", body: answer, cursor } });
-      await sync();
-      const run = listDomainRuns().find((item) => item.id === "domain-test-1")!;
-      expect(run.status).toBe("working");
-      expect(run.notified).toBeUndefined();
-      expect(run.report).toEqual(settled.report);
-      expect(run.result).toEqual(settled.result);
-      expect(run.statusAskedAt).toBeUndefined();
-      expect(run.handoffRetry).toEqual(settled.handoffRetry);
-      expect(run.transport.replyCursor).toBe(cursor);
-    }
-    // No clear-status ask and no second re-request, and nothing told to George again.
-    expect(notes).toHaveLength(1);
-    expect(sent).toHaveLength(0);
-  });
-
-  it("stops reading a settled run once its re-request has gone unanswered past the wait", async () => {
-    const askedAt = "2026-10-09T01:00:00.000Z";
-    const result = parseDomainResult("Done and merged.").result;
-    saveDomainRun({
-      ...queuedRun(), status: "completed", updatedAt: askedAt, result, notified: true,
-      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1", replyCursor: "000000000001" },
-      handoffRetry: { askedAt, cursor: "000000000001", missing: ["brief", "report", "evidence"] },
-    });
-    // A late outcome reply on the original note, weeks after the re-request.
-    const handled = [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-30T00:00:00.000Z", body: JSON.stringify({ status: "failed", brief: "Rolled it back." }), cursor: "000000000002" } }];
-    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled }), stderr: "" });
-    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
-
-    // Within 24 hours of the ask the run is still read; past it, never again.
-    const late = await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-11T01:00:00.000Z") });
-    expect(late).toEqual([]);
-    expect(listDomainRuns().find((run) => run.id === "domain-test-1")).toMatchObject({ status: "completed", transport: { replyCursor: "000000000001" } });
-    const [inTime] = await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T12:00:00.000Z") });
-    expect(inTime!.status).toBe("failed");
-  });
-
-  it("settles a held report-less run as the terminal report failure once its re-request goes unanswered past the wait", async () => {
-    const askedAt = "2026-10-09T01:00:00.000Z";
-    saveDomainRun({
-      ...queuedRun(), status: "working", updatedAt: askedAt, result: parseDomainResult("Done and merged.").result,
-      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1", replyCursor: "000000000001" },
-      handoffRetry: { askedAt, cursor: "000000000001", missing: ["brief", "report", "evidence"] },
-    });
-    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true }] }), stderr: "" });
-    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
-
-    expect(await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T12:00:00.000Z") })).toEqual([]);
-    expect(listDomainRuns()[0]!.status).toBe("working");
-
-    const [failed] = await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-11T01:00:00.000Z") });
-    expect(failed!.status).toBe("failed");
-    expect(failed!.failure).toContain("report (no prose account of what was done)");
-    expect(failed!.report).toBeDefined();
-    expect(await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-12T01:00:00.000Z") })).toEqual([]);
-  });
-
-  it("accepts a FirstMate return that meets the contract after light normalisation, without a re-request", async () => {
+  it("reads a structured FirstMate return through light normalisation, without a re-request", async () => {
     saveDomainRun({ ...queuedRun(), status: "accepted" });
     // The whole reply one fence around an outer object, keys in other casings, evidence as one string.
     const body = [
@@ -612,11 +391,10 @@ describe("FirstMate domain transport", () => {
     expect(done!.status).toBe("completed");
     expect(done!.result).toMatchObject({ format: "structured", brief: "Fixed the call site.", evidence: ["https://github.com/george/flyd/pull/12"] });
     expect(done!.incompleteReason).toBeUndefined();
-    expect(done!.handoffRetry).toBeUndefined();
     expect(notes).toEqual([]);
   });
 
-  it("records a structured handoff with no evidence as done, noting the missing layer", async () => {
+  it("records a structured handoff with no evidence as done, as it is", async () => {
     saveDomainRun({
       id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
       createdAt: request().createdAt, updatedAt: request().createdAt,
@@ -628,7 +406,7 @@ describe("FirstMate domain transport", () => {
     }), stderr: "" });
     const [done] = await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }) });
     expect(done!.status).toBe("completed");
-    expect(done!.incompleteReason).toBe("domain handoff contract unmet: missing evidence");
+    expect(done!.incompleteReason).toBeUndefined();
     expect(done!.result?.brief).toBe("Fixed.");
   });
 
@@ -819,22 +597,6 @@ describe("FirstMate domain transport", () => {
     expect(listDomainRuns()[0]!.status).toBe("needs_decision");
   });
 
-  it("starts a session when an unread inbox note has waited too long and no harness is live", async () => {
-    saveDomainRun(queuedRun());
-    const started: string[] = [];
-    const exec: FirstmateExec = async (script, args) => {
-      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
-      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
-      started.push(script);
-      return { stdout: "started", stderr: "" };
-    };
-    await syncFirstmateDomainRuns({
-      transport: new FirstmateDomainTransport({ home: join(dir, "firstmate"), script: "/fake/fm-inbox.sh", exec }),
-      now: () => new Date("2026-10-09T01:00:00.000Z"),
-    });
-    expect(started).toEqual(["claude"]);
-  });
-
   const unreadNoteSignals = (home: string): unknown[] => {
     const path = join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl");
     if (!existsSync(path)) return [];
@@ -842,635 +604,17 @@ describe("FirstMate domain transport", () => {
       .filter((entry) => entry.kind === "unread_note" && entry.home === home).map((entry) => entry.notes);
   };
 
-  const liveHelperExec = (pending: unknown[]): FirstmateExec => async (_script, args) => args[0] === "receipts"
+  const liveHarnessExec = (pending: unknown[]): FirstmateExec => async (_script, args) => args[0] === "receipts"
     ? { stdout: JSON.stringify({ pending }), stderr: "" }
     : { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: true } }), stderr: "" };
-
-  function helperAfterRestart(home: string, options: { lockPid: number; helperPid: number; startedAt: string; lastWrite: string }): { pid: number; startedAt: string; home: string; log: string } {
-    mkdirSync(join(home, "state"), { recursive: true });
-    writeFileSync(join(home, "state", ".lock"), `${options.lockPid}\n`);
-    const log = join(dir, `${options.helperPid}.log`);
-    writeFileSync(log, "{\"type\":\"system\"}\n");
-    utimesSync(log, new Date(options.lastWrite), new Date(options.lastWrite));
-    const helper = { pid: options.helperPid, startedAt: options.startedAt, home, log };
-    writeFileSync(join(dir, "firstmate-helpers.json"), JSON.stringify([helper]));
-    return helper;
-  }
-
-  function sleeper(script = "setTimeout(() => {}, 60_000)"): { child: ChildProcess; startedAt: string } {
-    const startedAt = new Date().toISOString();
-    return { child: spawn(process.execPath, ["-e", script], { stdio: ["ignore", "pipe", "ignore"], detached: true }), startedAt };
-  }
-
-  const exitSignal = (child: ChildProcess) => new Promise<NodeJS.Signals | null>((resolve) => child.once("exit", (_code, signal) => resolve(signal)));
-
-  const recordedHelpers = (): unknown => JSON.parse(readFileSync(join(dir, "firstmate-helpers.json"), "utf8"));
-  const stillRunning = (child: ChildProcess): boolean => child.exitCode === null && child.signalCode === null;
 
   it("records each note left unread too long once on Flyd's backstage evidence", async () => {
     saveDomainRun(queuedRun());
     const home = join(dir, "firstmate-unread");
-    const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: liveHelperExec([{ id: "note-1", request_id: "domain-test-1", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }]) });
+    const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: liveHarnessExec([{ id: "note-1", request_id: "domain-test-1", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }]) });
     await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
     await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:01:00.000Z") });
     expect(unreadNoteSignals(home)).toEqual([["note-1"]]);
-  });
-
-  const unreadNote = (id: string) => liveHelperExec([{ id, request_id: "domain-test-1", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }]);
-
-  it("replaces an idle helper a previous Core launched once it is the fleet lock holder, under any locale", async () => {
-    saveDomainRun(queuedRun());
-    const home = join(dir, "firstmate-restart");
-    const { child, startedAt } = sleeper();
-    const exited = exitSignal(child);
-    const locale = { LC_ALL: process.env.LC_ALL, LANG: process.env.LANG };
-    process.env.LC_ALL = "de_DE.UTF-8";
-    process.env.LANG = "de_DE.UTF-8";
-    try {
-      const helper = helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:00:00.000Z" });
-      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: unreadNote("note-1") });
-      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
-      expect(await exited).toBe("SIGTERM");
-      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:15.000Z") });
-      expect(recordedHelpers()).toEqual([]);
-      expect(existsSync(helper.log)).toBe(false);
-    } finally {
-      for (const [name, value] of Object.entries(locale)) {
-        if (value === undefined) delete process.env[name];
-        else process.env[name] = value;
-      }
-      child.kill("SIGKILL");
-    }
-  });
-
-  it("replaces an idle helper holding back a note that belongs to no domain run", async () => {
-    const home = join(dir, "firstmate-view-note");
-    const { child, startedAt } = sleeper();
-    const exited = exitSignal(child);
-    const started: string[] = [];
-    let live = true;
-    const exec: FirstmateExec = async (script, args) => {
-      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "view-note", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
-      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: live } }), stderr: "" };
-      started.push(script);
-      return { stdout: "started", stderr: "" };
-    };
-    try {
-      helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:00:00.000Z" });
-      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
-      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
-      expect(await exited).toBe("SIGTERM");
-      expect(started).toEqual([]);
-      expect(unreadNoteSignals(home)).toEqual([["view-note"]]);
-      live = false;
-      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:15.000Z") });
-      expect(started).toEqual(["claude"]);
-    } finally {
-      child.kill("SIGKILL");
-    }
-  });
-
-  it("backs off relaunching for a note with no domain run and says so once when the backoff tops out", async () => {
-    const home = join(dir, "firstmate-runless-backoff");
-    const launches: number[] = [];
-    let pending = [{ id: "view-note", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }];
-    let minute = 0;
-    const exec: FirstmateExec = async (_script, args) => {
-      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending }), stderr: "" };
-      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
-      launches.push(minute);
-      return { stdout: "started", stderr: "" };
-    };
-    const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
-    const tick = (at: number) => {
-      minute = at;
-      return syncFirstmateDomainRuns({ transport, now: () => new Date(Date.parse("2026-10-09T01:00:00.000Z") + at * 60_000) });
-    };
-    for (let at = 0; at <= 70; at++) await tick(at);
-    expect(launches).toEqual([0, 5, 10, 18, 34, 64]);
-    const capped = () => {
-      const path = join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl");
-      return readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { home?: string; kind?: string })
-        .filter((entry) => entry.home === home && entry.kind === "unread_relaunch_capped");
-    };
-    expect(capped()).toHaveLength(1);
-
-    pending = [];
-    await tick(71);
-    pending = [{ id: "view-note-2", acknowledged: false, at: "2026-10-09T02:00:00.000Z" }];
-    await tick(72);
-    expect(launches).toEqual([0, 5, 10, 18, 34, 64, 72]);
-  });
-
-  it("treats Flyd's own stop of an idle helper it launched as neither a launch failure nor a reason to try another runtime", async () => {
-    const home = join(dir, "firstmate-launched");
-    const bin = join(dir, "bin");
-    mkdirSync(join(home, "bin"), { recursive: true });
-    mkdirSync(bin, { recursive: true });
-    const script = join(home, "bin", "fm-inbox.sh");
-    writeFileSync(script, [
-      "#!/bin/sh",
-      'case "$1" in',
-      '  receipts) echo \'{"pending":[{"id":"view-note","acknowledged":false,"at":"2026-10-09T00:00:00.000Z"}]}\' ;;',
-      '  ready) if [ -f "$FM_HOME/state/.lock" ]; then echo \'{"can_receive":false,"lock":{"live_harness":true}}\'; else echo \'{"can_receive":false,"lock":{"live_harness":false}}\'; fi ;;',
-      "esac",
-    ].join("\n"), { mode: 0o755 });
-    writeFileSync(join(bin, "claude"), "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 });
-    writeFileSync(join(bin, "codex"), `#!/bin/sh\ntouch ${JSON.stringify(join(dir, "codex-ran"))}\n`, { mode: 0o755 });
-    const saved = { PATH: process.env.PATH, FLYD_FIRSTMATE_RUNTIMES: process.env.FLYD_FIRSTMATE_RUNTIMES, FLYD_CODEX_PATH: process.env.FLYD_CODEX_PATH, FLYD_FIRSTMATE_ALLOW_LAUNCH: process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH };
-    // Only fake runtimes on PATH are ever launched here; tests otherwise never start a session.
-    process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH = "1";
-    process.env.PATH = `${bin}:${process.env.PATH}`;
-    process.env.FLYD_CODEX_PATH = join(bin, "codex");
-    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude,codex";
-    let helperPid: number | undefined;
-    const path = join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl");
-    const before = existsSync(path) ? readFileSync(path, "utf8").length : 0;
-    try {
-      const transport = new FirstmateDomainTransport({ home, script });
-      expect(await transport.startSession("view-note")).toEqual({ started: true });
-      const [helper] = recordedHelpers() as Array<{ pid: number; log: string }>;
-      helperPid = helper!.pid;
-      mkdirSync(join(home, "state"), { recursive: true });
-      writeFileSync(join(home, "state", ".lock"), `${helperPid}\n`);
-      utimesSync(helper!.log, new Date("2026-10-09T00:00:00.000Z"), new Date("2026-10-09T00:00:00.000Z"));
-      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
-      for (let waited = 0; existsSync(helper!.log) && waited < 50; waited++) await new Promise((resolve) => setTimeout(resolve, 20));
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(recordedHelpers()).toEqual([]);
-      expect(existsSync(join(dir, "codex-ran"))).toBe(false);
-      const failures = readFileSync(path, "utf8").slice(before).trim().split("\n").map((line) => JSON.parse(line) as { runtime?: string; outcome?: string })
-        .filter((entry) => entry.outcome && entry.outcome !== "started");
-      expect(failures).toEqual([]);
-    } finally {
-      for (const [name, value] of Object.entries(saved)) {
-        if (value === undefined) delete process.env[name];
-        else process.env[name] = value;
-      }
-      if (helperPid) {
-        try {
-          process.kill(-helperPid, "SIGKILL");
-        } catch {
-          helperPid = undefined;
-        }
-      }
-    }
-  });
-
-  it("stops an idle helper that ignores SIGTERM for good on a later tick", async () => {
-    saveDomainRun(queuedRun());
-    const home = join(dir, "firstmate-stubborn");
-    const { child, startedAt } = sleeper("process.on('SIGTERM', () => {}); console.log('ready'); setTimeout(() => {}, 60_000)");
-    await new Promise((resolve) => child.stdout!.once("data", resolve));
-    const exited = exitSignal(child);
-    try {
-      helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:00:00.000Z" });
-      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: unreadNote("note-5") });
-      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(stillRunning(child)).toBe(true);
-      expect(recordedHelpers()).toEqual([expect.objectContaining({ pid: child.pid, stoppingAt: "2026-10-09T01:00:00.000Z" })]);
-      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:15.000Z") });
-      expect(await exited).toBe("SIGKILL");
-    } finally {
-      child.kill("SIGKILL");
-    }
-  });
-
-  it("drops an ended helper's record and transcript on the next sync", async () => {
-    saveDomainRun(queuedRun());
-    const home = join(dir, "firstmate-ended");
-    const { child, startedAt } = sleeper();
-    const helper = helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:00:00.000Z" });
-    await new Promise((resolve) => { child.once("exit", resolve); child.kill("SIGKILL"); });
-    const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: liveHelperExec([]) });
-    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
-    expect(recordedHelpers()).toEqual([]);
-    expect(existsSync(helper.log)).toBe(false);
-  });
-
-  it("leaves a silent-but-recently-writing helper working", async () => {
-    saveDomainRun(queuedRun());
-    const home = join(dir, "firstmate-working");
-    const { child, startedAt } = sleeper();
-    try {
-      const helper = helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:55:00.000Z" });
-      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: unreadNote("note-3") });
-      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
-      expect(stillRunning(child)).toBe(true);
-      expect(recordedHelpers()).toEqual([helper]);
-      expect(readFileSync(helper.log, "utf8")).toBe("");
-      expect(statSync(helper.log).mtime.toISOString()).toBe("2026-10-09T00:55:00.000Z");
-    } finally {
-      child.kill("SIGKILL");
-    }
-  });
-
-  it("never signals a reused pid whose process started after the recorded helper", async () => {
-    saveDomainRun(queuedRun());
-    const home = join(dir, "firstmate-reused-pid");
-    const { child } = sleeper();
-    try {
-      const helper = helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt: "2026-10-09T00:00:00.000Z", lastWrite: "2026-10-09T00:00:00.000Z" });
-      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: unreadNote("note-4") });
-      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
-      expect(stillRunning(child)).toBe(true);
-      expect(recordedHelpers()).toEqual([]);
-      expect(existsSync(helper.log)).toBe(false);
-      expect(unreadNoteSignals(home)).toEqual([["note-4"]]);
-    } finally {
-      child.kill("SIGKILL");
-    }
-  });
-
-  it("leaves a recorded helper alone when another session holds the fleet lock, and still raises the unread signal", async () => {
-    saveDomainRun(queuedRun());
-    const home = join(dir, "firstmate-other-holder");
-    const { child, startedAt } = sleeper();
-    try {
-      const helper = helperAfterRestart(home, { lockPid: child.pid! + 100_000, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:00:00.000Z" });
-      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: unreadNote("note-2") });
-      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
-      expect(stillRunning(child)).toBe(true);
-      expect(recordedHelpers()).toEqual([helper]);
-      expect(unreadNoteSignals(home)).toEqual([["note-2"]]);
-    } finally {
-      child.kill("SIGKILL");
-    }
-  });
-
-  it("does not restart a live helper when it still owns the inbox", async () => {
-    saveDomainRun(queuedRun());
-    const started: string[] = [];
-    const exec: FirstmateExec = async (_script, args) => args[0] === "receipts"
-      ? { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" }
-      : { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: true } }), stderr: "" };
-    await syncFirstmateDomainRuns({
-      transport: new FirstmateDomainTransport({ home: join(dir, "firstmate"), script: "/fake/fm-inbox.sh", exec: async (script, args, options) => {
-        if (args[0] !== "receipts" && args[0] !== "ready") started.push(script);
-        return exec(script, args, options);
-      } }),
-      now: () => new Date("2026-10-09T01:00:00.000Z"),
-    });
-    expect(started).toEqual([]);
-  });
-
-  it("does not start a session while the unread note is still fresh", async () => {
-    saveDomainRun(queuedRun());
-    const started: string[] = [];
-    const exec: FirstmateExec = async (script, args) => {
-      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:59:00.000Z" }] }), stderr: "" };
-      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
-      started.push(script);
-      return { stdout: "started", stderr: "" };
-    };
-    await syncFirstmateDomainRuns({
-      transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
-      now: () => new Date("2026-10-09T01:00:00.000Z"),
-    });
-    expect(started).toEqual([]);
-  });
-
-  it("waits out the backoff before retrying a stalled launch", async () => {
-    saveDomainRun({ ...queuedRun(), failure: "couldn't start", launchRetry: { attempts: 2, nextAt: "2026-10-09T01:30:00.000Z" } });
-    const started: string[] = [];
-    const exec: FirstmateExec = async (script, args) => {
-      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
-      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
-      started.push(script);
-      return { stdout: "started", stderr: "" };
-    };
-    const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate"), script: "/fake/fm-inbox.sh", exec });
-    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
-    expect(started).toEqual([]);
-
-    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:31:00.000Z") });
-    expect(started).toEqual(["claude"]);
-    expect(listDomainRuns()[0]!.failure).toBeUndefined();
-    expect(listDomainRuns()[0]!.launchRetry?.attempts).toBe(2);
-  });
-
-  it("keeps advancing the backoff across a spawn that then fails", async () => {
-    saveDomainRun({ ...queuedRun(), failure: "couldn't start", launchRetry: { attempts: 2, nextAt: "2026-10-09T01:00:00.000Z" } });
-    let failing = false;
-    const exec: FirstmateExec = async (script, args) => {
-      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
-      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
-      if (failing) throw new Error("not installed");
-      return { stdout: "started", stderr: "" };
-    };
-    const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate"), script: "/fake/fm-inbox.sh", exec });
-
-    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
-    expect(listDomainRuns()[0]!.failure).toBeUndefined();
-    expect(listDomainRuns()[0]!.launchRetry?.attempts).toBe(2);
-
-    failing = true;
-    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:06:00.000Z") });
-    expect(listDomainRuns()[0]!.launchRetry?.attempts).toBe(3);
-  });
-
-  it("stops an unchanged launch after three identical failures instead of retrying 21 times", async () => {
-    const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
-    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
-    try {
-      const home = join(dir, "firstmate-repeated");
-      saveDomainRun(queuedRun());
-      let launches = 0;
-      const exec: FirstmateExec = async (_script, args) => {
-        if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
-        if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
-        launches += 1;
-        throw new Error("claude: usage limit reached");
-      };
-      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
-      const start = Date.parse("2026-10-09T01:00:00.000Z");
-      for (let tick = 0; tick < 21; tick += 1) {
-        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + tick * 60 * 60_000) });
-      }
-
-      expect(launches).toBe(3);
-      const [run] = listDomainRuns();
-      expect(run!.status).toBe("failed");
-      expect(run!.launchRetry).toBeUndefined();
-      expect(run!.failure).toMatch(/3 identical launch attempts/);
-      const recorded = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl"), "utf8")
-        .trim().split("\n").map((line) => JSON.parse(line) as { outcome?: string; home?: string })
-        .filter((entry) => entry.home === home && entry.outcome);
-      expect(recorded.map((entry) => entry.outcome)).toEqual(["repeated_loop"]);
-    } finally {
-      if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
-      else process.env.FLYD_FIRSTMATE_RUNTIMES = previous;
-    }
-  });
-
-  async function driveDetachedLaunches(name: string, claude: string, ticks: number) {
-    const home = join(dir, name);
-    const bin = join(dir, `bin-${name}`);
-    mkdirSync(join(home, "bin"), { recursive: true });
-    mkdirSync(bin, { recursive: true });
-    const script = join(home, "bin", "fm-inbox.sh");
-    writeFileSync(script, [
-      "#!/bin/sh",
-      'case "$1" in',
-      '  receipts) echo \'{"pending":[{"id":"note-1","request_id":"domain-test-1","acknowledged":false,"at":"2026-10-09T00:00:00.000Z"}]}\' ;;',
-      '  ready) echo \'{"can_receive":false,"lock":{"live_harness":false}}\' ;;',
-      "esac",
-    ].join("\n"), { mode: 0o755 });
-    const launchLog = join(dir, `${name}-launches`);
-    writeFileSync(join(bin, "claude"), `#!/bin/sh\necho launched >> ${JSON.stringify(launchLog)}\nLAUNCHES=$(wc -l < ${JSON.stringify(launchLog)} | tr -d ' ')\n${claude}\nexit 1\n`, { mode: 0o755 });
-    const saved = { PATH: process.env.PATH, FLYD_FIRSTMATE_RUNTIMES: process.env.FLYD_FIRSTMATE_RUNTIMES, FLYD_FIRSTMATE_ALLOW_LAUNCH: process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH };
-    process.env.PATH = `${bin}:${process.env.PATH}`;
-    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
-    // The launch is a fake script on PATH; the test-run guard must let it through.
-    process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH = "1";
-    saveDomainRun(queuedRun());
-    const path = join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl");
-    const before = existsSync(path) ? readFileSync(path, "utf8").length : 0;
-    const outcomes = () => (existsSync(path) ? readFileSync(path, "utf8").slice(before) : "").trim().split("\n").filter(Boolean)
-      .map((line) => JSON.parse(line) as { outcome?: string; home?: string; detail?: string }).filter((entry) => entry.outcome);
-    try {
-      const transport = new FirstmateDomainTransport({ home, script });
-      const start = Date.now();
-      for (let tick = 0; tick < ticks; tick += 1) {
-        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + tick * 60 * 60_000) });
-        await vi.waitFor(() => {
-          const seen = outcomes();
-          expect(seen.filter((entry) => entry.outcome === "failed" || entry.outcome === "usage_limited")).toHaveLength(seen.filter((entry) => entry.outcome === "started").length);
-          if (seen.some((entry) => entry.outcome === "started")) expect(listDomainRuns()[0]!.failure).toBeDefined();
-        }, { timeout: 5_000 });
-      }
-      return {
-        launches: readFileSync(launchLog, "utf8").trim().split("\n").length,
-        run: listDomainRuns()[0]!,
-        repeated: outcomes().filter((entry) => entry.outcome === "repeated_loop" && entry.home === home),
-      };
-    } finally {
-      for (const [key, value] of Object.entries(saved)) {
-        if (value === undefined) delete process.env[key];
-        else process.env[key] = value;
-      }
-    }
-  }
-
-  it("caches a runtime from sessions that die at startup, but not from sessions that die mid-work", async () => {
-    const home = join(dir, "firstmate-mid-session");
-    const bin = join(dir, "bin-mid-session");
-    mkdirSync(home, { recursive: true });
-    mkdirSync(bin, { recursive: true });
-    const gate = join(dir, "mid-session-gate");
-    writeFileSync(join(bin, "claude"), `#!/bin/sh\nwhile [ ! -f ${JSON.stringify(gate)} ]; do sleep 0.02; done\necho "API Error: 500 Internal server error"\nexit 1\n`, { mode: 0o755 });
-    const saved = { PATH: process.env.PATH, FLYD_FIRSTMATE_ALLOW_LAUNCH: process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH };
-    process.env.PATH = `${bin}:${process.env.PATH}`;
-    process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH = "1";
-    vi.useFakeTimers({ toFake: ["Date"] });
-    try {
-      let cache = createLaunchFailureCache();
-      const drive = async (request: string, liveForMs: number) => {
-        rmSync(gate, { force: true });
-        const attempts: Record<string, unknown>[] = [];
-        const result = await startFirstmateSession({
-          home, script: "/fake/fm-inbox.sh", exec: defaultFirstmateExec, request,
-          readiness: { available: true, canReceive: false, liveHarness: false },
-          env: { FLYD_FIRSTMATE_RUNTIMES: "claude" },
-          recordAttempt: (entry) => { attempts.push(entry); },
-          launchFailures: cache,
-        });
-        expect(result.started).toBe(true);
-        vi.setSystemTime(Date.now() + liveForMs);
-        writeFileSync(gate, "");
-        await vi.waitFor(() => expect(attempts.map((entry) => entry.outcome)).toContain("failed"), { timeout: 5_000 });
-      };
-      vi.setSystemTime(Date.parse("2026-10-09T01:00:00.000Z"));
-      for (const request of ["mid-a", "mid-b", "mid-c"]) await drive(request, 5 * 60_000);
-      expect(cache.blocked("claude")).toBeNull();
-
-      cache = createLaunchFailureCache();
-      for (const request of ["early-a", "early-b", "early-c"]) await drive(request, 1_000);
-      expect(cache.blocked("claude")).toMatch(/failed 3 times the same way/);
-    } finally {
-      vi.useRealTimers();
-      rmSync(gate, { force: true });
-      for (const [key, value] of Object.entries(saved)) {
-        if (value === undefined) delete process.env[key];
-        else process.env[key] = value;
-      }
-    }
-  });
-
-  it("stops a detached launch whose spawned session keeps failing after three identical failures", async () => {
-    const { launches, run, repeated } = await driveDetachedLaunches("firstmate-detached", 'echo "session crashed"', 21);
-
-    expect(launches).toBe(3);
-    expect(run.status).toBe("failed");
-    expect(run.launchRetry).toBeUndefined();
-    expect(run.failure).toMatch(/3 identical launch attempts/);
-    expect(repeated).toHaveLength(1);
-    expect(repeated[0]!.detail).toMatch(/session crashed/);
-  });
-
-  it("keeps retrying a detached launch whose spawned sessions fail in different ways", async () => {
-    const { launches, run, repeated } = await driveDetachedLaunches("firstmate-detached-varied", [
-      'case "$LAUNCHES" in',
-      '  1) echo "claude usage limit reached" ;;',
-      '  2) echo "auth error: not logged in" ;;',
-      '  *) echo "session crashed" ;;',
-      "esac",
-    ].join("\n"), 3);
-
-    expect(launches).toBe(3);
-    expect(run.status).toBe("queued");
-    expect(run.launchRetry?.attempts).toBe(3);
-    expect(repeated).toEqual([]);
-  });
-
-  it("backs off a picked-up run's relaunches, then fails it from the runtime's cached failure", async () => {
-    const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
-    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
-    try {
-      saveDomainRun(queuedRun());
-      let acknowledged = false;
-      let canReceive = false;
-      let launches = 0;
-      const exec: FirstmateExec = async (_script, args) => {
-        if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
-        if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: canReceive, lock: { live_harness: false } }), stderr: "" };
-        launches += 1;
-        throw new Error("claude: Invalid API key");
-      };
-      const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate-acknowledged"), script: "/fake/fm-inbox.sh", exec });
-      const start = Date.parse("2026-10-09T01:00:00.000Z");
-      const launchedAt: number[] = [];
-      const changed: DomainRun[] = [];
-      const tick = async (minute: number) => {
-        const before = launches;
-        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + minute * 60_000), onChanged: (run) => { changed.push(run); } });
-        if (launches > before) launchedAt.push(minute);
-      };
-
-      await tick(0);
-      await tick(5);
-      expect(launchedAt).toEqual([0, 5]);
-      expect(listDomainRuns()[0]!.status).toBe("queued");
-
-      acknowledged = true;
-      canReceive = true;
-      await tick(6);
-      expect(listDomainRuns()[0]!.status).toBe("accepted");
-
-      canReceive = false;
-      for (let minute = 7; minute <= 70; minute += 1) await tick(minute);
-      // Claude has now failed three times the same way: the next relaunch is answered from that, with nothing spawned.
-      expect(launchedAt).toEqual([0, 5, 10]);
-      const [run] = listDomainRuns();
-      expect(run!.status).toBe("failed");
-      expect(run!.launchRetry).toBeUndefined();
-      expect(run!.failure).toMatch(/on claude failed 3 times the same way \(claude: Invalid API key\)/);
-      expect(changed.filter((item) => item.status === "failed").map((item) => item.result?.brief)).toEqual([run!.failure]);
-    } finally {
-      if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
-      else process.env.FLYD_FIRSTMATE_RUNTIMES = previous;
-    }
-  });
-
-  it("stops relaunching for unread notes outside any run while the runtime's identical failure is cached, then probes once the window lapses", async () => {
-    const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
-    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
-    try {
-      const home = join(dir, "firstmate-runless");
-      saveDomainRun({ ...queuedRun(), status: "failed", failure: "I stopped starting the work" });
-      let launches = 0;
-      const exec: FirstmateExec = async (_script, args) => {
-        if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }, { id: "view-note", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
-        if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
-        launches += 1;
-        throw new Error("claude: Invalid API key");
-      };
-      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
-      const start = Date.parse("2026-10-09T01:00:00.000Z");
-      const launchedAt: number[] = [];
-      vi.useFakeTimers({ toFake: ["Date"] });
-      try {
-        for (let minute = 0; minute <= 150; minute += 1) {
-          const before = launches;
-          vi.setSystemTime(start + minute * 60_000);
-          await syncFirstmateDomainRuns({ transport, now: () => new Date(start + minute * 60_000) });
-          if (launches > before) launchedAt.push(minute);
-        }
-      } finally {
-        vi.useRealTimers();
-      }
-
-      // No relaunch every 30 minutes at the backoff cap: one probe on the first sweep after the hour lapses, which fails the same way and is cached again.
-      expect(launchedAt).toEqual([0, 5, 10, 94]);
-      const repeated = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl"), "utf8")
-        .trim().split("\n").map((line) => JSON.parse(line) as { outcome?: string; home?: string })
-        .filter((entry) => entry.home === home && entry.outcome === "repeated_loop");
-      expect(repeated).toHaveLength(1);
-    } finally {
-      if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
-      else process.env.FLYD_FIRSTMATE_RUNTIMES = previous;
-    }
-  });
-
-  it("refuses a new run from the cache once the runtime failed the same way three times", async () => {
-    const calls: string[] = [];
-    const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("not installed"); };
-    const launch = (request: string) => startFirstmateSession({
-      home: "/fake/firstmate-shared", script: "/fake/fm-inbox.sh", exec, request,
-      readiness: { available: true, canReceive: false, liveHarness: false },
-      env: { FLYD_FIRSTMATE_RUNTIMES: "claude" },
-      recordAttempt: vi.fn(),
-    });
-    const runA = [await launch("run-a"), await launch("run-a"), await launch("run-a")];
-    expect(runA.map((result) => Boolean(result.terminal))).toEqual([false, false, true]);
-    expect(runA[2]!.terminal!.attempts).toBe(3);
-    const blocked = await launch("run-a");
-    expect(blocked.failure).toMatch(/3 identical launch attempts/);
-    expect(calls).toHaveLength(3);
-
-    const runB = await launch("run-b");
-    expect(calls).toHaveLength(3);
-    expect(runB.terminal).toBeDefined();
-    expect(runB.failure).toMatch(/on claude failed 3 times the same way \(not installed\)/);
-  });
-
-  it("keeps usage limits out of the runtime cache, so a new run still gets its own launch and backs off", async () => {
-    const calls: string[] = [];
-    const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("claude: usage limit reached, resets at 5pm"); };
-    const launch = (request: string) => startFirstmateSession({
-      home: "/fake/firstmate-limited", script: "/fake/fm-inbox.sh", exec, request,
-      readiness: { available: true, canReceive: false, liveHarness: false },
-      env: { FLYD_FIRSTMATE_RUNTIMES: "claude" },
-      recordAttempt: vi.fn(),
-    });
-    for (const request of ["run-a", "run-b", "run-c"]) await launch(request);
-    expect(calls).toHaveLength(3);
-
-    const runD = await launch("run-d");
-    expect(calls).toHaveLength(4);
-    expect(runD.terminal).toBeUndefined();
-    expect(runD.failure).toBe("I couldn't start the work right now. I'll keep it safe and try again when I can.");
-  });
-
-  it("cools the home down instead of relaunching every tick for an unconsumed note", async () => {
-    saveDomainRun({ ...queuedRun(), id: "domain-test-2", transport: { kind: "firstmate", requestId: "domain-test-2", externalId: "note-2" } });
-    const started: string[] = [];
-    const exec: FirstmateExec = async (script, args) => {
-      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-9", request_id: "domain-test-9", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
-      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
-      started.push(script);
-      return { stdout: "started", stderr: "" };
-    };
-    const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate"), script: "/fake/fm-inbox.sh", exec });
-    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
-    expect(started).toEqual(["claude"]);
-
-    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:01:00.000Z") });
-    expect(started).toEqual(["claude"]);
-
-    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:06:00.000Z") });
-    expect(started).toEqual(["claude", "claude"]);
   });
 
   const proseReply = (prose: string) => ({

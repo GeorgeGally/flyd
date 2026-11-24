@@ -491,10 +491,24 @@ export class FirstmateInbox implements CaptainInbox {
       throw new Error(`firstmate did not take the message: ${detail}`);
     }
     const said = warning || run.failure;
-    return { id: `note:${run.transport.externalId}`, timestamp: new Date().toISOString(), ...(said ? { warning: said } : {}) };
+    // Queued while FirstMate is not running: the message says so under it until FirstMate takes it.
+    const waiting = !said && run.waiting ? `Queued: ${run.waiting}` : "";
+    return { id: `note:${run.transport.externalId}`, timestamp: new Date().toISOString(), ...(said ? { warning: said } : {}), ...(waiting ? { waiting } : {}) };
   }
 
+  /**
+   * Every note he has sent, as `listedNotes`, with a note still queued while FirstMate is not running saying so:
+   * read fresh each time, since the run records why after the note is saved.
+   */
   notes(): Exchange[] {
+    return this.listedNotes().map((exchange) => {
+      if (exchange.handoff !== "queued" || !exchange.question.run) return exchange;
+      const waiting = readDomainRun(exchange.question.run)?.waiting;
+      return waiting ? { ...exchange, waiting: `Queued: ${waiting}` } : exchange;
+    });
+  }
+
+  private listedNotes(): Exchange[] {
     const inbox = join(this.home, "state", "inbox");
     const handled = join(inbox, "handled");
     const replies = join(inbox, ".replies");

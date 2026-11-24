@@ -133,16 +133,13 @@ export interface DomainRun {
   failure?: string;
   /** When its staff's model first answered: the work is really under way (Design Mate). */
   startedAt?: string;
-  /** Set while a FirstMate session launch is retried: how many tries and the earliest next one. */
-  launchRetry?: { attempts: number; nextAt: string };
-  /** Which layers of the handoff contract the latest reply missed (see validateDomainHandoff); the reply still counts. */
-  incompleteReason?: string;
   /**
-   * The one structured re-request Flyd sent when a settled reply missed the brief/report/evidence
-   * contract (command/firstmate.ts): the reply it answered, the layers missing then, and once the
-   * next reply is read, when. Never sent twice for a run.
+   * Why a handed-over note is still queued, in words George can read ("waiting for FirstMate to be running"); set only
+   * while FirstMate is not running to take it, and cleared once it is (command/firstmate.ts).
    */
-  handoffRetry?: { askedAt: string; cursor?: string; missing: Array<"brief" | "report" | "evidence">; answeredAt?: string };
+  waiting?: string;
+  /** Legacy: why an older reply was once marked short of a handoff contract Flyd no longer applies. Cleared by the next reply. */
+  incompleteReason?: string;
   /** When Flyd last asked the staff for a clear status; at most one such ask is open until a reply is read. */
   statusAskedAt?: string;
   /** What became of telling George this run's latest outcome (command/report.ts): the one record every reader uses. */

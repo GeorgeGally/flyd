@@ -1,37 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultProseJudge, modelProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff } from "../result.js";
-
-describe("validateDomainHandoff", () => {
-  it("flags prose with no brief/report/evidence layers", () => {
-    const { result } = parseDomainResult("Done — swapped the headline everywhere.\n\nPreview is on 8097.");
-    expect(validateDomainHandoff(result)).toEqual({
-      ok: false,
-      missing: ["brief", "report", "evidence"],
-      reason: "domain handoff contract unmet: missing brief, report, evidence",
-    });
-  });
-
-  it("names only the layer a structured handoff leaves out", () => {
-    const { result } = parseDomainResult(JSON.stringify({ status: "completed", brief: "Fixed.", detailed_report: "Changed the call site.", evidence: [" "] }));
-    expect(validateDomainHandoff(result)).toEqual({
-      ok: false,
-      missing: ["evidence"],
-      reason: "domain handoff contract unmet: missing evidence",
-    });
-  });
-
-  it("passes a well-formed brief/report/evidence handoff without touching it", () => {
-    const { result } = parseDomainResult(JSON.stringify({
-      status: "completed",
-      brief: "Headline swapped.",
-      detailed_report: "invite.html and remind_me.html updated; titles and alt text checked.",
-      evidence: ["commit a5bf7ab"],
-    }));
-    const before = structuredClone(result);
-    expect(validateDomainHandoff(result)).toEqual({ ok: true });
-    expect(result).toEqual(before);
-  });
-});
+import { defaultProseJudge, modelProseJudge, parseDomainResult, proseOutcomeByWords } from "../result.js";
 
 describe("key/value replies", () => {
   it("reads 'status:' with 'brief:' as a structured handoff, so a clear answer closes the run", () => {
@@ -74,18 +42,18 @@ describe("key/value replies", () => {
     }
   });
 
-  it("takes a named PR, commit or URL as the evidence layer", () => {
-    const pr = parseDomainResult("status: completed\nbrief: Sidebar done.\ndetailed_report: See https://github.com/GeorgeGally/flyd/pull/167");
-    expect(validateDomainHandoff(pr.result)).toEqual({ ok: true });
-    const sha = parseDomainResult("status: completed\nbrief: Fixed.\ndetailed_report: commit a5bf7ab, all green.");
-    expect(validateDomainHandoff(sha.result)).toEqual({ ok: true });
-  });
-
-  it("keeps the evidence gap when no pointer is named, and the reply still counts", () => {
+  it("takes a reply with no evidence pointer as it is", () => {
     const { status, result } = parseDomainResult("status: completed\nbrief: Done and live.");
     expect(status).toBe("completed");
     expect(result.format).toBe("structured");
-    expect(validateDomainHandoff(result)).toEqual({ ok: false, missing: ["evidence"], reason: "domain handoff contract unmet: missing evidence" });
+    expect(result.brief).toBe("Done and live.");
+  });
+
+  it("reads plain prose leniently: the whole reply, verbatim, is the report", () => {
+    const prose = "Done — swapped the headline everywhere.\n\nPreview is on 8097.";
+    const { status, result } = parseDomainResult(prose);
+    expect(status).toBeUndefined();
+    expect(result).toMatchObject({ format: "raw", brief: "Done — swapped the headline everywhere.", detailedReport: prose, raw: [prose] });
   });
 });
 

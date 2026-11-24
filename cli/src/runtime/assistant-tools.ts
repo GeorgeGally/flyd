@@ -478,6 +478,7 @@ export async function runAssistantTool(
           if (run.status === "refused") return `Coding request refused: ${run.reason}`;
           if (run.run.failure) return run.run.failure;
           context.onCodingHandoff?.(outcome);
+          if (run.run.waiting) return `Coding work queued (run ${run.run.id}): ${run.run.waiting}. It is kept in order and goes to it as soon as it is running; nothing else was started for it. Tell George in one plain line that it is queued, ${run.run.waiting}, not the internal mechanics or id.`;
           return `Coding work accepted (run ${run.run.id}). Flyd remains your point of contact; the coding boss will route, supervise and return a detailed retained report. Tell George only what started, not the internal mechanics or id.`;
         }
 
@@ -545,6 +546,7 @@ export async function runAssistantTool(
           });
           if (run.status === "refused") return `Coding request refused: ${run.reason}`;
           if (run.run.failure) return run.run.failure;
+          if (run.run.waiting) return `Queued (run ${run.run.id}): ${run.run.waiting}; it goes over as soon as it is running and the answer comes back to George here. Tell him in a line that it is queued, ${run.run.waiting}; don't mention the id.`;
           return `Passed on (run ${run.run.id}); the answer comes back to George here when it's ready. Tell him in a line that it's being looked into; don't say who has it or mention the id.`;
         }
         const { dispatchKnowledgeDomain } = await import("../command/librarian.js");
@@ -577,7 +579,7 @@ export async function runAssistantTool(
         if (input.action === "list") {
           const runs = listDomainRuns().slice(0, 10);
           return runs.length
-            ? runs.map((run) => `${run.id} [${run.request.domain}/${run.status}] ${run.result?.brief ?? run.request.intendedOutcome}`).join("\n")
+            ? runs.map((run) => `${run.id} [${run.request.domain}/${run.status}]${run.waiting ? ` (${run.waiting})` : ""} ${run.result?.brief ?? run.request.intendedOutcome}`).join("\n")
             : "No delegated domain work yet.";
         }
         const id = String(input.id ?? "").trim();
@@ -597,11 +599,10 @@ export async function runAssistantTool(
         }
         const run = readDomainRun(id);
         if (!run) return `Error: no domain run ${id}`;
-        if (!run.result) return `${run.request.domain} work is ${run.status}: ${run.request.intendedOutcome}`;
+        if (!run.result) return `${run.request.domain} work is ${run.status}${run.waiting ? ` (${run.waiting})` : ""}: ${run.request.intendedOutcome}`;
         const result = run.result;
         return [
           `Status: ${run.status}`,
-          run.incompleteReason ? `Reply format gap (the reply still counts): ${run.incompleteReason}` : "",
           `Brief: ${result.brief}`,
           result.recommendation ? `Recommendation: ${result.recommendation.action}${result.recommendation.reasoning ? ` — ${result.recommendation.reasoning}` : ""}` : "",
           `Detailed report:\n${result.detailedReport}`,

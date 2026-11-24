@@ -7,7 +7,7 @@ import { FirstmateInbox, deskDoneWhen, mergeNotes, relayed } from "../firstmate-
 import { FirstmateDomainTransport, syncFirstmateDomainRuns, type FirstmateExec } from "../../command/firstmate.js";
 import { notifyRun } from "../../command/scheduler.js";
 import { markWindowOpen } from "../window-presence.js";
-import { listDomainRuns, readDomainRun } from "../../command/store.js";
+import { listDomainRuns, readDomainRun, saveDomainRun } from "../../command/store.js";
 import type { FlydDesk } from "../flyd-desk.js";
 import type { ConversationSnapshot } from "../types.js";
 import { assistantText, captain } from "./transcript-fixture.js";
@@ -164,6 +164,21 @@ printf '{"id":"%s","saved":true,"acknowledged":false,"outcome":"queued"}\\n' "$3
       expect(raw).toContain(`--- Flyd's return contract (request ${run!.id}; Flyd's own, not George's words) ---\nDONE WHEN:\n1. ${deskDoneWhen()[0]}`);
       expect(raw).toContain("fm-inbox.sh reply");
       expect(questions(inbox)[0]).toMatchObject({ id: sent.id, text: "the GNM hero is too tall on phones", run: run!.id });
+    });
+
+    it("says under his message that it is queued while FirstMate is not running, and stops saying it once FirstMate has it", async () => {
+      const down = FAKE_SCRIPT.replace('set -euo pipefail\n', 'set -euo pipefail\n[ "$1" = "ready" ] && { echo \'{"can_receive":false,"lock":{"live_harness":false}}\'; exit 0; }\n');
+      const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", down) });
+      const sent = await inbox.send("fix the footer link");
+      expect(sent.waiting).toBe("Queued: waiting for FirstMate to be running");
+      expect(sent.warning).toBeUndefined();
+      const [exchange] = inbox.notes();
+      expect(exchange).toMatchObject({ handoff: "queued", waiting: "Queued: waiting for FirstMate to be running" });
+
+      const [run] = listDomainRuns();
+      const { waiting: _waiting, ...running } = run!;
+      saveDomainRun(running);
+      expect(inbox.notes()[0]!.waiting).not.toContain("waiting for FirstMate");
     });
 
     it("settles from firstmate's receipts and reply through the command layer, and leaves the telling to the window open on it", async () => {

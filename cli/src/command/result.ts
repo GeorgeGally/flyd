@@ -158,6 +158,10 @@ function jsonObject(raw: string): { object: Record<string, unknown>; whole: bool
   }
 }
 
+/**
+ * A domain boss's reply, read leniently: the structured JSON or "key: value" fields it carries are used, and
+ * otherwise the whole reply, verbatim, is the report. No shape is required of it and nothing is asked again.
+ */
 export function parseDomainResult(body: string): { status?: "completed" | "needs_decision" | "failed" | "working"; result: DomainResult } {
   const raw = body.trim();
   const json = jsonObject(raw);
@@ -184,33 +188,6 @@ export function parseDomainResult(body: string): { status?: "completed" | "needs
       informationLossRisk: "high",
     },
   };
-}
-
-export type HandoffLayer = "brief" | "report" | "evidence";
-
-export type HandoffValidation =
-  | { ok: true }
-  | { ok: false; missing: HandoffLayer[]; reason: string };
-
-/** A URL, a PR or a commit a reply can be checked against: a pointer that stands in for the evidence layer. */
-const EVIDENCE_REF = /https?:\/\/\S+|\b(?:pr|pull request)\s*#?\d+\b|\bcommit\s+[0-9a-f]{7,40}\b/i;
-
-/**
- * The layered handoff contract a domain boss must meet before Flyd records its
- * work as done: a brief, a report body, and at least one evidence reference —
- * a URL, a PR or a commit counts as the evidence. Prose with no layers meets
- * none of them, even though Flyd derives a brief and report from it so the raw
- * detail survives.
- */
-export function validateDomainHandoff(result: DomainResult): HandoffValidation {
-  const structured = result.format === "structured";
-  const missing: HandoffLayer[] = [];
-  if (!structured || !result.brief.trim()) missing.push("brief");
-  if (!structured || !result.detailedReport.trim()) missing.push("report");
-  if (!result.evidence.some((item) => item.trim()) && !EVIDENCE_REF.test(`${result.brief}\n${result.detailedReport}`)) missing.push("evidence");
-  return missing.length
-    ? { ok: false, missing, reason: `domain handoff contract unmet: missing ${missing.join(", ")}` }
-    : { ok: true };
 }
 
 /** How a reply written in plain prose left the work: the staff often answers that way instead of the JSON contract. */
