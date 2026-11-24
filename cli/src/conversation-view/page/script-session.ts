@@ -40,8 +40,14 @@ export const SESSION_SCRIPT = `
     if (typeof workUnplace === "function" && typeof workPlaced !== "undefined") workUnplace();
   }
 
+  var joins = 0;
   function connect(sessionId, again) {
     if (!VIEW_TOKEN) return;
+    if (!again) {
+      joins += 1;
+      clearTimeout(rejoining);
+      rejoining = null;
+    }
     if (source) source.close();
     // Coming back to the conversation on the page keeps what is drawn, from its oldest message on.
     var from = again && current && shownOrder.length ? shownOrder[0] : "";
@@ -86,14 +92,17 @@ export const SESSION_SCRIPT = `
   var rejoining = null;
   function rejoin(sessionId) {
     if (rejoining) return;
+    var wanted = joins;
     rejoining = setTimeout(function () {
       fetch("/api/token").then(function (r) { return r.json(); }).then(function (data) {
+        if (wanted !== joins) return;
         rejoining = null;
         // The draft is kept on the way out (pagehide), so reloading loses nothing.
         if (data.token && data.token !== VIEW_TOKEN) { location.reload(); return; }
         rejoinDelay = Math.min(rejoinDelay * 2, 15000);
         connect(sessionId, true);
       }).catch(function () {
+        if (wanted !== joins) return;
         // The view is not up yet: try again, less often each time.
         rejoining = null;
         rejoinDelay = Math.min(rejoinDelay * 2, 15000);

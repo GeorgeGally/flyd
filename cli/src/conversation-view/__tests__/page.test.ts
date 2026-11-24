@@ -1216,6 +1216,28 @@ describe("conversation page", () => {
     }
   });
 
+  it("stays on the conversation he picks while a dropped stream waits to reconnect", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/token" ? json({ token: "a".repeat(48) }) : json({ sessions: SESSIONS }))));
+      load("?session=latest");
+      await vi.runOnlyPendingTimersAsync();
+      const first = open("latest", [{ id: "m0", role: "user", html: "<p>m0</p>" }]);
+      await vi.advanceTimersByTimeAsync(0);
+      first.onerror!();
+      document.querySelector<HTMLButtonElement>(".history-item-title")?.closest("button")?.click();
+      const picked = FakeEventSource.instances.at(-1)!;
+      expect(picked.url).toContain("session=older");
+      open("older", [{ id: "o1", role: "assistant", html: "<p>old reply</p>" }]);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(FakeEventSource.instances.at(-1)).toBe(picked);
+      expect(picked.closed).toBe(false);
+      expect([...document.querySelectorAll("#stream > .msg .body")].map((node) => node.textContent)).toEqual(["old reply"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("leads long replies with their summary, opens the full reply on demand, and switches to full view", async () => {
     load("");
     await settle();
