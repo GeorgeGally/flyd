@@ -236,12 +236,14 @@ export const FRONT_SCRIPT = `
       + '<span class="next' + (frontLinesFresh[job.id] ? " swap-in" : "") + '">' + frontEsc(line) + '</span></button>';
   }
   // Now: what is under way, then what finished lately, each as one line.
-  function frontNow(lines) {
+  function frontNow(moving, done) {
+    var lines = moving.concat(done);
     if (!lines.length) return frontGroup("Now", 0, "", '<p class="fempty">Nothing is under way right now.</p>');
-    var shown = frontOpen.now ? lines : lines.slice(0, MOVING_FEW_FRONT);
+    var few = moving.slice(0, MOVING_FEW_FRONT).concat(done.slice(0, DONE_FEW_FRONT));
+    var shown = frontOpen.now ? lines : few;
     return '<section class="fgroup fnow"><h2 class="fhead"><span>Now</span><span>' + lines.length + '</span></h2>'
       + '<div class="flines">' + shown.map(frontNowLine).join("") + '</div>'
-      + (lines.length > MOVING_FEW_FRONT ? '<button type="button" class="fmore" data-more="now">' + (frontOpen.now ? "Show fewer" : "Show all " + lines.length) + '</button>' : "") + '</section>';
+      + (lines.length > few.length ? '<button type="button" class="fmore" data-more="now">' + (frontOpen.now ? "Show fewer" : "Show all " + lines.length) + '</button>' : "") + '</section>';
   }
   // For this chat: what the page already holds that matches what he is talking about. A picture only when the item means it to be seen.
   function frontChatWords() {
@@ -370,7 +372,7 @@ export const FRONT_SCRIPT = `
     // Now holds work actually under way, then what finished lately; queued, paused and held-up work waits folded under Next.
     var moving = jobs.filter(function (job) { return job.group === "moving" && String(job.state).indexOf(PLACE_STATES.running) === 0; });
     var next = jobs.filter(function (job) { return job.group === "moving" && String(job.state).indexOf(PLACE_STATES.running) !== 0; });
-    var done = jobs.filter(function (job) { return job.group === "done" && !job.bare; }).slice(0, DONE_FEW_FRONT);
+    var done = jobs.filter(function (job) { return job.group === "done" && !job.bare; });
     var lines = moving.concat(done);
     var said = {};
     frontLinesFresh = {};
@@ -384,7 +386,7 @@ export const FRONT_SCRIPT = `
     frontChatSettle();
     var html = !listed ? '<p class="fempty">Checking…</p>'
       : frontSection("needs", PLACE_WORDS.needs, needs, "No decision is waiting.", Infinity)
-        + frontNow(lines)
+        + frontNow(moving, done)
         + frontNext(next)
         + frontForChat();
     if (html === frontDrawn.jobs) return;

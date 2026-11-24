@@ -4225,6 +4225,21 @@ describe("the front page", () => {
     }
   });
 
+  it("keeps every finished job reachable under Now: the newest few at first, all nine behind Show all", async () => {
+    const stream = await opened();
+    const done = (n: number) => ({ id: `done-${n}`, group: "done", state: "Done", title: `Finished ${n}`, project: "", at: `2026-10-26T1${n}:00:00.000Z`, next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null });
+    stream.emit("update", {
+      order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false },
+      jobs: [9, 8, 7, 6, 5, 4, 3, 2, 1].map(done),
+    });
+    const shown = () => [...document.querySelectorAll<HTMLElement>("#jobs-list .fnow .job.line")].map((line) => line.dataset.job);
+    expect(shown()).toEqual(["done-9", "done-8", "done-7", "done-6", "done-5"]);
+    const more = document.querySelector<HTMLButtonElement>('#jobs-list .fmore[data-more="now"]')!;
+    expect(more.textContent).toBe("Show all 9");
+    more.click();
+    expect(shown()).toEqual(["done-9", "done-8", "done-7", "done-6", "done-5", "done-4", "done-3", "done-2", "done-1"]);
+  });
+
   it("renders stored job digests and says what an empty list actually is", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, jobs: [], jobsFleetKnown: false, show: { title: "", summary: "", items: [], counts: {}, live: false } });
