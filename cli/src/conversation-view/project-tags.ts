@@ -6,7 +6,9 @@ import type { ConversationMessage } from "./types.js";
 // messages, catalogue and judged answers always give the same tags. A turn is
 // the unit of meaning here: what he said, and what came back. Names in the words
 // themselves are the strong signal; a turn that names nothing carries on the
-// talk around it, and one that cannot is firstmate's to place (project-asker.ts).
+// talk around it. Where the words say nothing, the turn's metadata (a run's
+// project, its session's project, a task id) places it (projectResolver); only
+// what is left goes to Flyd's cheap model (project-tagger.ts).
 // Nothing here leaves the machine.
 
 export interface ThreadProject {
@@ -61,7 +63,9 @@ export function threadCatalogue(registry: string, projects: Array<{ id: string; 
     const entry = /^- (\S+)(?: \[[^\]]*\])? - ([^:;(]+?)(?: \([^)]*\))?\s*[:;]/.exec(line);
     if (!entry) continue;
     const [, slug, name] = entry as unknown as [string, string, string];
-    if (!known([slug, name])) out.push({ name: name.trim(), aliases: [name.trim()] });
+    // A firstmate task is named after its project's slug ("posttraction-login-fix").
+    const taskId = slug.length >= 3 && /^[a-z0-9-]+$/.test(slug) ? [new RegExp(`(?<![a-z0-9/._-])${slug}(?:-[a-z0-9]+)+`)] : [];
+    if (!known([slug, name])) out.push({ name: name.trim(), aliases: [name.trim()], ...(taskId.length ? { patterns: taskId } : {}) });
   }
   for (const project of projects) {
     const name = project.name.replace(/\s*\(.*\)\s*$/, "").trim();
@@ -76,6 +80,33 @@ export function threadCatalogue(registry: string, projects: Array<{ id: string; 
 export function knownProjectName(keys: string[]): string | undefined {
   const asked = keys.map(norm);
   return KNOWN.find((project) => project.keys.some((key) => asked.includes(key)))?.name;
+}
+
+/**
+ * Which thread project a piece of metadata names, with no model: a project
+ * field or a run's project name, a registered project's id, or a code root
+ * (a repo path, or a folder inside one) from the projects registry. Undefined
+ * when it names none, or more than one.
+ */
+export function projectResolver(catalogue: ThreadProject[], registered: Array<{ id: string; name: string; repos?: string[] }> = []): (hint: string | undefined) => string | undefined {
+  const read = nameReader(catalogue);
+  const names = new Map(catalogue.map((project) => [norm(project.name), project.name]));
+  const one = (found: string[]): string | undefined => (new Set(found).size === 1 ? found[0] : undefined);
+  const ofRegistered = (project: { id: string; name: string; repos?: string[] }): string | undefined =>
+    names.get(norm(project.name)) ?? knownProjectName([project.id, project.name, ...(project.repos ?? []).map(lastPart)]) ?? one(read(project.name));
+  return (hint) => {
+    const value = hint?.trim();
+    if (!value) return undefined;
+    if (value.startsWith("/") || value.startsWith("~")) {
+      const path = value.replace(/\/+$/, "");
+      const owner = registered.find((project) => (project.repos ?? []).some((repo) => path === repo || path.startsWith(`${repo}/`)));
+      if (owner) return ofRegistered(owner);
+      const folder = lastPart(path);
+      return knownProjectName([folder]) ?? one(read(folder));
+    }
+    const byId = registered.find((project) => project.id === value || norm(project.name) === norm(value));
+    return names.get(norm(value)) ?? (byId ? ofRegistered(byId) : undefined) ?? knownProjectName([value]) ?? one(read(value));
+  };
 }
 
 const escaped = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

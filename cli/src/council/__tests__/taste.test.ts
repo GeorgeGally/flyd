@@ -16,6 +16,9 @@ import {
   parseTasteOps,
   readSessionTurns,
   readTaste,
+  relevantRules,
+  sessionFiles,
+  tasteSessionRoots,
   renderTaste,
   resolveTasteProject,
   restoreRule,
@@ -467,6 +470,66 @@ describe("learning from Claude Code sessions", () => {
     expect(await learnTaste({ complete, now, projects: PROJECTS, backfillDays: 30 })).toMatchObject({ turns: 1, calls: 1 });
     expect(prompts[0]).toContain("never centre body copy");
     expect(await learnTaste({ complete, now, projects: PROJECTS, backfillDays: 30 })).toMatchObject({ turns: 0, calls: 0 });
+  });
+
+  it("reads only sessions under his own project roots, never an automated tool's", async () => {
+    const now = () => new Date("2026-10-07T00:00:00Z");
+    session("-Users-george-Documents-cap5", "own.jsonl", [said("no shadows on the icon boxes please")]);
+    session("-Users-george-Documents-cap5-site", "sub.jsonl", [said("tighter type in the footer please", "/Users/george/Documents/cap5/site")]);
+    const compiler = session("-Users-george--claude-memory-claude-memory-compiler", "auto.jsonl", [said("always prefer bold headings", "/Users/george/.claude-memory/claude-memory-compiler")]);
+    const elsewhere = session("-private-tmp", "tmp.jsonl", [said("never use rounded corners", "/private/tmp")]);
+    // A folder that encodes like a root but runs somewhere else is dropped by its cwd.
+    const lookalike = session("-Users-george-Documents-cap5-old", "x.jsonl", [said("hate the gradient colour", "/Users/george/Documents/cap5-old")]);
+    const prompts: string[] = [];
+    const complete = async (prompt: string) => (prompts.push(prompt), JSON.stringify({ rules: [] }));
+
+    expect(await learnTaste({ complete, now, projects: PROJECTS })).toMatchObject({ calls: 2, turns: 2 });
+    expect(prompts.join("\n")).toContain("no shadows on the icon boxes");
+    expect(prompts.join("\n")).toContain("tighter type in the footer");
+    for (const text of ["always prefer bold headings", "never use rounded corners", "hate the gradient colour"]) expect(prompts.join("\n")).not.toContain(text);
+    const files = JSON.parse(readFileSync(process.env.FLYD_TASTE_STATE!, "utf8")).files as Record<string, number>;
+    expect(Object.keys(files)).not.toContain(compiler);
+    expect(Object.keys(files)).not.toContain(elsewhere);
+    expect((await readSessionTurns(lookalike, 0, "2026-01-01", PROJECTS, tasteSessionRoots(PROJECTS))).turns).toEqual([]);
+
+    // Even listed as a root, the automated tool's folder is never read.
+    process.env.FLYD_TASTE_ROOTS = "/Users/george/.claude-memory/claude-memory-compiler";
+    try {
+      expect(tasteSessionRoots(PROJECTS)).toEqual(["/Users/george/.claude-memory/claude-memory-compiler"]);
+      expect(sessionFiles(join(dir, "projects"), "2026-01-01", tasteSessionRoots(PROJECTS))).toEqual([]);
+    } finally {
+      delete process.env.FLYD_TASTE_ROOTS;
+    }
+  });
+
+  it("skips a whole session an agent started, even turns that read like George", async () => {
+    const now = () => new Date("2026-10-07T00:00:00Z");
+    const file = session("-Users-george-Documents-flyd", "crew.jsonl", [
+      said("You are a crewmate: an autonomous worker agent managed by firstmate. Fix the header.", "/Users/george/Documents/flyd"),
+      reply("Done.", "/Users/george/Documents/flyd"),
+      said("no, the header looks cramped, prefer more padding", "/Users/george/Documents/flyd"),
+    ]);
+    const complete = async () => { throw new Error("no model call expected"); };
+    expect(await learnTaste({ complete, now, projects: PROJECTS })).toMatchObject({ calls: 0, turns: 0 });
+    writeFileSync(file, `${readFileSync(file, "utf8")}${said("again: the header looks cramped", "/Users/george/Documents/flyd")}\n`);
+    expect(await learnTaste({ complete, now, projects: PROJECTS })).toMatchObject({ calls: 0, turns: 0 });
+    expect(JSON.parse(readFileSync(process.env.FLYD_TASTE_STATE!, "utf8")).agent).toEqual([file]);
+  });
+
+  it("sends a learning call only the rules related to its messages", async () => {
+    const rule = (text: string, scope = "personal"): TasteProfile["rules"][number] => ({ id: ruleId(text), text, scope, count: 1, projects: [], evidence: [] });
+    const unrelated = Array.from({ length: 280 }, (_, index) => rule(`Filler preference number ${index} about widget${index} placement.`));
+    const shadows = rule("No shadows on icon boxes.");
+    const otherProject = rule("Icon boxes in Flyd use shadows.", "flyd");
+    writeTaste({ rules: [...unrelated, shadows, otherProject], vetoed: [], names: {} });
+    const turn: CandidateTurn = { id: "u1", text: "no, no shadows on the icon boxes", context: "", date: "2026-10-07", project: "capfive-client-work" };
+    const prompt = learningPrompt([turn], readTaste(), PROJECTS);
+    expect(prompt).toContain(`[${shadows.id}] No shadows on icon boxes.`);
+    expect(prompt).not.toContain(otherProject.id);
+    expect(prompt).not.toContain("Filler preference");
+    expect(relevantRules(readTaste().rules, [turn]).length).toBeLessThan(readTaste().rules.length);
+    const many = Array.from({ length: 100 }, (_, index) => rule(`Icon boxes stay square, variant ${index}.`));
+    expect(relevantRules(many, [turn])).toHaveLength(40);
   });
 
   it("is off with FLYD_TASTE_LEARNING=0", async () => {

@@ -4,7 +4,6 @@ import {
 } from "../acceptance.js";
 import { captainNotice } from "../../command/notice.js";
 import { parseDomainResult } from "../../command/result.js";
-import { ProjectAsker } from "../../conversation-view/project-asker.js";
 import type { DomainRun } from "../../command/types.js";
 
 describe("acceptance", () => {
@@ -214,12 +213,15 @@ describe("acceptance", () => {
     expect(checkProjectAttributionHandoff(run, run.result!)).toEqual({ ok: true, missing: [] });
   });
 
-  it("accepts the plain reply the project-asker note asks for: id lines plus one prose sentence", async () => {
-    const sent: string[] = [];
-    const asker = new ProjectAsker({ names: ["DIR", "Flyd", "Liesel"], send: async (body) => { sent.push(body); return true; }, reply: () => undefined, now: () => Date.UTC(2026, 10, 17) });
-    await asker.ask([{ turn: "the dashboard is slow", line: "the dashboard is slow" }, { turn: "new email rules", line: "new email rules" }]);
-    const note = sent[0]!;
-    expect(note).toMatch(/one short sentence/);
+  it("accepts the plain reply a legacy project-attribution note asked for: id lines plus one prose sentence", async () => {
+    // The note Flyd used to send before project tagging moved local (conversation-view/project-tagger.ts); runs already open still settle.
+    const note = [
+      "Flyd's own note, no work asked and nothing for George. Flyd splits his conversations by project and could not place these exchanges. From what you know of the fleet and these conversations, say which project each is about.",
+      'Reply to this note with one line per id, "id: Project", using one of: DIR, Flyd, Liesel. Write "id: Other" when it is about none of them or you cannot tell. After the lines, add one short sentence saying how you placed them (for example "Both are about Flyd\'s overlay work."). Answer from what you know; spawn nobody.',
+      "",
+      "0a1b2c3d | the dashboard is slow",
+      "4e5f6a7b | new email rules",
+    ].join("\n");
     const ids = [...note.matchAll(/^([0-9a-f]{8}) \|/gm)].map((match) => match[1]!);
     expect(ids).toHaveLength(2);
     const run = attributionRun(`${ids[0]}: DIR\n${ids[1]}: Liesel\nThe slow dashboard is DIR work and the email rules are Liesel's.`);

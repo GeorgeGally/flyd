@@ -303,7 +303,7 @@ export function isProjectAttributionRun(run: DomainRun): boolean {
 
 interface ProjectAttributionContext { ids: string[]; names: Set<string> }
 
-/** The exchange ids and allowed project names from the note Flyd sent (conversation-view/project-asker.ts). */
+/** The exchange ids and allowed project names from the note Flyd used to send (legacy: tagging is local now, conversation-view/project-tagger.ts). */
 function projectAttributionContext(message: string): ProjectAttributionContext {
   const list = message.match(/using one of:\s*([^\n]+)/i)?.[1] ?? "";
   const names = new Set(list.split(/\.\s*Write\b/i)[0]!.split(",").map((name) => name.trim().toLowerCase()).filter(Boolean));
