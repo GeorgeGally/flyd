@@ -50,8 +50,6 @@ export interface ScoutSource {
   dislikes: number;
   failures: number;
   lastFetchedAt?: string;
-  /** When a subreddit was last asked, answered or not; the Reddit rotation moves on from it. */
-  lastTriedAt?: string;
   /** When the source was last paused (fetch failures, evolution, or a topic replan). */
   pausedAt?: string;
   addedBy: "seed" | "evolution" | "george";
@@ -439,19 +437,12 @@ export async function gatherCandidates(sources: ScoutSource[], options: FetchOpt
     }
   });
   const reddit = (async () => {
-    const asked = (source: ScoutSource) => Date.parse(source.lastTriedAt ?? source.lastFetchedAt ?? "1970-01-01");
     const subs = sources.filter((source) => source.status === "active" && source.kind === "reddit")
-      .sort((a, b) => asked(a) - asked(b))
+      .sort((a, b) => (Date.parse(a.lastFetchedAt ?? "1970-01-01") - Date.parse(b.lastFetchedAt ?? "1970-01-01")))
       .slice(0, options.redditLimit ?? Infinity);
-    // Reddit refuses a machine it has blocked with the same 404 "Not Found" feed (or a 403) for every
-    // subreddit. That says nothing about any one subreddit, so one that fails is charged only when
-    // Reddit answered another in this run.
-    const unanswered: ScoutSource[] = [];
-    let answered = false;
     for (const [index, source] of subs.entries()) {
       if (index > 0 && (options.redditSpacingMs ?? REDDIT_SPACING_MS) > 0) await new Promise((resolve) => setTimeout(resolve, options.redditSpacingMs ?? REDDIT_SPACING_MS));
       const url = redditFeedUrl(source.target);
-      source.lastTriedAt = options.now.toISOString();
       try {
         let items: ScoutCandidate[];
         try {
@@ -464,20 +455,14 @@ export async function gatherCandidates(sources: ScoutSource[], options: FetchOpt
         note(source.id, items);
         candidates.push(...items);
         source.lastFetchedAt = options.now.toISOString();
-        answered = true;
       } catch (error) {
         if (error instanceof RateLimited) {
           for (const unread of subs.slice(index)) outcomes.set(unread.id, "rate-limited");
           break;
         }
-        unanswered.push(source);
-      }
-    }
-    for (const source of unanswered) {
-      if (answered) {
         failed.push(source.id);
         outcomes.set(source.id, "failed");
-      } else outcomes.set(source.id, "rate-limited");
+      }
     }
   })();
   await Promise.all([...workers, reddit, ...topicWorkers]);
@@ -572,7 +557,7 @@ export function rankPrompt(
 
 export function parsePicks(
   text: string,
-  candidates: ScoutCandidate[],
+  candidates: ReadonlyArray<ScoutCandidate | undefined>,
   max = BRIEF_MAX,
   perSource = Infinity,
   stats?: { picks?: number; junk?: number },
@@ -727,8 +712,6 @@ function rankContext(dir: string, now: Date, sources: ScoutSource[], mode: "edit
 }
 
 const FAILURE_PAUSE_NOTE = "paused after 5 consecutive fetch failures";
-/** A subreddit is charged only when Reddit answered another one in the same run, so its pause says so (and is never undone as a refusal). */
-const REDDIT_PAUSE_NOTE = "paused after 5 runs with no answer while Reddit answered others";
 
 /** Sources that must all fail, with none answering, before a run reads as the network being down rather than as failing feeds. */
 const OUTAGE_MIN_FAILURES = 3;
@@ -746,7 +729,7 @@ function recordFailures(sources: ScoutSource[], gathered: { failed: string[]; he
     if (failed.includes(source.id)) {
       const failures = source.failures + 1;
       // A source that keeps failing is paused, not deleted; it gets a retry later (reviveFailedSources).
-      return { ...source, failures, ...(failures >= 5 ? { status: "paused" as const, note: source.kind === "reddit" ? REDDIT_PAUSE_NOTE : FAILURE_PAUSE_NOTE, pausedAt: now.toISOString() } : {}) };
+      return { ...source, failures, ...(failures >= 5 && source.kind !== "reddit" ? { status: "paused" as const, note: FAILURE_PAUSE_NOTE, pausedAt: now.toISOString() } : {}) };
     }
     return source.status === "active" ? { ...source, failures: 0 } : source;
   });
@@ -762,7 +745,7 @@ const RETRY_PAUSED_AFTER_MS = 3 * 86_400_000;
 export function reviveFailedSources(sources: ScoutSource[], now = new Date()): { sources: ScoutSource[]; revived: ScoutSource[] } {
   const revived: ScoutSource[] = [];
   const next = sources.map((source) => {
-    if (source.status !== "paused" || (source.note !== FAILURE_PAUSE_NOTE && source.note !== REDDIT_PAUSE_NOTE)) return source;
+    if (source.status !== "paused" || source.note !== FAILURE_PAUSE_NOTE) return source;
     const since = Date.parse(source.pausedAt ?? source.lastFetchedAt ?? source.addedAt);
     if (Number.isFinite(since) && now.getTime() - since < RETRY_PAUSED_AFTER_MS) return source;
     const retry = { ...source, status: "active" as const, failures: 4, note: `retrying after pause ${localDay(now)}` };
@@ -942,10 +925,10 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
   const shortlist = [...fresh, ...offered.map(seatCandidate)];
   const workNow = deps.workNow !== undefined ? deps.workNow : process.env.VITEST ? null : workNowBrief(await readWorkSignals(now));
   const picks = { picks: 0, junk: 0 };
-  const judged = shortlist.length ? parsePicks(await deps.complete(rankPrompt(shortlist, rankContext(dir, now, sources, "edition", workNow))), shortlist, maxItems + INSPIRATION_SEATS, EDITION_PER_SOURCE, picks) : [];
-  const seatByUrl = new Map(offered.map((item) => [item.url, item]));
-  const ranked = judged.filter((item) => !seatByUrl.has(item.url)).slice(0, maxItems);
-  const seats = judged.flatMap((item) => { const seat = seatByUrl.get(item.url); return seat ? [seatItem(item, seat)] : []; }).slice(0, INSPIRATION_SEATS);
+  const judgment = shortlist.length ? await deps.complete(rankPrompt(shortlist, rankContext(dir, now, sources, "edition", workNow))) : null;
+  const ranked = judgment ? parsePicks(judgment, shortlist.map((candidate) => candidate.seat ? undefined : candidate), maxItems, EDITION_PER_SOURCE, picks) : [];
+  const seats = judgment ? parsePicks(judgment, shortlist.map((candidate) => candidate.seat ? candidate : undefined), INSPIRATION_SEATS, EDITION_PER_SOURCE, picks)
+    .map((pick) => seatItem(pick, shortlist.find((candidate) => candidate.url === pick.url)!.seat!)) : [];
   if (editorialMode() === "shadow") {
     try {
     // Same base observations; include only *cached* discovery nominations in the alternative.

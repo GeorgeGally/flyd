@@ -182,7 +182,7 @@ describe("edition, feedback, and watch", () => {
     expect(readSources(dir)[0]).toMatchObject({ status: "active", failures: 0, lastFetchedAt: "2026-09-27T07:00:00.000Z" });
   });
 
-  it("never charges a subreddit when Reddit refuses every one, only when Reddit answered another in the same run", async () => {
+  it("never pauses a subreddit for fetch failures, whether Reddit refuses every one or only it", async () => {
     onlySources([
       { kind: "reddit", name: "r/one", target: "one" },
       { kind: "reddit", name: "r/two", target: "two" },
@@ -190,24 +190,20 @@ describe("edition, feedback, and watch", () => {
     ]);
     // What a refused machine gets back for every subreddit: a 404 "Not Found" Atom feed.
     const notFound = '<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom"><id>https://rss.reddit.com/</id><title>Not Found</title></feed>';
-    const hits: string[] = [];
-    const refused = (async (input: string | URL | Request) => { hits.push(String(input)); return new Response(notFound, { status: 404 }); }) as typeof fetch;
+    const refused = (async () => new Response(notFound, { status: 404 })) as typeof fetch;
     const complete = vi.fn(async () => '{"picks": []}');
-    for (let hour = 7; hour <= 22; hour += 3) {
+    for (let hour = 4; hour <= 22; hour += 3) {
       await watchScout({ complete, fetchFn: refused, dir, redditSpacingMs: 0, now: () => at(`2026-09-27T${String(hour).padStart(2, "0")}:00:00Z`) });
     }
-    expect(readSources(dir).slice(0, 3).map((source) => [source.status, source.failures])).toEqual([["active", 0], ["active", 0], ["active", 0]]);
-    expect(readSourceHealth(dir, "watch")).toMatchObject({ failed: 0, rateLimited: 2 });
-    // The rotation moves on past subreddits that were asked, answered or not.
-    expect(hits.slice(0, 4).map((url) => url.match(/\/r\/(\w+)\//)?.[1])).toEqual(["one", "two", "three", "one"]);
-    // A subreddit that fails while Reddit answers another is still charged.
+    expect(readSources(dir).slice(0, 2).map((source) => [source.status, source.failures])).toEqual([["active", 7], ["active", 7]]);
+    // r/one answers while r/two is still refused: r/two stays active all the same.
     const partial = (async (input: string | URL | Request) => String(input).includes("/r/two/")
       ? new Response(notFound, { status: 404 })
       : new Response(rss([{ title: `Post from ${String(input)}`, link: `${String(input)}post` }]), { status: 200 })) as typeof fetch;
-    // Next in the rotation: r/one (answers) and r/two (refused).
     await watchScout({ complete, fetchFn: partial, dir, redditSpacingMs: 0, now: () => at("2026-09-28T07:00:00Z") });
-    const charged = readSources(dir).slice(0, 3).filter((source) => source.failures > 0).map((source) => source.name);
-    expect(charged).toEqual(["r/two"]);
+    const [one, two] = readSources(dir);
+    expect(one).toMatchObject({ status: "active", failures: 0 });
+    expect(two).toMatchObject({ status: "active", failures: 8 });
   });
 
   it("lets every source reach the ranker even when early feeds alone would fill the candidate cap", async () => {
@@ -652,6 +648,27 @@ describe("the edition draws on the whole day", () => {
     expect(items.find((item) => item.media === "stat")?.why).toBe("A number that frames his plotter work.");
     expect(items.map((item) => item.n)).toEqual(items.map((_, index) => index + 1));
     expect(items.some((item) => item.source === "Google Trends")).toBe(false);
+  });
+
+  it("keeps the story rabbit hole when the curator also tags a seat as one", async () => {
+    onlySources([{ kind: "rss", name: "hackaday", target: "https://hackaday.test/feed" }]);
+    const fetchFn = fakeFetch({ "hackaday.test": rss([
+      { title: "A plotter that draws with sand", link: "https://hackaday.test/sand", date: recent },
+      { title: "The lost BBS of a lighthouse keeper", link: "https://hackaday.test/bbs", date: recent },
+    ]) });
+    const inspiration: InspirationItem[] = [
+      { url: "https://news.ycombinator.test/item?id=1", title: "Thread on 64k demos", source: "Hacker News", sourceId: "hn", summary: "A long thread", media: "thread" },
+    ];
+    const prompts: string[] = [];
+    const complete = rankerFor(prompts, (prompt) => [
+      { index: indexOf(prompt, "Thread on 64k demos"), kind: "rabbit_hole", why: "A deep thread on tiny demos." },
+      { index: indexOf(prompt, "draws with sand"), kind: "relevant", why: "Sand as a plotter medium." },
+      { index: indexOf(prompt, "lighthouse keeper"), kind: "rabbit_hole", why: "A BBS run from a lighthouse." },
+    ]);
+    const result = await runScout({ complete, fetchFn, dir, now: () => at("2026-11-14T07:00:00Z"), focus: [], inspiration, workNow: null });
+    const items = result.edition!.items;
+    expect(items.find((item) => item.title === "The lost BBS of a lighthouse keeper")?.kind).toBe("rabbit_hole");
+    expect(items.find((item) => item.title === "Thread on 64k demos")).toMatchObject({ kind: "relevant", media: "thread" });
   });
 
   it("drops every seat the curator passes on, with no filler, and gives it the work-now brief", async () => {
