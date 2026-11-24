@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { FLYD_DIR } from "./config.js";
+import { resolveFlydDir } from "./flyd-dir.js";
 
 /**
  * Tokens per job, per day, on every provider Flyd calls itself: the Anthropic
@@ -40,14 +40,14 @@ function env(name: string): string | undefined {
 }
 
 export function tokenLedgerPath(): string {
-  return env("FLYD_TOKEN_USAGE_FILE") ?? join(FLYD_DIR, "token-usage.json");
+  return env("FLYD_TOKEN_USAGE_FILE") ?? join(resolveFlydDir(), "token-usage.json");
 }
 
 /** The per-call trail's file, or null when it is turned off. */
 export function usageTrailPath(): string | null {
   const configured = env("FLYD_CLAUDE_USAGE_LOG");
   if (configured === "0" || configured?.toLowerCase() === "off") return null;
-  return configured ?? join(FLYD_DIR, "claude-usage.jsonl");
+  return configured ?? join(resolveFlydDir(), "claude-usage.jsonl");
 }
 
 export function localDay(now: Date): string {
@@ -97,12 +97,13 @@ export interface TokenUsageRecord {
 }
 
 /** Adds one call to its source's day and appends it to the per-call trail. Never throws. */
-export function recordTokenUsage(record: TokenUsageRecord, path = tokenLedgerPath()): void {
+export function recordTokenUsage(record: TokenUsageRecord, ledgerPath?: string): void {
   const { tokens } = record;
   if (!tokens || (!tokens.input && !tokens.output && !tokens.cacheRead && !tokens.cacheWrite)) return;
   const now = record.now ?? new Date();
   const day = localDay(now);
   try {
+    const path = ledgerPath ?? tokenLedgerPath();
     const ledger = readTokenLedger(path);
     const sources = ledger.days[day] ?? {};
     const was = sources[record.source] ?? { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -120,9 +121,9 @@ export function recordTokenUsage(record: TokenUsageRecord, path = tokenLedgerPat
     writeFileSync(temp, JSON.stringify(ledger, null, 2), { mode: 0o600 });
     renameSync(temp, path);
   } catch { /* Bookkeeping never breaks a reply. */ }
-  const trail = usageTrailPath();
-  if (!trail) return;
   try {
+    const trail = usageTrailPath();
+    if (!trail) return;
     mkdirSync(dirname(trail), { recursive: true, mode: 0o700 });
     try { if (statSync(trail).size > TRAIL_MAX_BYTES) renameSync(trail, `${trail}.1`); } catch { /* not there yet */ }
     appendFileSync(trail, `${JSON.stringify({ at: now.toISOString(), model: record.model, source: record.source, tokens, ...(record.usage !== undefined ? { usage: record.usage } : {}), ...(record.usd !== undefined ? { usd: record.usd } : {}) })}\n`, { mode: 0o600 });

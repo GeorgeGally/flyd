@@ -297,20 +297,22 @@ describe("placing what the words cannot", () => {
     expect(lm.classify).not.toHaveBeenCalled();
   });
 
-  it("places a session's turns by its own project field, and a firstmate task id by the registry's slug", async () => {
+  it("places a project's own conversation by its session, and a firstmate task id by the registry's slug", async () => {
     const lm = model(() => "{}");
     const catalogue = threadCatalogue("- posttraction [ship] - PostTraction: growth tool.\n", []);
     const source = feed({
-      scoped: { updatedAt: "2026-11-06T10:00:00Z", messages: [user("a", "smaller squares", "2026-11-06T09:00:00Z"), said("b", "Done.", "2026-11-06T09:01:00Z")] },
+      "window:project-logan": { updatedAt: "2026-11-06T10:00:00Z", messages: [user("a", "smaller squares", "2026-11-06T09:00:00Z"), said("b", "Done.", "2026-11-06T09:01:00Z")] },
       task: { updatedAt: "2026-11-06T11:00:00Z", messages: [user("c", "how is posttraction-login-fix going?", "2026-11-06T11:00:00Z"), said("d", "Landed.", "2026-11-06T11:01:00Z")] },
+      // A session's history label (its folder, or its newest turn's project) is not its project: it places nothing.
+      labelled: { updatedAt: "2026-11-06T12:00:00Z", messages: [user("e", "rounder corners", "2026-11-06T12:00:00Z"), said("f", "Done.", "2026-11-06T12:01:00Z")] },
     });
     const listed = source.sessions;
-    source.sessions = async () => (await listed()).map((session) => (session.id === "scoped" ? { ...session, project: "Logan" } : session));
+    source.sessions = async () => (await listed()).map((session) => (session.id === "labelled" ? { ...session, project: "Logan" } : session));
     const threads = new ProjectThreads({ feeds: [source], projects: catalogue, tagger: new ProjectTagger({ ...lm, names: catalogue.map((project) => project.name) }) });
     await pass(threads);
     expect(threads.snapshot(threadId("Logan")).messages.map((message) => message.id)).toEqual(["a", "b"]);
     expect(threads.snapshot(threadId("PostTraction")).messages.map((message) => message.id)).toEqual(["c", "d"]);
-    expect(lm.classify).not.toHaveBeenCalled();
+    expect(threads.snapshot(threadId("Logan")).messages.map((message) => message.id)).not.toContain("e");
   });
 
   it("asks the cheap model once, in one batch, about a free line nothing else places, and files it where it says", async () => {

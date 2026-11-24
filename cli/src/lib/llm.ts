@@ -155,13 +155,13 @@ function throwOnRefusal(stopReason: string | null | undefined, model: string): v
 /** An Anthropic-shaped response's usage: priced against the Claude cap on Flyd's own account, else tokens per source per day. */
 function recordUsage(model: string, connection: ModelConnection, usage: ClaudeUsage | undefined, source: string): void {
   if (directAnthropic(connection)) recordClaudeUsage(apiModelId(model), usage, source);
-  else recordTokenUsage({ source, model, tokens: anthropicTokens(usage) });
+  else try { recordTokenUsage({ source, model, tokens: anthropicTokens(usage) }); } catch { /* bookkeeping never breaks a call */ }
 }
 
 /** An OpenAI-shaped response's usage (OpenCode Go, OpenAI, OpenRouter, CommandCode, Anthropic's compatible endpoint). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function recordOpenAIUsage(model: string, connection: Pick<ModelConnection, "baseURL">, usage: any, source: string): void {
-  recordCompatibleClaudeUsage(apiModelId(model), connection.baseURL, usage, source);
+  try { recordCompatibleClaudeUsage(apiModelId(model), connection.baseURL, usage, source); } catch { /* bookkeeping never breaks a call */ }
 }
 
 /** System prompt as blocks: the stable prefix cached, the per-turn rest after it. */

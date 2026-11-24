@@ -90,7 +90,7 @@ interface SessionIndex {
   shown: Map<string, ConversationMessage>;
   named: string[][];
   unplaced: number[];
-  /** The thread project its own project field names (the session's, else its snapshot's), when one does. */
+  /** The project whose own conversation this session is (`window:project-<slug>`, where a thread's words go), when it is one. */
   project?: string;
 }
 
@@ -274,7 +274,7 @@ export class ProjectThreads {
     const shown = new Map(turns.flatMap((turn) => [...turn.asked, ...(turn.reply ? [turn.reply] : [])])
       .map((message) => [message.id, this.shown(message, feed, session.id)] as const));
     const active = snapshot.working || snapshot.messages.some((message) => message.role === "user" && Boolean(message.waiting) && !message.waitingFailed && !message.settled);
-    const project = this.resolve(session.project) ?? this.resolve(snapshot.project);
+    const project = this.ownProject(session.id);
     this.sessions.set(key, {
       stamp, fingerprint, active, turns, shown, named: [], unplaced: [],
       ...(project ? { project } : {}),
@@ -323,10 +323,17 @@ export class ProjectThreads {
     };
   }
 
+  /** The project a session belongs to by its own id: a project's own conversation, which withProjectThreads names after the thread. */
+  private ownProject(sessionId: string): string | undefined {
+    const slug = /(?:^|:)window:project-([a-z0-9-]+)$/.exec(sessionId)?.[1];
+    if (!slug || slug === "all" || slug === "other") return undefined;
+    return this.options.projects.find((project) => threadId(project.name) === `${THREAD_PREFIX}${slug}`)?.name;
+  }
+
   /**
    * Where a turn whose words name nothing goes, with no model when its metadata
-   * knows: a message's own run, then its session's project field, then what the
-   * cheap model already said of it. Undefined leaves it to the talk around it.
+   * knows: a message's own run, then the project whose own conversation it is in,
+   * then what the cheap model already said of it. Undefined leaves it to the talk around it.
    */
   private placed(turn: Turn, session: SessionIndex): string | null | undefined {
     for (const message of [...turn.asked, ...(turn.reply ? [turn.reply] : [])]) {
