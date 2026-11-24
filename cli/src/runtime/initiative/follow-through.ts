@@ -76,6 +76,11 @@ export function reconcileInitiativeObjectives(deps: FollowThroughDeps = {}): num
   const dir = deps.objectiveDir ?? commandDir();
   const generated = listObjectives(dir).filter(o => o.origin.surface === "initiative" && o.initiative);
   if (!generated.length) return 0;
+  // A global kill switch must never trigger private source reads merely
+  // because old generated CoS JSON exists. Scrub only the generated copies.
+  if (process.env.FLYD_INITIATIVE === "off" || process.env.FLYD_INITIATIVE === "0") {
+    return purgeInitiativeObjectives(dir);
+  }
   const registry = deps.registry ?? new SourceContractRegistry();
   for (const contract of [
     INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT, INITIATIVE_MANDATE_CONTRACT,
