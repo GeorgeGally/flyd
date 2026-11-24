@@ -147,7 +147,7 @@ L3 evidence / artifacts / raw result
 
 The stored object carries all levels together.
 
-A domain boss's reply is taken verbatim as the report. Flyd reads it leniently (`parseDomainResult` in `command/result.ts`): structured JSON or "key: value" fields are used when the reply carries them, and otherwise the whole reply is the report, kept raw with a high information-loss risk. No brief/report/evidence shape is required, nothing is re-requested for its shape, and no shape check fails a run or notifies George. Flyd's own notes, project placement among them, are bookkeeping: an unplaced or unlisted answer simply stays unplaced (under Other), and no run with `source: "flyd"` is ever a card for George (`conversation-view/jobs.ts`).
+A domain boss's reply is taken verbatim as the report. Flyd reads it leniently (`parseDomainResult` in `command/result.ts`): structured JSON or "key: value" fields are used when the reply carries them, and otherwise the whole reply is the report, kept raw with a high information-loss risk. No brief/report/evidence shape is required, nothing is re-requested for its shape, and no shape check fails a run or notifies George. Flyd's own notes, project placement among them, are bookkeeping: an unplaced or unlisted answer simply stays unplaced (under Other), and a run with `source: "flyd"` is never a card or notice for George (`conversation-view/jobs.ts`, `command/scheduler.ts`). The one exception is a note carrying George's own words (`carriesGeorgesWords`, e.g. his answer to a recorded decision): it still shows when held up, and he hears when it fails.
 
 ## 5. Coding domain: FirstMate
 
