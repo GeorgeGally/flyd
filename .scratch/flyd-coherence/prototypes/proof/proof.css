@@ -1,0 +1,65 @@
+:root {
+  --bg: #f3f2ee;
+  --surface: #ffffff;
+  --ink: #16181d;
+  --muted: #5d626c;
+  --faint: #8b9099;
+  --line: #dddbd4;
+  --mark: #ff4a1c;
+  --mark-ink: #ffffff;
+  --radius: 12px;
+  --shadow: 0 1px 2px rgba(20, 22, 28, .06), 0 12px 32px -12px rgba(20, 22, 28, .22);
+  --gutter: clamp(16px, 4vw, 56px);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141518; --surface: #1d1f24; --ink: #f1f0ec; --muted: #a7abb3; --faint: #7d828b; --line: #2e3138;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 16px 40px -16px rgba(0, 0, 0, .7);
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); }
+body { min-height: 100vh; }
+a { color: inherit; }
+img { display: block; max-width: 100%; }
+
+/* --- shared type --- */
+.headline { font-size: clamp(28px, 3.4vw, 46px); line-height: 1.08; font-weight: 650; letter-spacing: -.015em; margin: 0; text-wrap: balance; }
+.why { font-size: clamp(16px, 1.25vw, 19px); line-height: 1.5; color: var(--muted); margin: 0; max-width: 46ch; text-wrap: pretty; }
+.said { font-size: 15px; line-height: 1.45; color: var(--muted); margin: 0; max-width: 46ch; }
+.said q { color: var(--ink); font-style: italic; }
+.meta { font-size: 14px; color: var(--faint); margin: 0; }
+
+/* --- figure with marks --- */
+.shot { position: relative; margin: 0; container-type: inline-size; }
+.shot .frame { position: relative; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); background: var(--surface); line-height: 0; }
+.shot.phone .frame { border-radius: 14px; }
+.shot img.base { width: 100%; height: auto; }
+.shot svg.marks { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.shot .labels { position: absolute; inset: 0; pointer-events: none; }
+.shot figcaption { font-size: 14px; color: var(--muted); margin-top: 12px; text-align: center; }
+.chip { position: absolute; white-space: nowrap; font-size: clamp(9.5px, 4.6cqw, 12.5px); line-height: 1; font-weight: 600; padding: 6px 9px 6px; border-radius: 999px; background: var(--mark); color: var(--mark-ink); box-shadow: 0 4px 14px -6px rgba(0,0,0,.45); }
+.chip.quiet { background: rgba(255,255,255,.94); color: var(--mark); }
+.shot.small .chip { font-size: clamp(9px, 4cqw, 11px); padding: 5px 7px; }
+
+/* --- footer actions --- */
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-decoration: none; font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.btn:hover { border-color: var(--ink); }
+.btn.solid { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.next { font-size: 15px; line-height: 1.45; color: var(--ink); margin: 0; }
+.next a { color: var(--muted); margin-left: 6px; }
+
+/* locator: the whole page, small, with the crop boxed */
+.locator { display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--muted); font-size: 14px; }
+.locator .mini { position: relative; flex: none; border-radius: 4px; overflow: hidden; box-shadow: 0 0 0 1px var(--line); }
+.locator .mini img { width: 100%; height: 100%; object-fit: cover; opacity: .7; }
+.locator .mini i { position: absolute; border: 1.5px solid var(--mark); border-radius: 2px; box-shadow: 0 0 0 999px rgba(0,0,0,.18); }
+
+/* --- take switcher (prototype chrome only) --- */
+.proto-bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 50; display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(22,24,29,.88); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); font-size: 13px; max-width: calc(100vw - 32px); overflow-x: auto; }
+.proto-bar a { color: #c9ccd2; text-decoration: none; padding: 8px 12px; border-radius: 999px; white-space: nowrap; }
+.proto-bar a.on { background: #fff; color: #16181d; }

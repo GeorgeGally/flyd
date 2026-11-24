@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proof of work</title>
+<link rel="stylesheet" href="proof.css">
+<style>
+  .page { max-width: 1080px; margin: 0 auto; padding: clamp(48px, 9vh, 104px) var(--gutter) 140px; }
+  h1.headline { font-size: clamp(32px, 4.4vw, 58px); max-width: 18ch; }
+  .lede { margin-top: 20px; }
+  h2 { font-size: 22px; font-weight: 650; margin: 0; letter-spacing: -.005em; }
+  section { margin-top: 80px; }
+  .anatomy { margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 28px 32px; }
+  .anatomy div { display: grid; gap: 8px; align-content: start; }
+  .anatomy b { font-size: 16px; }
+  .anatomy p, .rules li { margin: 0; font-size: 15px; line-height: 1.5; color: var(--muted); }
+  .rules { margin: 24px 0 0; padding-left: 20px; display: grid; gap: 12px; max-width: 70ch; }
+  .rules li b { color: var(--ink); font-weight: 600; }
+  .takes { margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
+  .take { background: var(--surface); border-radius: 16px; padding: 28px; display: grid; gap: 12px; box-shadow: var(--shadow); align-content: start; }
+  .take h3 { margin: 0; font-size: 19px; }
+  .take p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--muted); }
+  .take .actions { margin-top: 20px; gap: 10px; }
+  .take .btn { height: 40px; font-size: 14px; padding: 0 14px; }
+  .rec { font-size: 17px; line-height: 1.55; max-width: 62ch; margin: 20px 0 0; }
+</style>
+</head>
+<body>
+<main class="page">
+  <h1 class="headline">How Flyd shows finished work.</h1>
+  <p class="why lede">A proof is one point made like a presentation slide: the change, cropped to where it happened, before and after at the same size, with one line of why. Two real examples, three ways to show them.</p>
+
+  <section>
+    <h2>What a proof holds</h2>
+    <div class="anatomy">
+      <div><b>The point</b><p>One sentence about what is different for the person using it. Not what the code did.</p></div>
+      <div><b>Before and after</b><p>The same crop of the real page, at the same scale. One drawn mark per change.</p></div>
+      <div><b>Why</b><p>One line. When it answers your note, your words come first.</p></div>
+      <div><b>Where</b><p>A tiny whole page with the crop boxed, which opens the live thing at that spot.</p></div>
+      <div><b>Next</b><p>What Flyd does next. Stated, not asked. You can change it.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>How Flyd picks the crop</h2>
+    <ol class="rules">
+      <li><b>The changed element plus one neighbour</b>, so you can tell where you are: the card beside it, the heading above it.</li>
+      <li><b>The same rectangle before and after</b>, so the only thing that moves is the change.</li>
+      <li><b>If the change is about position, the crop includes what it is measured against</b>, and Flyd draws it: the grid column, the screen's middle, the frame's edge.</li>
+      <li><b>If the change is about where something sits on the screen, keep the full height</b> and crop only the sides.</li>
+      <li><b>Shown at the device's own shape.</b> Phone crops look like a phone; ultrawide looks wide. The whole page only appears as the small locator.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>The takes</h2>
+    <div class="takes">
+      <div class="take"><h3>A · Slides</h3><p>A short deck: the round in one line, then one slide per change, then what's next. Arrow keys or swipe.</p>
+        <div class="actions"><a class="btn solid" href="slides.html?ex=capfive">CapFive phone</a><a class="btn" href="slides.html?ex=liesel">Liesel review</a></div></div>
+      <div class="take"><h3>B · Wipe</h3><p>One scroll. Each change sweeps from before to after as you reach it; drag to compare.</p>
+        <div class="actions"><a class="btn solid" href="wipe.html?ex=capfive">CapFive phone</a><a class="btn" href="wipe.html?ex=liesel">Liesel review</a></div></div>
+      <div class="take"><h3>C · One page</h3><p>Every change on one sheet, after first. Hold a tile to see before; tap for the full proof.</p>
+        <div class="actions"><a class="btn solid" href="sheet.html?ex=capfive">CapFive phone</a><a class="btn" href="sheet.html?ex=liesel">Liesel review</a></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Recommendation</h2>
+    <p class="rec">Use C as the default proof in chat: the round in one glance, each change already cropped and marked. Tapping a tile opens the A slide for that change. Keep B for single, subtle changes where the movement is the point, like 16px onto a grid column.</p>
+  </section>
+</main>
+</body>
+</html>

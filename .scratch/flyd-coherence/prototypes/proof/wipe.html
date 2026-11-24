@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proof · Wipe</title>
+<link rel="stylesheet" href="proof.css">
+<style>
+  .page { max-width: 1180px; margin: 0 auto; padding: clamp(48px, 9vh, 112px) var(--gutter) 160px; }
+  .intro .headline { font-size: clamp(32px, 4.4vw, 60px); max-width: 18ch; }
+  .intro .meta { margin-top: 16px; font-size: 16px; }
+
+  .item { margin-top: clamp(88px, 14vh, 160px); display: grid; gap: 28px; justify-items: center; }
+  .item header { display: grid; gap: 14px; justify-items: center; text-align: center; }
+  .item header .said { text-align: center; }
+
+  .wipe { position: relative; width: 100%; touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: ew-resize; }
+  .wipe .layer { position: absolute; inset: 0; }
+  .wipe .layer.before { clip-path: inset(0 calc(100% - var(--pos)) 0 0); }
+  .wipe .shot { margin: 0; }
+  .wipe .layer .shot .frame { box-shadow: none; }
+  .wipe .handle { position: absolute; top: -8px; bottom: -8px; left: var(--pos); width: 2px; margin-left: -1px; background: var(--ink); pointer-events: none; }
+  .wipe .handle::after { content: "↔"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 40px; height: 40px; border-radius: 50%; background: var(--ink); color: var(--bg); display: grid; place-items: center; font-size: 16px; box-shadow: 0 6px 18px -6px rgba(0,0,0,.5); }
+  .ends { display: flex; justify-content: space-between; width: 100%; font-size: 14px; color: var(--muted); margin-top: -12px; }
+  .ends span { cursor: pointer; }
+
+  .foot { display: grid; gap: 22px; justify-items: center; text-align: center; }
+  .foot .why { max-width: 54ch; }
+
+  .last { margin-top: clamp(96px, 16vh, 180px); border-top: 1px solid var(--line); padding-top: 56px; display: grid; gap: 0; justify-items: start; }
+  .last .headline { font-size: clamp(24px, 2.6vw, 36px); max-width: 26ch; }
+  .last .actions { margin-top: 48px; }
+</style>
+</head>
+<body>
+<main class="page" id="page"></main>
+<script src="data.js"></script>
+<script src="proof.js"></script>
+<script>
+  const { set, esc, figure, locator, said, protoBar } = Proof;
+  const page = document.getElementById('page');
+
+  const maxW = (it) => it.device === 'phone' ? 420 : (it.w / it.h > 1 ? 1180 : 520);
+  const fit = (it) => `min(${maxW(it)}px, calc((100svh - 220px) * ${(it.w / it.h).toFixed(4)}))`;
+
+  page.innerHTML = `<section class="intro">
+      <h1 class="headline">${esc(set.title)}</h1>
+      <p class="meta">${esc(set.where)} · ${esc(set.when)}</p>
+    </section>` +
+    set.items.map((it, i) => `<section class="item">
+      <header><h2 class="headline">${esc(it.headline)}</h2>${said(it)}</header>
+      <div class="wipe" style="max-width:${fit(it)};--pos:100%" data-i="${i}">
+        ${figure(it, 'after', { caption: false })}
+        <div class="layer before">${figure(it, 'before', { caption: false })}</div>
+        <div class="handle"></div>
+      </div>
+      <div class="ends" style="max-width:${fit(it)}"><span data-to="100">Before</span><span data-to="0">After</span></div>
+      <div class="foot"><p class="why">${esc(it.why)}</p>${locator(it)}</div>
+    </section>`).join('') +
+    `<section class="last">
+      <h2 class="headline">${esc(set.next)}</h2>
+      <div class="actions"><a class="btn solid" href="${set.live}" target="_blank" rel="noopener">${esc(set.liveLabel)} ↗</a><a class="btn" href="#" onclick="return false">Change the plan</a></div>
+    </section>`;
+
+  // drag to compare; the first time a pair scrolls into view it sweeps from before to after
+  document.querySelectorAll('.wipe').forEach((w) => {
+    const setPos = (p) => w.style.setProperty('--pos', Math.max(0, Math.min(100, p)) + '%');
+    const fromEvent = (e) => { const r = w.getBoundingClientRect(); setPos(((e.clientX - r.left) / r.width) * 100); };
+    let dragging = false;
+    w.addEventListener('pointerdown', (e) => { dragging = true; w.setPointerCapture(e.pointerId); w.style.transition = ''; fromEvent(e); });
+    w.addEventListener('pointermove', (e) => { if (dragging) fromEvent(e); });
+    w.addEventListener('pointerup', () => { dragging = false; });
+    w.addEventListener('pointercancel', () => { dragging = false; });
+    w._set = setPos;
+  });
+  document.querySelectorAll('.ends span').forEach((s) => s.addEventListener('click', () => {
+    const w = s.parentElement.previousElementSibling; animate(w, parseFloat(getComputedStyle(w).getPropertyValue('--pos')), +s.dataset.to);
+  }));
+  function animate(w, from, to, ms = 1100) {
+    const t0 = performance.now();
+    const ease = (t) => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    const step = (t) => { const k = Math.min(1, (t - t0) / ms); w._set(from + (to - from) * ease(k)); if (k < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  }
+  const io = new IntersectionObserver((entries) => entries.forEach((en) => {
+    if (en.isIntersecting && !en.target._played) { en.target._played = true; setTimeout(() => animate(en.target, 100, 0), 500); }
+  }), { threshold: .6 });
+  document.querySelectorAll('.wipe').forEach((w) => io.observe(w));
+  protoBar('wipe');
+</script>
+</body>
+</html>
