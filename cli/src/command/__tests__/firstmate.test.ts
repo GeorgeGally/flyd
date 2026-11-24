@@ -462,7 +462,10 @@ describe("FirstMate domain transport", () => {
     });
     saveDomainRun(held("held-structured", structured) as DomainRun);
     saveDomainRun(held("held-prose", parseDomainResult(prose).result) as DomainRun);
-    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
+    const notes: string[] = [];
+    const exec: FirstmateExec = async (_script, args, options) => args[0] === "note"
+      ? (notes.push(String(options.input)), { stdout: JSON.stringify({ id: `note-${notes.length + 1}`, saved: true }), stderr: "" })
+      : ({ stdout: JSON.stringify({
       pending: [],
       handled: ["held-structured", "held-prose"].map((id) => ({ id: `note-${id}`, request_id: id, acknowledged: true, reply: { id: `note-${id}`, body: "older", cursor: "1" } })),
     }), stderr: "" });
@@ -476,8 +479,11 @@ describe("FirstMate domain transport", () => {
     expect(runs.get("held-structured")!.handoffRetry).toBeUndefined();
     expect(runs.get("held-prose")!.status).toBe("working");
     expect(runs.get("held-prose")!.handoffRetry).toBeUndefined();
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('{"status":');
 
     expect(await syncFirstmateDomainRuns({ transport, now: () => now, judge })).toEqual([]);
+    expect(notes).toHaveLength(1);
   });
 
   it("reads again a run once left incomplete, announcing it only if recent", async () => {

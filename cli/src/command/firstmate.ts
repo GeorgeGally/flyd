@@ -551,6 +551,8 @@ export async function syncFirstmateDomainRuns(options: {
         ...(status === "failed" ? { failure: parsed.result.brief } : {}),
         ...(cameBack(status) ? { report: dueReport(status, settledAt), updatedAt: settledAt } : {}),
       };
+      statusUnclear = outcome === "unclear";
+      unclearFrom = run.transport.replyCursor;
     } else if (run.status === "working" && run.result?.format === "raw") {
       // A reply taken before its "status: …" lines could be read: read it again.
       const parsed = parseDomainResult(run.result.raw.at(-1) ?? run.result.detailedReport);
