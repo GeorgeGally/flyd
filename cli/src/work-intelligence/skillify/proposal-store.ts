@@ -12,6 +12,8 @@ import { randomUUID } from 'node:crypto';
 import type { SkillifyProposal, SkillifyProposalStatus, SkillifyProposeInput } from './types.js';
 import { SKILLIFY_MAX_PENDING, SKILLIFY_TTL_DAYS } from './types.js';
 import { canonicalizeSkillifyTargetPath } from './wiki-path.js';
+import { skillifyWikiAbsolutePath } from './wiki-path.js';
+import { IntelligenceEventStore } from '../../intelligence/event-store.js';
 
 let proposalDirOverride: string | undefined;
 
@@ -38,7 +40,28 @@ function readProposalFile(id: string): SkillifyProposal | null {
   const path = proposalPath(id);
   if (!existsSync(path)) return null;
   try {
-    return JSON.parse(readFileSync(path, 'utf-8')) as SkillifyProposal;
+    const proposal = JSON.parse(readFileSync(path, 'utf-8')) as SkillifyProposal;
+    if (proposal.knowledgeEvidence?.length) {
+      const store = new IntelligenceEventStore();
+      let invalid = false;
+      try { invalid = proposal.knowledgeEvidence.some((sequence) => {
+        const event = store.getBySequence(sequence);
+        return !event?.payload || store.isRevoked(event.sourceId) || event.evidenceRefs.some((ref) => ref.startsWith("event:") && !store.getByEventReference(ref)?.payload);
+      }); } finally { store.close(); }
+      if (invalid) {
+        const absolute = skillifyWikiAbsolutePath(proposal.targetPath);
+        if (absolute && existsSync(absolute)) {
+          const body = readFileSync(absolute, 'utf8');
+          const begin = `<!-- flyd-knowledge:${proposal.id} -->`;
+          const end = `<!-- /flyd-knowledge:${proposal.id} -->`;
+          const start = body.indexOf(begin), finish = body.indexOf(end);
+          if (start >= 0 && finish >= start) writeFileSync(absolute, body.slice(0,start) + body.slice(finish+end.length),'utf8');
+        }
+        unlinkSync(path);
+        return null;
+      }
+    }
+    return proposal;
   } catch {
     return null;
   }
@@ -126,6 +149,7 @@ export function createProposal(
     provenance: input.provenance,
     sourceOutcome: input.sourceOutcome,
     domain: input.domain,
+    ...(input.knowledgeEvidence ? { knowledgeEvidence: input.knowledgeEvidence } : {}),
     workSessionId: input.workSessionId,
     interactionId: input.interactionId,
     status: 'proposed',

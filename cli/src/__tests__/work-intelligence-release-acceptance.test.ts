@@ -627,7 +627,7 @@ describe('work-intelligence release acceptance', () => {
     });
 
     it('skillify confirm is required before wiki skill file exists', async () => {
-      const { proposeFromOutcome } = await import('../work-intelligence/skillify/propose.js');
+      const { proposeFromNaturalLanguage } = await import('../work-intelligence/skillify/propose.js');
       const { confirmProposal } = await import('../work-intelligence/skillify/confirm.js');
       const { configureSkillifyProposalDirectory } = await import('../work-intelligence/skillify/proposal-store.js');
       const { configureOutcomeJournalDirectory } = await import('../work-intelligence/outcome-journal.js');
@@ -646,13 +646,12 @@ describe('work-intelligence release acceptance', () => {
       configureOutcomeJournalDirectory(join(root, 'overlay', 'founder-journal'));
 
       try {
-        const [proposal] = proposeFromOutcome({
+        const proposal = proposeFromNaturalLanguage({
           workSessionId: 'ws-gate',
           interactionId: 'int-gate',
-          outcomeStatus: 'succeeded',
-          intent: 'Prefer short briefs',
+          selection: 'Prefer short briefs',
           domain: 'writing',
-        });
+        })!;
         expect(proposal).toBeTruthy();
         expect(existsSync(join(root, 'wiki', 'standards', 'writing.md'))).toBe(false);
         const confirmed = confirmProposal(proposal.id, proposal.revision);

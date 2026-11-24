@@ -3,6 +3,8 @@ import { IntelligenceEventStore, type StoredEvent } from "../../intelligence/eve
 import { EpisodicMemory } from "../../intelligence/episodes/service.js";
 import type { EpisodeNode } from "../../intelligence/episodes/types.js";
 import type { EpisodeEvalMode } from "./types.js";
+import type { KnowledgeSnapshot } from "../../cognition/knowledge-verification.js";
+import { readableKnowledgeSnapshot } from "../../cognition/knowledge-verification.js";
 
 export interface EpisodeEvalContext {
   text: string;
@@ -29,7 +31,14 @@ export function selectDrillRoots(nodes: EpisodeNode[], question: string, max = 3
   return nodes.slice().sort((a, b) => nodeScore(b, words) - nodeScore(a, words) || b.endSequence - a.endSequence).slice(0, Math.min(max, nodes.length));
 }
 
-export async function buildEvalContext(mode: EpisodeEvalMode, question: string, budget = 10): Promise<EpisodeEvalContext> {
+export async function buildEvalContext(mode: EpisodeEvalMode, question: string, budget = 10, snapshot?: KnowledgeSnapshot): Promise<EpisodeEvalContext> {
+  if (snapshot) {
+    const frozen = readableKnowledgeSnapshot(snapshot);
+    return { text: [
+      ...frozen.current.map((c) => `[${c.disputed ? "disputed" : "current"}] ${c.entityId}.${c.attribute}: ${c.value}`),
+      ...frozen.conflicts.map((c) => `[unresolved] ${c.claims.join(" versus ")}`),
+    ].join("\n"), evidenceSequences: [...new Set(frozen.current.flatMap((c) => c.evidenceRefs))], episodeNodeIds: [] };
+  }
   const current = await queryMemory({ text: question, temporalFrame: "past", includeHistorical: true, limit: 12, useJev: false });
   const currentText = [
     ...current.current.map((item) => `[current] ${item.entityId} ${item.attribute}: ${String(item.value)}`),

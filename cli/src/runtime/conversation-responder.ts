@@ -54,7 +54,11 @@ import { speakingStyleSystemRule } from "./speaking-preference.js";
 import { interpretAgentInput } from "./input-interpreter.js";
 import { recordAction, recordNextState } from "../transitions/writer.js";
 import { compileContext } from "../cognition/context-compiler.js";
+import { ingestKnowledgeCorrection } from "../cognition/curator/knowledge-repair.js";
+import { recordKnowledgeConsumption } from "../cognition/knowledge-verification.js";
+import { memoryEvidenceFromCompiled } from "./resolution-receipt.js";
 import { formatCompiledContext } from "../cognition/context-format.js";
+import { effectiveLegacyBlock } from "../cognition/effective-knowledge.js";
 import type { CompiledContext } from "../cognition/types.js";
 import { CognitiveCurator } from "../cognition/curator/curator.js";
 import { runCuratorSweep } from "../cognition/curator/reconcile.js";
@@ -253,7 +257,8 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   const memoryCap = route === "recall" ? 12_000 : 6_000;
   let memorySize = 0;
   const seenMemory = new Set<string>();
-  const usableMemory = input.memory.matches.filter((item) =>
+  const effective = compiledContext ? { state: { current: compiledContext.memory.current, governedScopeHashes: compiledContext.memory.governedScopeHashes }, version: compiledContext.memory.knowledgeVersion ?? "" } : undefined;
+  const usableMemory = input.memory.matches.filter((item) => !effective || effectiveLegacyBlock(item.excerpt,effective) === item.excerpt).filter((item) =>
     item.authority !== "assistant_output" && item.outcome !== "rejected"
     && (projectTurn || !repoSignal.test(item.excerpt))
   ).filter((item) => {
@@ -292,7 +297,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   let agenda = "";
   try { agenda = agendaPromptBlock(); } catch { agenda = ""; }
   let projects = "";
-  try { projects = projectsPromptBlock(); } catch { projects = ""; }
+  try { projects = compiledContext?.projectSummary ?? projectsPromptBlock(); } catch { projects = ""; }
   try { agenda += morningPromptBlock(input.now?.() ?? new Date()); } catch { /* no morning note */ }
   try { agenda += deliveredPromptBlock(input.now?.() ?? new Date()); } catch { /* no finished work to carry */ }
   try { agenda += stateOfPlayBlock(); } catch { /* no state of play */ }
@@ -1089,6 +1094,10 @@ export async function respondToConversation(
     } finally { traceAccount(started); }
   }
   const txSession = input.sessionId ?? randomUUID();
+  if (!dependencies.readOnly && !input.article && !input.outside) {
+    try { ingestKnowledgeCorrection(input.message, txSession, undefined, input.turnNumber === undefined ? undefined : String(input.turnNumber)); }
+    catch (error) { console.warn("[knowledge] correction pending:", error instanceof Error ? error.message : error); }
+  }
   const txInvocation = randomUUID();
   let compiledContext: CompiledContext | null = null;
   const captureTransition = (write: () => void): void => {
@@ -1175,6 +1184,7 @@ export async function respondToConversation(
   const defaultRoot = input.situation?.projectRoot ?? process.cwd();
   const projectRoot = mentioned?.repo.root ?? defaultRoot;
   compiledContext = await compileContext({
+    readOnly: dependencies.readOnly,
     intent: input.message,
     ...(!mobile ? { projectRoot } : {}),
     projectHint: input.situation?.project ? `project:${input.situation.project.toLowerCase().replace(/[^a-z0-9]+/g, "-")}` : undefined,
@@ -1315,6 +1325,10 @@ export async function respondToConversation(
     ...(room ? { room: { core: roomContext.core, facts: roomContext.facts, brief: roomBrief(room, roomContext.knowledge, notes) } } : {}),
     ...(planBlock ? { plan: planBlock } : {}),
   });
+  if (compiledContext.memory.current.length || compiledContext.memory.governedScopeHashes?.length) input.memory = memoryEvidenceFromCompiled(compiledContext.memory, `${request.system}\n${request.prompt}`);
+  if (!dependencies.readOnly && compiledContext.interpretation.temporalFrame !== "past" && compiledContext.interpretation.temporalFrame !== "mixed") {
+    try { recordKnowledgeConsumption(compiledContext.memory, `${request.system}\n${request.prompt}`, mobile ? "mobile" : "chat"); } catch { /* verification never breaks a turn */ }
+  }
   const injectedConnection = dependencies.resolveConnection?.();
   const models = injectedConnection ? [injectedConnection.model] : dependencies.models?.() ?? chatModelChain();
   const model = models[0];

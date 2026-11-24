@@ -64,21 +64,29 @@ export function resolutionAnswerText(resolution: ResolutionLike): string {
 }
 
 /** The compiled memory the resolution prompt saw, in the receipt's evidence shape. */
-export function memoryEvidenceFromCompiled(memory: UnifiedMemoryResult): MemoryEvidence {
-  const matches = memory.relevant.slice(0, 12).map((item) => ({
+export function memoryEvidenceFromCompiled(memory: UnifiedMemoryResult, formattedPrompt?: string): MemoryEvidence {
+  const normalized = formattedPrompt?.replace(/\s+/g," ");
+  const current = memory.current.filter((claim) => formattedPrompt === undefined || formattedPrompt.split("\n").some((line) => line.includes(claim.entityId) && line.includes(claim.attribute) && line.includes(claim.value)));
+  const relevant = memory.relevant.filter((item) => normalized === undefined || normalized.includes(item.content.slice(0,300).replace(/\s+/g," ")));
+  const matches: MemoryEvidence["matches"] = relevant.slice(0, 12).map((item) => ({
     id: item.id,
     path: item.source,
     excerpt: item.content.slice(0, 300),
     stale: item.temporalStatus === "stale" || item.temporalStatus === "historical",
   }));
+  matches.unshift(...current.slice(0, 20).map((claim) => ({
+    id: claim.claimId, path: `event:${claim.claimId}`, excerpt: `${claim.entityId}.${claim.attribute}: ${claim.value}`,
+    kind: "canonical" as const, authority: claim.authority === "user_confirmed" ? "user_confirmed" as const : "user_observation" as const,
+    stale: false,
+  })));
   const verdict: MemoryEvidence["verdict"] = meaningfulConflicts(memory.conflicts).length
     ? "conflicting"
-    : matches.length >= 3 || memory.current.length > 0
+    : matches.length >= 3 || current.length > 0
       ? "sufficient"
       : matches.length > 0
         ? "partial"
         : "insufficient";
-  return { verdict, matches };
+  return { verdict, matches, ...(memory.knowledgeVersion ? { knowledgeVersion: memory.knowledgeVersion } : {}) };
 }
 
 function providerIdentity(path: ResolutionPath, model?: string, baseURL?: string): string {

@@ -1,5 +1,6 @@
 import type { Projector } from "../projections.js";
 import type { StoredEvent } from "../event-store.js";
+import { groundedProperty, projectFactEntity, knowledgeScopeHash } from "../../cognition/knowledge-facts.js";
 import {
   AUTHORITY_RANK,
   type ClaimAuthority,
@@ -16,7 +17,16 @@ import {
 export interface WorldModelState {
   claims: WorldClaim[];
   relations: WorldRelation[];
+  retractedRepairs?: string[];
+  erasedSequences?: number[];
+  governedScopeHashes?: string[];
 }
+
+export function factKey(claim: { entityId: string; attribute: string; scopeId?: string }): string {
+  return JSON.stringify([claim.entityId, claim.attribute, claim.scopeId ?? "legacy"]);
+}
+
+const factTime = (claim: WorldClaim): number => Date.parse(claim.effectiveAt ?? claim.observedAt ?? claim.capturedAt);
 
 export interface DerivedClaim extends WorldClaim {
   freshness: number;
@@ -33,6 +43,7 @@ export interface DerivedWorldState {
   relations: WorldRelation[];
   staleEntityIds: string[];
   unresolvedEntityIds: string[];
+  governedScopeHashes?: string[];
 }
 
 export function resolveEntityId(namespace: string, key: string): string {
@@ -54,6 +65,10 @@ function authorityForKind(kind: string): ClaimAuthority | null {
 }
 
 interface ClaimPayload {
+  scopeId?: string;
+  repairId?: string;
+  legacyRefs?: string[];
+  displaySection?: string;
   entity?: { namespace?: string; key?: string; id?: string };
   attribute?: string;
   value?: string;
@@ -66,6 +81,7 @@ interface ClaimPayload {
 
 interface RelationPayload {
   relation?: {
+    repairId?: string;
     id?: string;
     from?: string;
     fromEntity?: { namespace?: string; key?: string; id?: string };
@@ -102,6 +118,10 @@ function claimFromEvent(event: StoredEvent): WorldClaim | null {
     entityId,
     attribute: payload.attribute,
     value: String(payload.value),
+    ...(payload.scopeId ? { scopeId: payload.scopeId } : {}),
+    ...(payload.repairId ? { repairId: payload.repairId } : {}),
+    ...(payload.legacyRefs ? { legacyRefs: payload.legacyRefs } : {}),
+    ...(payload.displaySection ? { displaySection: payload.displaySection } : {}),
     authority,
     evidenceRefs: [...new Set([event.sequence, ...event.causationIds.map(Number).filter(Number.isFinite),
       ...event.evidenceRefs.filter(ref => /^event:\d+$/.test(ref)).map(ref => Number(ref.slice(6)))])],
@@ -127,6 +147,7 @@ function relationFromEvent(event: StoredEvent): WorldRelation | null {
     relationId: rel.id?.trim() || `relation:${event.sequence}`,
     fromId,
     type: rel.type,
+    ...(rel.repairId ? { repairId: rel.repairId } : {}),
     toId,
     confidence: Math.max(0, Math.min(1, Number(rel.confidence ?? 1))),
     evidenceRefs: [...new Set([event.sequence, ...event.causationIds.map(Number).filter(Number.isFinite),
@@ -217,21 +238,25 @@ function temporalStatusOf(
 }
 
 function supersedeLesserClaims(claims: WorldClaim[], incoming: WorldClaim): void {
+  if (incoming.repairId) return;
   if (incoming.authority !== "user_confirmed") return;
-  for (const existing of claims) {
+  for (let index = 0; index < claims.length; index++) {
+    const existing = claims[index];
     if (
       !existing.supersededBy &&
       existing.entityId === incoming.entityId &&
       existing.attribute === incoming.attribute &&
+      existing.scopeId === incoming.scopeId &&
+      factTime(existing) <= factTime(incoming) &&
       AUTHORITY_RANK[existing.authority] < AUTHORITY_RANK[incoming.authority]
     ) {
-      existing.supersededBy = incoming.claimId;
+      claims[index] = { ...existing, supersededBy: incoming.claimId };
     }
   }
 }
 
 export const worldModelProjector: Projector<WorldModelState> = {
-  name: "world-model-v2",
+  name: "world-model-v3",
   initialState: () => ({ claims: [], relations: [] }),
   apply(state, event) {
     const claims = state.claims.slice();
@@ -243,7 +268,13 @@ export const worldModelProjector: Projector<WorldModelState> = {
     }
     const relation = relationFromEvent(event);
     if (relation) relations.push(relation);
-    return { claims, relations };
+    const retraction = event.payload?.knowledgeRetraction as { repairId?: string } | undefined;
+    return {
+      claims, relations,
+      retractedRepairs: retraction?.repairId && !event.erased ? [...new Set([...(state.retractedRepairs ?? []), retraction.repairId])] : state.retractedRepairs,
+      erasedSequences: event.erased ? [...(state.erasedSequences ?? []), event.sequence] : state.erasedSequences,
+      governedScopeHashes: event.knowledgeScopeHash ? [...new Set([...(state.governedScopeHashes ?? []), event.knowledgeScopeHash])] : state.governedScopeHashes,
+    };
   },
 };
 
@@ -287,8 +318,13 @@ export function conflictsFor(
 }
 
 export function deriveWorldState(state: WorldModelState, now = new Date(), halfLifeDays = 14): DerivedWorldState {
+  const retracted = new Set(state.retractedRepairs ?? []);
+  const erased = new Set(state.erasedSequences ?? []);
+  const excluded = (claim: WorldClaim) => !!claim.repairId && (retracted.has(claim.repairId) || claim.evidenceRefs.some((ref) => erased.has(ref)));
+  const withdrawn = state.claims.filter(excluded);
+  state = { ...state, claims: state.claims.filter((claim) => !excluded(claim)), relations: state.relations.filter((relation) => !relation.repairId || !retracted.has(relation.repairId) && !relation.evidenceRefs.some((ref) => erased.has(ref))) };
   const current: DerivedClaim[] = [];
-  const historical: DerivedClaim[] = [];
+  const historical: DerivedClaim[] = withdrawn.filter((claim) => !claim.evidenceRefs.some((ref) => erased.has(ref))).map((claim) => ({ ...claim, freshness: 0, disputed: false, temporalStatus: "historical", derivation: ["repair_retracted"] }));
   const byKey = new Map<string, DerivedClaim[]>();
 
   for (const claim of state.claims) {
@@ -301,7 +337,7 @@ export function deriveWorldState(state: WorldModelState, now = new Date(), halfL
       disputed: false,
     };
     if (temporal.status === "current") {
-      const key = `${claim.entityId}::${claim.attribute}`;
+      const key = factKey(claim);
       const group = byKey.get(key) ?? [];
       group.push(derived);
       byKey.set(key, group);
@@ -315,16 +351,22 @@ export function deriveWorldState(state: WorldModelState, now = new Date(), halfL
     const sorted = group.slice().sort((a,b) => {
       const rank = AUTHORITY_RANK[b.authority]-AUTHORITY_RANK[a.authority];
       if (rank !== 0) return rank;
-      return Date.parse(b.capturedAt)-Date.parse(a.capturedAt);
+      return factTime(b)-factTime(a);
     });
-    const winner = { ...sorted[0], disputed: sorted.length > 1 };
+    const seenValues = new Set<string>();
+    const distinct = sorted.filter((c) => { const value=c.value.trim(); if (seenValues.has(value)) return false; seenValues.add(value); return true; });
+    const timeSeries = ["branch","dirty","latest_commit","head","changed_files","ahead","behind"].includes(sorted[0].attribute);
+    const winner = { ...sorted[0], disputed: distinct.length > 1 && !timeSeries };
+    winner.evidenceRefs = [...new Set(sorted.filter((c) => c.value.trim() === winner.value.trim()).flatMap((c) => c.evidenceRefs))];
     current.push(winner);
-    if (sorted.length > 1) {
-      conflicts.push({
+    if (distinct.length > 1) {
+      if (!timeSeries) conflicts.push({
         entityId: winner.entityId,
         attribute: winner.attribute,
+        scopeId: winner.scopeId,
+        status: "unresolved",
         active: winner,
-        conflicting: sorted.slice(1).map((claim) => ({ claim, authority: claim.authority })),
+        conflicting: distinct.filter((claim) => claim.value.trim() !== winner.value.trim()).map((claim) => ({ claim, authority: claim.authority })),
       });
       historical.push(...sorted.slice(1).map((c) => ({ ...c, disputed: true, temporalStatus: "historical" as const, derivation: [...c.derivation, "conflicting_non_winner"] })));
     }
@@ -384,14 +426,29 @@ export function deriveWorldState(state: WorldModelState, now = new Date(), halfL
     }
   }
 
+  const governed = new Map(current.filter((c) => c.repairId).map((c) => [factKey(c), c]));
+  const guardedScopes = new Set(state.governedScopeHashes ?? []);
+  const effectiveCurrent = current.filter((claim) => {
+      if (claim.repairId || claim.scopeId) return true;
+      const legacy = groundedProperty(claim.value);
+      if (!legacy) return true;
+      const entityId = projectFactEntity(legacy.subject);
+      const replacement = governed.get(factKey({ entityId, attribute: legacy.property, scopeId: entityId }));
+      if (!replacement && !guardedScopes.has(knowledgeScopeHash(entityId, legacy.property)) || claim.parentEntityId !== entityId && claim.entityId !== entityId) return true;
+      if (!replacement) return false; // Erasure cannot resurrect an old compatibility claim.
+      historical.push({ ...claim, temporalStatus: "superseded", derivation: [...claim.derivation, `governed_by:${replacement.claimId}`] });
+      return false;
+    });
+  const effectiveIds = new Set(effectiveCurrent.map((claim) => claim.claimId));
   return {
     now: now.toISOString(),
-    current: current.sort((a,b) => a.entityId.localeCompare(b.entityId) || a.attribute.localeCompare(b.attribute)),
+    current: effectiveCurrent.sort((a,b) => a.entityId.localeCompare(b.entityId) || a.attribute.localeCompare(b.attribute)),
     historical: historical.sort((a,b) => Date.parse(b.capturedAt)-Date.parse(a.capturedAt)),
-    conflicts,
+    conflicts: conflicts.filter((conflict) => effectiveIds.has(conflict.active.claimId)),
     relations: state.relations.filter((r) => relationActive(r, now)),
     staleEntityIds: [...stale],
     unresolvedEntityIds: [...unresolved],
+    governedScopeHashes: state.governedScopeHashes,
   };
 }
 

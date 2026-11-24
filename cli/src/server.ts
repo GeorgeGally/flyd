@@ -1379,6 +1379,7 @@ export async function startServer(port = 4815, host = "127.0.0.1", options: { so
       case "/learning/source":
       case "/learning/conversations":
       case "/learning/process":
+      case "/learning/knowledge":
       case "/dictation/correction":
       case "/dictation/review": {
         if (!checkAuth(req)) { sendUnauthorized(res); break; }

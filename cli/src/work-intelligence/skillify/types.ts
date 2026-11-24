@@ -12,6 +12,7 @@ export type SkillifyProposalStatus =
   | 'written';
 
 export interface SkillifyProposal {
+  knowledgeEvidence?: number[];
   id: string;
   kind: SkillifyProposalKind;
   targetPath: string;
@@ -31,6 +32,7 @@ export interface SkillifyProposal {
 }
 
 export interface SkillifyProposeInput {
+  knowledgeEvidence?: number[];
   kind: SkillifyProposalKind;
   targetPath: string;
   body: string;

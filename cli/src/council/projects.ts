@@ -2,6 +2,8 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { localDay } from "./memory-store.js";
+import { effectiveLegacyText, isGovernedLegacyFact, readEffectiveKnowledge } from "../cognition/effective-knowledge.js";
+import type { EffectiveKnowledge } from "../cognition/effective-knowledge.js";
 
 // George's projects: the things he is making, running, or owes, whether or
 // not they have code. A project is what he talks about ("the CleanX launch",
@@ -48,17 +50,32 @@ export function projectId(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "project";
 }
 
-export function readProjects(path = projectsPath()): Project[] {
+export function readProjects(path = projectsPath(), effective = true, snapshot?: EffectiveKnowledge): Project[] {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as { projects?: Project[] };
-    return Array.isArray(parsed.projects) ? parsed.projects : [];
+    if (!Array.isArray(parsed.projects)) return [];
+    if (!effective) return parsed.projects;
+    const view = snapshot ?? readEffectiveKnowledge();
+    return parsed.projects.map((project) => {
+      const deadline = view.state.current.find((c) => c.repairId && c.entityId === `project:${project.id}` && c.attribute === "deadline");
+      const governedDeadline = isGovernedLegacyFact(`${project.name} deadline is ${project.due ?? "unknown"}`, view);
+      const { due, facts: originalFacts, ...rest } = project;
+      const facts = (originalFacts ?? []).map((fact) => effectiveLegacyText(fact, view)).filter(Boolean);
+      if (deadline?.disputed) facts.push(`${project.name} deadline is ${deadline.value} (disputed; sources disagree)`);
+      return { ...rest,
+        ...(!deadline?.disputed && (deadline || !governedDeadline && due) ? { due: deadline?.value ?? due } : {}),
+        what: effectiveLegacyText(project.what, view), now: effectiveLegacyText(project.now, view),
+        ...(project.next ? { next: effectiveLegacyText(project.next, view) } : {}),
+        ...(facts.length ? { facts } : {}),
+      };
+    });
   } catch {
     return [];
   }
 }
 
 /** The registered project his message names, by its display name; null when none or several do. */
-export function projectNamed(text: string, projects = readProjects()): string | null {
+export function projectNamed(text: string, projects = readProjects(projectsPath(), false)): string | null {
   const unaddressed = text.replace(/^\s*(?:(?:hey|hi|ok)\s+flyd\b[\s,:!.]*|flyd\s*[,:!]\s*)/i, "");
   let named = projects.filter((project) => [project.name, project.id, ...project.name.split(/[()]/)]
     .map((alias) => alias.trim())
@@ -91,9 +108,10 @@ export function applyProjectOps(ops: ProjectOp[], options: { knownRepos: string[
   const path = options.path ?? projectsPath();
   const today = localDay(options.now ?? new Date());
   const known = new Set(options.knownRepos);
-  const projects = readProjects(path);
+  const projects = readProjects(path, false);
+  const knowledge = readEffectiveKnowledge();
   const receipt: ProjectApplyReceipt = { upserted: 0, archived: 0, rejected: [] };
-  for (const op of ops) {
+  for (let op of ops) {
     if (op.op === "archive") {
       const project = projects.find((item) => item.id === op.id);
       if (!project) { receipt.rejected.push(`archive: unknown project ${op.id}`); continue; }
@@ -105,6 +123,17 @@ export function applyProjectOps(ops: ProjectOp[], options: { knownRepos: string[
     if (!name) { receipt.rejected.push("upsert: a project needs a name"); continue; }
     const id = op.id && projects.some((item) => item.id === op.id) ? op.id : projectId(name);
     const existing = projects.find((item) => item.id === id);
+    if (op.due !== undefined && isGovernedLegacyFact(`${name} deadline is ${op.due ?? "unknown"}`, knowledge)) {
+      receipt.rejected.push(`${name}: deadline is governed by canonical knowledge`);
+      op = { ...op, due: undefined };
+    }
+    if (op.facts) {
+      const facts = op.facts.filter((fact) => !isGovernedLegacyFact(fact, knowledge));
+      if (facts.length !== op.facts.length) {
+        receipt.rejected.push(`${name}: governed facts require accepted source evidence`);
+        op = { ...op, facts: [...facts, ...(existing?.facts ?? []).filter((fact) => isGovernedLegacyFact(fact, knowledge))] };
+      }
+    }
     const repos = (op.repos ?? existing?.repos ?? []).filter((root) => {
       if (known.has(root)) return true;
       receipt.rejected.push(`${name}: unknown repo ${root}`);
@@ -156,8 +185,8 @@ export function liveProjects(path = projectsPath()): Project[] {
 }
 
 /** For the chat prompt: what Flyd knows about his projects, so naming one doesn't mean reading its code. */
-export function projectsPromptBlock(path = projectsPath()): string {
-  const live = liveProjects(path);
+export function projectsPromptBlock(path = projectsPath(), snapshot?: EffectiveKnowledge): string {
+  const live = readProjects(path, true, snapshot).filter((project) => project.status !== "done");
   if (!live.length) return "";
   return [
     "## His projects (what you know; answer project talk from this)",

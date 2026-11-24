@@ -29,6 +29,7 @@ export interface ExperienceTrace {
   intent: string;
   route: string;
   context: {
+    knowledgeVersion?: string;
     memoryVerdict?: string;
     memories: Array<{
       path: string;
@@ -135,6 +136,7 @@ export function experienceTraceFromReceipt(receipt: TurnReceipt): ExperienceTrac
     intent: receipt.message,
     route,
     context: {
+      ...(receipt.memory.knowledgeVersion ? { knowledgeVersion: receipt.memory.knowledgeVersion } : {}),
       ...(receipt.memory.verdict ? { memoryVerdict: receipt.memory.verdict } : {}),
       memories: memoryMatches.slice(0, 40).map((match) => ({
         path: match.path,

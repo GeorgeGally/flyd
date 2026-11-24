@@ -65,7 +65,8 @@ describe("repairLatestTurn", () => {
       "utf8",
     );
     expect(correction).toContain("type: correction");
-    expect(correction).toContain("promoted: true");
+    expect(correction).toContain("promoted: false");
+    expect(correction).toContain("epistemic_status: user_observation");
     expect(correction).toContain("how can flyd improve");
     expect(correction).toContain("This was generic");
     expect(correction).not.toContain("Which area resonates");

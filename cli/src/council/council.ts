@@ -4,6 +4,8 @@ import type { NotificationOutcome } from "../runtime/agenda.js";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { readUserProfile } from "../lib/user-profile.js";
+import { IntelligenceEventStore } from "../intelligence/event-store.js";
+import { readyKnowledgeIssues } from "../cognition/curator/knowledge-maintenance.js";
 import { runAdvisors, updateAdvisoryStatus, type Advisory } from "./advisors.js";
 import { readJournalSince, recentJournal } from "./journal.js";
 import { collectNewCaptures, readLibrarianState, runLibrarian, tasteCurationDue, type LibrarianRunResult } from "./librarian.js";
@@ -58,7 +60,9 @@ function councilPassDueForWork(now: Date): boolean {
 }
 
 export function councilPassDue(now = new Date()): boolean {
-  return tasteCurationDue() || councilPassDueForWork(now);
+  const store = new IntelligenceEventStore();
+  try { return readyKnowledgeIssues(store).length > 0 || tasteCurationDue() || councilPassDueForWork(now); }
+  finally { store.close(); }
 }
 
 export interface CouncilPassResult {

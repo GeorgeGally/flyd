@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { configureSkillifyProposalDirectory } from '../proposal-store.js';
 import { configureOutcomeJournalDirectory } from '../../outcome-journal.js';
-import { proposeFromOutcome } from '../propose.js';
+import { proposeFromNaturalLanguage } from '../propose.js';
 import { confirmProposal } from '../confirm.js';
 import { loadDomainStandard } from '../../ground-pack-wiki.js';
 
@@ -37,16 +37,14 @@ describe('skillify domain standard roundtrip', () => {
   });
 
   it('loads confirmed wiki standard in next Ground pack', () => {
-    const [proposal] = proposeFromOutcome({
+    const proposal = proposeFromNaturalLanguage({
       workSessionId: 'ws-roundtrip',
       interactionId: 'int-roundtrip',
-      outcomeStatus: 'succeeded',
-      intent: 'Lead with user outcomes, not feature lists',
+      selection: 'Lead with user outcomes, not feature lists',
       domain: 'design',
-      artifactKind: 'design',
     });
 
-    const result = confirmProposal(proposal.id, proposal.revision);
+    const result = confirmProposal(proposal!.id, proposal!.revision);
     expect(result.ok).toBe(true);
 
     const { standard, provenance } = loadDomainStandard({ artifactKind: 'design' });

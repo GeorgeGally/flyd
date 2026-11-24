@@ -5,6 +5,8 @@ import { FLYD_DIR } from "../lib/config.js";
 import { serialize } from "../lib/frontmatter.js";
 import { loadLatestTurnReceipt, type TurnReceipt } from "./turn-receipt.js";
 import { recordExperienceFeedback } from "./experience-trace.js";
+import { IntelligenceEventStore } from "../intelligence/event-store.js";
+import { enqueueKnowledgeIssue } from "../cognition/curator/knowledge-maintenance.js";
 
 export type TurnFailureClass =
   | "model_configuration"
@@ -103,8 +105,8 @@ export async function repairLatestTurn(
   const correction = serialize({
     type: "correction",
     source: options.source ?? "explicit_command",
-    promoted: true,
-    epistemic_status: "user_confirmed",
+    promoted: false,
+    epistemic_status: "user_observation",
     timestamp: recordedAt,
     turn_receipt_id: receipt.id,
     session_id: receipt.sessionId,
@@ -119,7 +121,7 @@ export async function repairLatestTurn(
     "",
     `George's explicit feedback: ${normalizedFeedback}`,
     "",
-    "Do not reuse the rejected answer as knowledge. Treat this correction as authoritative when handling the same intent.",
+    "Do not reuse the rejected answer as knowledge. This is explicit negative feedback, not proof of a replacement fact or a general rule.",
   ].join("\n"));
 
   const regression = {
@@ -150,7 +152,7 @@ export async function repairLatestTurn(
   // Explicit negative feedback is a learning signal, not proof of the right
   // repair. Link it to the originating trace without changing live behavior.
   try {
-    recordExperienceFeedback({
+    const feedbackEvent = recordExperienceFeedback({
       version: 1,
       receiptId: receipt.id,
       repairId: id,
@@ -161,6 +163,11 @@ export async function repairLatestTurn(
       failureClasses,
       repairTargets: repair.repairTargets,
     }, { flydDir });
+    if (feedbackEvent && (failureClasses.includes("memory_authority") || /\b(?:memory|remember|fact|date|source|already built|already exists)\b/i.test(normalizedFeedback))) {
+      const store = new IntelligenceEventStore({ path: join(flydDir, "intelligence.sqlite") });
+      try { enqueueKnowledgeIssue(store, { originSequence: feedbackEvent.sequence, question: `Investigate the knowledge failure in this request: ${receipt.message.slice(0,800)}. George's correction: ${normalizedFeedback.slice(0,800)}`, source: { kind: "research" }, priority: 10 }); }
+      finally { store.close(); }
+    }
   } catch { /* correction artifacts above remain authoritative */ }
   return repair;
 }

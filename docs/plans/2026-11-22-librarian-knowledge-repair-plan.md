@@ -2,7 +2,7 @@
 
 **Revision:** 2 — evaluated and revised on 23 November 2026; originally drafted 22 November
 
-**Status:** Implementation plan. This revision includes an executed formatter reproduction; application changes have not been implemented.
+**Status:** Implemented for the initial registered scalar scopes on 24 November 2026. Runtime scope, migration coverage and deployment limits are recorded in [the implementation reference](../product/flyd-knowledge-repair.md). Broader memory/taste canonicalization and installed-Mac acceptance remain separate scope and deployment work; this is not a claim of whole-memory migration.
 
 **Repository baseline:** `GeorgeGally/flyd`, `main` at `33999375973cc8aec9d78a21f372dfe85507ae6f`
 

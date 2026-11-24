@@ -5,8 +5,10 @@ import type { SkillifyProposal, SkillifyProposalKind, SkillifyProposeInput } fro
 import { createProposal } from './proposal-store.js';
 import { recordJournalEntry } from '../outcome-journal.js';
 import { canonicalizeSkillifyTargetPath } from './wiki-path.js';
+import { findProcedureOutcomes, verifiedProcedureEvidence } from '../../cognition/verified-procedure.js';
 
 export interface SkillifyOutcomeContext {
+  verifiedEvidenceSequences?: number[];
   workSessionId: string;
   interactionId: string;
   outcomeStatus: string;
@@ -122,6 +124,8 @@ export function proposeFromOutcome(ctx: SkillifyOutcomeContext): SkillifyProposa
     const targetPath = `standards/${slugify(domain)}.md`;
     const content = ctx.correction?.trim() || ctx.intent?.trim();
     if (!content) return proposals;
+    const evidence = ctx.verifiedEvidenceSequences ?? findProcedureOutcomes(domain,content);
+    if (!verifiedProcedureEvidence(evidence, domain, content)) return proposals;
 
     const body = `---
 type: domain_standard
@@ -135,7 +139,8 @@ ${content}`;
       targetPath,
       body,
       provenance: `outcome:${ctx.interactionId}`,
-      sourceOutcome: ctx.outcomeStatus,
+      sourceOutcome: 'verified_outcomes',
+      knowledgeEvidence: evidence,
       domain,
       dedupeKey: dedupeKey('domain_standard', targetPath, body),
       workSessionId: ctx.workSessionId,

@@ -28,7 +28,7 @@ export interface MemoryMatchSummary {
   path: string;
   excerpt: string;
   stale: boolean;
-  kind?: "archive" | "conversation" | "horoscope";
+  kind?: "archive" | "conversation" | "horoscope" | "canonical";
   authority?:
     | "user_confirmed"
     | "verified_outcome"
@@ -42,6 +42,7 @@ export interface MemoryMatchSummary {
 }
 
 export interface MemoryEvidence {
+  knowledgeVersion?: string;
   verdict: "sufficient" | "partial" | "insufficient" | "conflicting";
   matches: MemoryMatchSummary[];
 }

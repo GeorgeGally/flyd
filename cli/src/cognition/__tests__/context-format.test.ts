@@ -97,13 +97,21 @@ describe("one current value", () => {
     },
   }) as unknown as CompiledContext;
 
-  it("keeps a replaced value out of a present-tense answer", () => {
+  it("preserves an unresolved competing value in a present-tense answer", () => {
     const text = formatCompiledContext(conflicted("present"));
-    expect(text).not.toContain("30s");
+    expect(text).toContain("30s");
+    expect(text).toContain("Disputed api.timeout");
   });
 
-  it("shows what a value replaced only when he asks about the past, current first", () => {
-    expect(formatCompiledContext(conflicted("past"))).toContain("api.timeout is now 5s; earlier: 30s");
+  it("does not infer historical replacement from a conflict array", () => {
+    expect(formatCompiledContext(conflicted("past"))).toContain("5s versus 30s");
+    expect(formatCompiledContext(conflicted("past"))).not.toContain("earlier:");
+  });
+
+  it("keeps explicitly resolved alternatives out of current uncertainty", () => {
+    const resolved = conflicted("present");
+    resolved.memory.conflicts[0].status = "resolved";
+    expect(formatCompiledContext(resolved)).not.toContain("30s");
   });
 
   it("says how fresh a recalled memory is instead of calling it background", () => {

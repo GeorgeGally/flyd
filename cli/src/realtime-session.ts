@@ -9,6 +9,8 @@ import { validateResolution, type Resolution, type ResolutionError } from "./res
 import { loadFlydWorkerConfig } from "./runtime/flyd-worker-config.js";
 import { compileContext } from "./cognition/context-compiler.js";
 import { formatCompiledContext } from "./cognition/context-format.js";
+import { liveKnowledgeRefresh } from "./cognition/live-knowledge.js";
+import { ingestKnowledgeCorrection } from "./cognition/curator/knowledge-repair.js";
 import { decisionPolicyBlock } from "./lib/decision-policy.js";
 import { loadVocabulary, transcriptionPrompt } from "./dictation/vocabulary.js";
 import { correctVoiceNames, learnNameCorrection } from "./dictation/names.js";
@@ -213,9 +215,11 @@ async function connectRealtime(
           adapterWs.send(JSON.stringify({ type: "transcript_delta", text: ev.delta }));
         }
         if (ev.type === "conversation.item.input_audio_transcription.completed" && typeof ev.transcript === "string") {
+          try { ingestKnowledgeCorrection(ev.transcript, sessionId ?? "live", undefined, String(ev.item_id ?? ev.event_id ?? ev.transcript)); } catch { /* retain normal voice flow */ }
           previousUtterance = learnLiveUtterance(ev.transcript, previousUtterance);
         }
         if (ev.type === "response.done") {
+          void refreshKnowledge().catch(() => undefined);
           handleToolCalls(adapterWs, ws, ev as Record<string, unknown>, observationResolvers, sessionId);
         }
         if (ev.type === "error") {
@@ -227,6 +231,9 @@ async function connectRealtime(
     ws.on("error", (err) => {
       adapterWs.send(JSON.stringify({ type: "error", message: "Realtime service error" }));
       reject(err);
+    });
+    const refreshKnowledge = liveKnowledgeRefresh((context) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "session.update", session: { type: "realtime", instructions: buildRealtimeInstructions(context) } }));
     });
   });
 }

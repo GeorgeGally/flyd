@@ -50,6 +50,7 @@ export type WorldRelationType =
   | "has_problem";
 
 export interface WorldRelation {
+  repairId?: string;
   relationId: string;
   fromId: string;
   type: WorldRelationType;
@@ -63,6 +64,10 @@ export interface WorldRelation {
 }
 
 export interface WorldClaim {
+  scopeId?: string;
+  repairId?: string;
+  legacyRefs?: string[];
+  displaySection?: string;
   /** Stable id: sequence-scoped, never reused. */
   claimId: string;
   /** Resolved entity key (see resolveEntityId). */
@@ -106,6 +111,8 @@ export interface WorldEntity {
 }
 
 export interface ConflictView {
+  scopeId?: string;
+  status?: "unresolved" | "resolved";
   entityId: string;
   attribute: string;
   active: WorldClaim;

@@ -24,6 +24,7 @@ import { constructCurrentWork, resolveRepositoryFromPath, type GroundingContext 
 import { runWorkIntelligence } from "./work-intelligence/work-interaction-service.js";
 import { defaultModel, getKey } from "./lib/config.js";
 import { compileContext } from "./cognition/context-compiler.js";
+import { ingestKnowledgeCorrection } from "./cognition/curator/knowledge-repair.js";
 import { clampText, formatCompiledContext } from "./cognition/context-format.js";
 import { readSoul } from "./lib/soul.js";
 import { memoryEvidenceFromCompiled, recordResolutionReceipt, resolutionAnswerText, type ResolutionPath, type ResolutionReceiptInput, type ResolutionReceiptOptions, type ResolutionSurface } from "./runtime/resolution-receipt.js";
@@ -867,6 +868,9 @@ export async function resolve(
   conversationTurns: ConversationTurn[] = [],
   receiptOptions: ResolveReceiptOptions = {}
 ): Promise<Resolution> {
+  if (manifest.intent_author !== "model") {
+    try { ingestKnowledgeCorrection(manifest.intent, manifest.conversation_id ?? manifest.invocation_id, undefined, manifest.invocation_id); } catch { /* source retained; no false save acknowledgement */ }
+  }
   const { surface: requestedSurface, sessionId: requestedSession, routeTurn, skills, ...persistOptions } = receiptOptions;
   const receipt = {
     surface: requestedSurface ?? (manifest.intent_author === "model" ? "live" as const : "overlay" as const),
@@ -1119,7 +1123,7 @@ async function resolveManifest(
   if (surfaceTurn) trace.turn = surfaceTurn;
   const memoryPack = compiledMemoryToPack(compiledContext.memory);
   trace.path = "model";
-  try { trace.memory = memoryEvidenceFromCompiled(compiledContext.memory); } catch { /* receipt evidence is best-effort */ }
+  try { trace.memory = memoryEvidenceFromCompiled(compiledContext.memory, formatCompiledContext(compiledContext)); } catch { /* receipt evidence is best-effort */ }
 
   // Deterministic consequence detection is safety-authoritative. A semantic
   // classifier may escalate a benign heuristic, but may never downgrade a

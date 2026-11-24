@@ -105,11 +105,11 @@ describe("conversation content learning", () => {
     try {
       for (const user of ["Storage now uses SQLite.", "Storage now uses PostgreSQL.", "Storage now uses SQLite."]) {
         curator.recordConversationTurn({ sessionId: "s", user, assistant: "", turnNumber: store.headSequence(), projectIds: ["project:flyd"] });
-        await runContentLearning({ store, extract: async () => [{ kind: "fact", subject: "Storage", quote: user, replaces: true }] });
+        await runContentLearning({ store, extract: async () => [{ kind: "fact", property: "backend", subject: "Storage", quote: user, replaces: true }] });
       }
       const state = deriveWorldState(new ProjectionEngine(store, worldModelProjector).rebuild(0).state);
-      expect(state.current.find(c => c.attribute === "fact")?.value).toBe("Storage now uses SQLite.");
-      expect(state.historical.filter(c => c.attribute === "fact" && c.temporalStatus === "superseded")).toHaveLength(2);
+      expect(state.current.find(c => c.attribute === "fact:backend")?.value).toBe("Storage now uses SQLite.");
+      expect(state.historical.filter(c => c.attribute === "fact:backend" && c.temporalStatus === "superseded")).toHaveLength(2);
     } finally { store.close(); }
   });
   it("searches attributed original messages, respecting project scope and erasure", () => {

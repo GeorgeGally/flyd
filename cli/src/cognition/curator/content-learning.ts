@@ -8,12 +8,14 @@ import { CognitiveCurator } from "./curator.js";
 import { conversationOf } from "./conversation.js";
 import { learningRegistry, IMPORT_SOURCE } from "../../dictation/corrections.js";
 import { redactSensitiveText } from "../../runtime/context-redactor.js";
+import { groundedProperty } from "./knowledge-repair.js";
 
 const CHECKPOINT = "conversation-content-v1";
 const MAX_EXTRACTION_ATTEMPTS = 3;
 const KINDS = ["goal", "decision", "constraint", "problem", "blocker", "dependency", "rejected", "outcome", "fact"] as const;
 export type ContentKind = typeof KINDS[number];
 export interface ContentLesson {
+  property?: string;
   kind: ContentKind;
   subject: string;
   quote: string;
@@ -41,6 +43,7 @@ export function parseLessons(output: string, user: string): ContentLesson[] {
     if (r.kind === "decision" && !/\b(?:decided|agreed|choose|chosen|use|keep|leave|stop|switch|instead|must|want)\b/i.test(r.quote)) return [];
     const dependency = typeof r.dependency === "string" && r.dependency.length <= 100 && r.quote.toLowerCase().includes(r.dependency.toLowerCase()) ? r.dependency : undefined;
     return [{ kind: r.kind as ContentKind, subject: r.subject.trim(), quote: r.quote.trim(),
+      ...(typeof r.property === "string" && /^[a-z][a-z0-9_]{0,60}$/.test(r.property) ? { property: r.property } : {}),
       replaces: r.replaces === true && /\b(?:instead|actually|correction|no longer|rather than|changed|now|replaced)\b/i.test(r.quote),
       ...(dependency ? { dependency } : {}) }];
   });
@@ -72,7 +75,7 @@ export function deterministicLessons(user: string): ContentLesson[] {
 
 const SYSTEM = [
   "Extract grounded work-state lessons from the user's message. The assistant is context only, never an authority.",
-  "Return a JSON array with kind, subject, quote, optional replaces and dependency.",
+  "Return a JSON array with kind, subject, quote, optional property, replaces and dependency. property is a stable single-valued semantic field, only when grounded; omit it for an ambiguous fact. Distinct properties must not share one fact slot.",
   "Kinds: goal, decision, constraint, problem, blocker, dependency, rejected, outcome, fact.",
   "subject and dependency must occur verbatim in quote; quote must be an exact span of the user message.",
   "Ignore questions, quoted/example/code text, hypotheticals, and unaccepted proposals.",
@@ -106,6 +109,9 @@ function id(scope: string, subject: string): string {
 export function applyLessons(store: IntelligenceEventStore, event: StoredEvent, lessons: ContentLesson[]): number {
   const conversation = conversationOf(event);
   if (!conversation) return 0;
+  // The explicit intake owns these governed scalar facts. Do not create a
+  // competing broad `fact` claim from the later successful-turn capture.
+  if (groundedProperty(conversation.user ?? "")) return 0;
   const projects = [...new Set(conversation.projectIds ?? [])];
   const scope = projects.length === 1 ? projects[0] : "conversation:" + conversation.sessionId;
   const occurredAt = typeof conversation.occurredAt === "string" ? Date.parse(conversation.occurredAt) : NaN;
@@ -116,7 +122,7 @@ export function applyLessons(store: IntelligenceEventStore, event: StoredEvent, 
   let applied = 0;
   for (const lesson of lessons) {
     const entityId = id(scope, lesson.subject);
-    const attribute = lesson.kind === "outcome" ? "reported_outcome_unverified" : lesson.kind;
+    const attribute = lesson.kind === "outcome" ? "reported_outcome_unverified" : lesson.kind === "fact" ? `fact:${lesson.property ?? createHash("sha256").update(lesson.quote).digest("hex").slice(0,16)}` : lesson.kind;
     const refs = ["event:" + event.sequence];
     if (current.some(c => c.entityId === entityId && c.attribute === attribute && c.value === lesson.quote)) continue;
     const sequence = curator.addClaim({ entityId, attribute, value: lesson.quote, authority: "inferred",

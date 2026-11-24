@@ -4,15 +4,18 @@ import { materializeGitDigest } from "./git-distiller.js";
 import { queryMemory } from "./memory.js";
 import { readPresentState } from "./present-store.js";
 import { materializePresentFromWork } from "./present-materializer.js";
-import { readProjection, readProjectProjection } from "./projections/store.js";
+import { renderProfile, renderNow, renderProject } from "./projections/store.js";
 import type { CompiledContext } from "./types.js";
 import type { JevOptions } from "./system-one/types.js";
 import { fitProfile, readUserProfile } from "../lib/user-profile.js";
 import { memoryPromptText } from "../council/memory-store.js";
 import { resolveTasteProject, tastePromptText } from "../council/taste.js";
 import { clampText } from "./context-format.js";
+import { effectiveLegacyBlock, readEffectiveKnowledge } from "./effective-knowledge.js";
+import { projectsPromptBlock } from "../council/projects.js";
 
 export interface CompileContextInput {
+  readOnly?: boolean;
   intent: string;
   conversation?: ConversationLikeTurn[];
   projectHint?: string;
@@ -56,22 +59,23 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
     if (!interpretation.projectIds.includes(id)) interpretation.projectIds.push(id);
   }
 
-  if (input.projectRoot) {
+  if (input.projectRoot && !input.readOnly) {
     const tGit=Date.now();
     try { materializeGitDigest(input.projectRoot); sources.push("git"); }
     catch { omissions.push("git_distillation_failed"); }
     timings.git=Date.now()-tGit;
   }
 
-  try { materializePresentFromWork(); sources.push("work-hypothesis"); }
+  try { if (!input.readOnly) { materializePresentFromWork(); sources.push("work-hypothesis"); } }
   catch { omissions.push("present_materialization_failed"); }
 
   const tProjection = Date.now();
   // PROFILE carries canonical person/preference claims; until there are any
   // it only says so, and that sentence is not worth a place in the prompt.
-  const profileProjection = readProjection("profile");
+  const readView = readEffectiveKnowledge();
+  const profileProjection = renderProfile(readView.state);
   const profile = /^- No canonical profile claims yet\.$/m.test(profileProjection) ? "" : profileProjection;
-  const nowProjection = readProjection("now");
+  const nowProjection = renderNow(readView.state);
   sources.push(...(profile ? ["PROFILE"] : []), "NOW");
   if (!profile) omissions.push("profile_projection_empty");
   timings.projections=Date.now()-tProjection;
@@ -89,7 +93,7 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
     projectRoot: input.projectRoot,
     useJev: true,
     jev: input.jev,
-  });
+  }, readView);
   timings.memory=Date.now()-tMemory;
   sources.push("world-model","memory");
 
@@ -97,15 +101,19 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   // wiki and have not been regenerated since; USER.md, MEMORY.md and the
   // project projections carry who he is and what he is working on now.
   const projects = interpretation.projectIds
-    .map((id) => ({ id, projection: readProjectProjection(id) }))
+    .map((id) => ({ id, projection: renderProject(id, readView.state) }))
     .filter((item) => Boolean(item.projection));
   let ownProfile: string | null = null;
   try { ownProfile = readUserProfile(undefined, Infinity); } catch { omissions.push("user_profile_unreadable"); }
+  if (ownProfile) ownProfile = effectiveLegacyBlock(ownProfile, readView);
   if (ownProfile) sources.push("USER.md");
   let curated: string | null = null;
   let boundedCurated: string | null = null;
-  try { curated = memoryPromptText(undefined, new Date(), Infinity); boundedCurated = memoryPromptText(); } catch { omissions.push("curated_memory_unreadable"); }
+  try { curated = memoryPromptText(undefined, new Date(), Infinity, readView); boundedCurated = memoryPromptText(undefined, new Date(), undefined, readView); } catch { omissions.push("curated_memory_unreadable"); }
   if (curated) sources.push("MEMORY.md");
+  const effective = readView;
+  if (curated) curated = effectiveLegacyBlock(curated, effective);
+  if (boundedCurated) boundedCurated = effectiveLegacyBlock(boundedCurated, effective);
   // His taste, learned from his corrections: personal rules plus the rules of
   // the projects in play, so Flyd never makes him correct the same thing twice.
   let taste: string | null = null;
@@ -140,6 +148,7 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
     : undefined;
   return {
     generatedAt: new Date().toISOString(),
+    projectSummary: projectsPromptBlock(undefined, readView),
     interpretation,
     user: { profile: profileCombined, personal: { profile: ownProfile ?? "", memory: curated ?? "", projection: profile }, ...(taste ? { taste } : {}), autonomy: [], communication: [] },
     present,

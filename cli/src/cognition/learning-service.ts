@@ -4,6 +4,8 @@ import { CognitiveCurator } from "./curator/curator.js";
 import { runContentLearning } from "./curator/content-learning.js";
 import { rebuildKnowledgeProjections } from "./projections/store.js";
 import { redactSensitiveText } from "../runtime/context-redactor.js";
+import { knowledgeMigrationStatus, migrateKnowledgeSources } from "./curator/knowledge-migration.js";
+import { knowledgeIssues } from "./curator/knowledge-maintenance.js";
 import { CORRECTION_SOURCE, IMPORT_SOURCE, correctionCandidates, learningRegistry, recordCorrection } from "../dictation/corrections.js";
 
 export async function learningRequest(path: string, method: string, body: unknown = {}): Promise<{ status: number; body: unknown }> {
@@ -12,10 +14,15 @@ export async function learningRequest(path: string, method: string, body: unknow
   const store = new IntelligenceEventStore();
   try {
     if (path === "/learning" && method === "GET") return { status: 200, body: {
+      knowledge: { ...knowledgeMigrationStatus(store), issues: knowledgeIssues(store).map((i)=>({id:i.id,state:i.state,attempts:i.attempts,dueAt:i.dueAt,reason:i.reason})) },
       sources: registry.list().filter(s => [CORRECTION_SOURCE, IMPORT_SOURCE].includes(s.contract.sourceId)),
       corrections: correctionCandidates(store).slice(-100),
     } };
     if (method !== "POST") return { status: 405, body: { error: "Method not allowed" } };
+    if (path === "/learning/knowledge") {
+      if (!Array.isArray(input.sequences) || input.sequences.length > 50 || input.sequences.some((s)=>!Number.isSafeInteger(s)||Number(s)<1)) return {status:400,body:{error:"Provide original source event sequences"}};
+      return {status:200,body:migrateKnowledgeSources(store,input.sequences as number[])};
+    }
     if (path === "/learning/source") {
       const source = String(input.sourceId);
       if (![CORRECTION_SOURCE, IMPORT_SOURCE].includes(source)) return { status: 400, body: { error: "Unknown learning source" } };

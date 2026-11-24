@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { configureSkillifyProposalDirectory, createProposal } from '../proposal-store.js';
 import { configureOutcomeJournalDirectory } from '../../outcome-journal.js';
-import { proposeFromOutcome } from '../propose.js';
+import { proposeFromOutcome, proposeFromNaturalLanguage } from '../propose.js';
 import { confirmProposal, declineProposal } from '../confirm.js';
 import { listJournalEntries } from '../../outcome-journal.js';
 
@@ -86,20 +86,17 @@ describe('skillify propose + confirm', () => {
     expect(existsSync(join(testRoot, 'wiki', 'constraints', 'ops.md'))).toBe(false);
   });
 
-  it('accept creates domain_standard proposal without wiki until confirm', () => {
-    const proposals = proposeFromOutcome({
-      workSessionId: 'ws-2',
-      interactionId: 'int-2',
-      outcomeStatus: 'succeeded',
-      intent: 'Prefer concise executive summaries',
-      domain: 'writing',
-    });
-    expect(proposals).toHaveLength(1);
-    expect(proposals[0].kind).toBe('domain_standard');
+  it('an explicit user instruction creates a domain standard without writing until confirm', () => {
+    const proposal = proposeFromNaturalLanguage({ workSessionId: 'ws-2', interactionId: 'int-2', selection: 'Prefer concise executive summaries', domain: 'writing' });
+    expect(proposal?.kind).toBe('domain_standard');
     expect(existsSync(join(testRoot, 'wiki', 'standards', 'writing.md'))).toBe(false);
 
     const proposed = listJournalEntries({ eventTypes: ['skillify_proposed'] });
     expect(proposed).toHaveLength(1);
+  });
+
+  it('a successful turn without verified outcomes does not generalize a procedure', () => {
+    expect(proposeFromOutcome({ workSessionId: 'ws-2', interactionId: 'int-2', outcomeStatus: 'succeeded', intent: 'Prefer concise executive summaries', domain: 'writing' })).toEqual([]);
   });
 
   it('rejects proposal paths outside allowlist', () => {

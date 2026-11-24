@@ -6,6 +6,7 @@ const VOLATILE_ATTRIBUTES = new Set(["branch", "dirty", "latest_commit", "head",
 /** Real contradictions only: at least two distinct values on a stable attribute. */
 export function meaningfulConflicts(conflicts: CompiledContext["memory"]["conflicts"]) {
   return conflicts
+    .filter((conflict) => conflict.status !== "resolved")
     .filter((conflict) => !VOLATILE_ATTRIBUTES.has(conflict.attribute))
     .map((conflict) => ({ ...conflict, claims: [...new Set(conflict.claims.map((claim) => String(claim).trim()))] }))
     .filter((conflict) => conflict.claims.length >= 2)
@@ -56,7 +57,7 @@ function clampLine(line: string, max = MAX_LINE_CHARS): string {
  * so stale repo state is never presented as current and contradictions in the
  * dump never reach George-facing answers.
  */
-export function boundNowProjection(text: string, now = new Date()): string {
+export function boundNowProjection(text: string, now = new Date(), includeHistory = false): string {
   if (!text) return "";
   const staleBefore = now.getTime() - REPO_STALE_DAYS * 86_400_000;
   const active: string[] = [];
@@ -68,6 +69,7 @@ export function boundNowProjection(text: string, now = new Date()): string {
       continue;
     }
     if (!raw.startsWith("- ") || section === "other") continue;
+    if (!includeHistory && /\b(?:superseded|historical)\b/.test(raw)) continue;
     const repo = REPO_LINE.exec(raw);
     if (repo && VOLATILE_ATTRIBUTES.has(repo[3]) && Date.parse(repo[1]) < staleBefore) continue;
     if (/^- (No canonical|None)/.test(raw)) continue;
@@ -108,7 +110,7 @@ export function formatCompiledContext(context: CompiledContext, options: FormatC
   const isRepoClaim = (c: { entityId: string; attribute: string }) =>
     c.entityId.startsWith("project:") && VOLATILE_ATTRIBUTES.has(c.attribute);
   const claimLine = (c: CompiledContext["memory"]["current"][number]) =>
-    `- [${c.temporalStatus}; ${c.authority}] ${c.entityId} · ${c.attribute}: ${c.value}`;
+    `- [${c.temporalStatus}; ${c.authority}${c.disputed ? "; disputed" : ""}] ${c.entityId} · ${c.attribute}: ${c.value}`;
   const historicalLine = (c: CompiledContext["memory"]["historical"][number]) =>
     `- [${c.temporalStatus}; historical] ${c.entityId} · ${c.attribute}: ${c.value}`;
   return [
@@ -116,13 +118,13 @@ export function formatCompiledContext(context: CompiledContext, options: FormatC
     "<profile>", options.profileOverride ?? (context.user.profile || "(no profile projection)"), "</profile>",
     ...(options.includeTaste && context.user.taste ? ["<taste>", options.tasteMaxChars ? clampText(context.user.taste, options.tasteMaxChars) : context.user.taste, "</taste>"] : []),
     "<now>",
-    includeProjects ? boundNowProjection(context.present.projection || "", options.now) : "",
+    includeProjects ? boundNowProjection(context.present.projection || "", options.now, lookingBack(context)) : "",
     `Active projects: ${context.present.activeProjects.join(", ") || "none"}`,
     ...context.memory.current.filter((c) => !isStaleRepoClaim(c, options.now) && (includeProjects || !isRepoClaim(c))).slice(0,20).map((c) => clampLine(claimLine(c))),
     "</now>",
     ...(includeProjects ? [
       "<projects>",
-      ...context.projects.map((project) => `## ${project.id}\n${clampText(project.projection, 2500)}`),
+      ...context.projects.map((project) => `## ${project.id}\n${clampText(lookingBack(context) ? project.projection : project.projection.split("## History")[0], 2500)}`),
       "</projects>",
     ] : []),
     ...(options.includeConversation ?? true ? [
@@ -138,9 +140,7 @@ export function formatCompiledContext(context: CompiledContext, options: FormatC
     ...context.memory.historical.slice(0,10).map((c) => clampLine(historicalLine(c))),
     "</historical-memory>",
     "<uncertainty>",
-    // One current value: the world model's winner is already in <now>. The value it replaced is only
-    // worth showing when he asks about the past; beside the answer it is what a model wrongly reaches for.
-    ...(lookingBack(context) ? meaningfulConflicts(context.memory.conflicts).slice(0, 3).map((c) => clampLine(`- ${c.entityId}.${c.attribute} is now ${c.claims[0]}; earlier: ${c.claims.slice(1).join("; ")}`)) : []),
+    ...meaningfulConflicts(context.memory.conflicts).slice(0, 3).map((c) => clampLine(`- Disputed ${c.entityId}.${c.attribute}: ${c.claims.join(" versus ")}. These sources disagree; no settled value.`)),
     ...context.memory.gaps.map((g) => `- gap: ${g}`),
     ...context.present.gaps.map((g) => `- present gap: ${g}`),
     "</uncertainty>",

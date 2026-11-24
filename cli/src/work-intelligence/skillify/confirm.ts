@@ -33,9 +33,12 @@ function mergeWikiBody(existing: string, incoming: string, kind: string): string
 
 function writeWikiFile(proposal: SkillifyProposal, absolutePath: string): void {
   mkdirSync(dirname(absolutePath), { recursive: true });
-  const content = existsSync(absolutePath)
-    ? mergeWikiBody(readFileSync(absolutePath, 'utf-8'), proposal.body, proposal.kind)
+  const incoming = proposal.knowledgeEvidence?.length
+    ? `<!-- flyd-knowledge:${proposal.id} -->\n${proposal.body}\n<!-- /flyd-knowledge:${proposal.id} -->`
     : proposal.body;
+  const content = existsSync(absolutePath)
+    ? (proposal.knowledgeEvidence?.length ? readFileSync(absolutePath,'utf8') + '\n' + incoming : mergeWikiBody(readFileSync(absolutePath, 'utf-8'), incoming, proposal.kind))
+    : incoming;
   writeFileSync(absolutePath, content, 'utf-8');
 }
 

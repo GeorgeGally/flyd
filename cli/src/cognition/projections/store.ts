@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import { replayWorldModel } from "../../intelligence/world/replay-cache.js";
 import { deriveWorldState, type DerivedWorldState } from "../../intelligence/world/world-model.js";
+import { knowledgeVersion } from "../curator/knowledge-repair.js";
 
 export interface KnowledgeProjectionPaths {
   root: string;
@@ -20,12 +21,14 @@ export function knowledgeProjectionPaths(): KnowledgeProjectionPaths {
 
 function write(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeFileSync(path, content.endsWith("\n") ? content : content + "\n", { encoding: "utf8", mode: 0o600 });
+  const temporary = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporary, content.endsWith("\n") ? content : content + "\n", { encoding: "utf8", mode: 0o600 });
+  renameSync(temporary, path);
 }
 
 function line(claim: DerivedWorldState["current"][number]): string {
   const date = claim.validUntil ? ` until ${claim.validUntil}` : claim.observedAt ? ` observed ${claim.observedAt.slice(0,10)}` : "";
-  return `- [${claim.authority}; ${claim.temporalStatus}${date}; evidence:${claim.evidenceRefs.join(",")}] ${claim.entityId} · ${claim.attribute}: ${claim.value}`;
+  return `- [${claim.authority}; ${claim.temporalStatus}${claim.disputed ? "; disputed" : ""}${date}; evidence:${claim.evidenceRefs.join(",")}] ${claim.entityId} · ${claim.attribute}: ${claim.value}`;
 }
 
 export function renderProfile(state: DerivedWorldState): string {
@@ -62,7 +65,7 @@ function projectIds(state: DerivedWorldState): string[] {
   return [...ids];
 }
 
-function renderProject(id: string, state: DerivedWorldState): string {
+export function renderProject(id: string, state: DerivedWorldState): string {
   const relatedIds = new Set([id]);
   for (const r of state.relations) {
     if (r.fromId === id) relatedIds.add(r.toId);
@@ -102,13 +105,24 @@ export function rebuildKnowledgeProjections(store?: IntelligenceEventStore): Der
         rmSync(join(paths.projects, filename), { force: true });
       }
     }
+    write(join(paths.root, ".revision"), knowledgeVersion(eventStore));
     return state;
   } finally {
     if (owned) eventStore.close();
   }
 }
 
+function ensureCurrentProjections(): void {
+  const store = new IntelligenceEventStore();
+  try {
+    let prior = "";
+    try { prior = readFileSync(join(knowledgeProjectionPaths().root, ".revision"), "utf8").trim(); } catch { /* first generation */ }
+    if (prior !== knowledgeVersion(store)) rebuildKnowledgeProjections(store);
+  } finally { store.close(); }
+}
+
 export function readProjection(kind: "profile" | "now"): string {
+  ensureCurrentProjections();
   const paths = knowledgeProjectionPaths();
   const path = kind === "profile" ? paths.profile : paths.now;
   if (!existsSync(path)) {
@@ -118,6 +132,7 @@ export function readProjection(kind: "profile" | "now"): string {
 }
 
 export function readProjectProjection(projectId: string): string {
+  ensureCurrentProjections();
   const paths = knowledgeProjectionPaths();
   const path = join(paths.projects, `${projectId.replace(/[^a-z0-9._-]+/gi, "-")}.md`);
   try { return existsSync(path) ? readFileSync(path, "utf8") : ""; } catch { return ""; }

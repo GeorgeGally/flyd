@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { effectiveLegacyClaim, effectiveLegacyText, isGovernedLegacyFact, readEffectiveKnowledge } from "../cognition/effective-knowledge.js";
+import type { EffectiveKnowledge } from "../cognition/effective-knowledge.js";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
@@ -104,8 +106,14 @@ export function renderMemory(entries: MemoryEntry[]): string {
   ].join("\n").replace(/\n+$/, "\n");
 }
 
-export function readMemoryEntries(paths = memoryPaths()): MemoryEntry[] {
-  return existsSync(paths.memory) ? parseMemory(readFileSync(paths.memory, "utf8")) : [];
+export function readMemoryEntries(paths = memoryPaths(), effective = true, snapshot?: EffectiveKnowledge): MemoryEntry[] {
+  const entries = existsSync(paths.memory) ? parseMemory(readFileSync(paths.memory, "utf8")) : [];
+  if (!effective || !entries.length) return entries;
+  const view = snapshot ?? readEffectiveKnowledge();
+  return entries.filter((entry) => !isGovernedLegacyFact(entry.text, view) || effectiveLegacyClaim(entry.text, view)).map((entry) => {
+    const claim=effectiveLegacyClaim(entry.text,view);
+    return claim ? { ...entry, text: effectiveLegacyText(entry.text,view), canonicalRef: `event:${claim.claimId}` } : entry;
+  });
 }
 
 function atomicWrite(path: string, content: string): void {
@@ -162,7 +170,8 @@ export function applyMemoryOps(ops: MemoryOp[], options: { now?: Date; paths?: M
   const now = options.now ?? new Date();
   const paths = options.paths ?? memoryPaths();
   const today = localDay(now);
-  const entries = readMemoryEntries(paths);
+  const entries = readMemoryEntries(paths,false);
+  const knowledge = readEffectiveKnowledge();
   const sources = readSources(paths);
   const receipt: ApplyReceipt = { added: 0, updated: 0, reinforced: 0, archived: 0, notes: 0, rejected: [] };
   const archived: Array<{ entry: MemoryEntry; reason: string }> = [];
@@ -175,6 +184,11 @@ export function applyMemoryOps(ops: MemoryOp[], options: { now?: Date; paths?: M
 
   for (const op of ops) {
     const index = "id" in op ? byId().get(op.id) : undefined;
+    const text = "text" in op ? op.text : index === undefined ? "" : entries[index].text;
+    if (["add","update","reinforce","daily_note"].includes(op.op) && (isGovernedLegacyFact(text,knowledge) || index !== undefined && isGovernedLegacyFact(entries[index].text,knowledge))) {
+      receipt.rejected.push(`${op.op}: this fact is governed by canonical knowledge; retain the source as evidence`);
+      continue;
+    }
     switch (op.op) {
       case "add": {
         const text = op.text?.replace(/\s+/g, " ").trim();
@@ -281,7 +295,8 @@ export function applyMemoryOps(ops: MemoryOp[], options: { now?: Date; paths?: M
 export const MEMORY_PROMPT_MAX_CHARS = Math.round(MEMORY_BUDGET_CHARS * 1.25);
 
 function promptLine(entry: MemoryEntry, now: Date): string {
-  return `- [curated_memory; ${entry.date}; ${entry.tier}${memoryEntryIsStale(entry, now) ? "; possibly stale" : ""}; MEMORY.md:${entry.id}] ${entry.text}`;
+  const ref = (entry as MemoryEntry & {canonicalRef?:string}).canonicalRef;
+  return `- [curated_memory; ${entry.date}; ${entry.tier}${memoryEntryIsStale(entry, now) ? "; possibly stale" : ""}; ${ref ?? `MEMORY.md:${entry.id}`}] ${entry.text}`;
 }
 
 /**
@@ -289,8 +304,8 @@ function promptLine(entry: MemoryEntry, now: Date): string {
  * context. Over `maxChars`, the largest section drops its oldest-confirmed
  * entry one at a time; every section keeps at least its newest entry.
  */
-export function memoryPromptText(paths = memoryPaths(), now = new Date(), maxChars = MEMORY_PROMPT_MAX_CHARS): string | null {
-  const entries = readMemoryEntries(paths);
+export function memoryPromptText(paths = memoryPaths(), now = new Date(), maxChars = MEMORY_PROMPT_MAX_CHARS, snapshot?: EffectiveKnowledge): string | null {
+  const entries = readMemoryEntries(paths, true, snapshot);
   if (entries.length === 0) return null;
   const groups = MEMORY_SECTIONS
     .map((section) => ({ section, kept: entries.filter((entry) => entry.section === section), omitted: 0 }))

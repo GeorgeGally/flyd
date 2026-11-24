@@ -42,6 +42,8 @@ export interface StoredEvent {
   payload: Record<string, unknown> | undefined;
   redacted: boolean;
   erased: boolean;
+  /** Opaque canonical-scope guard, retained after payload erasure. Contains no value or locator. */
+  knowledgeScopeHash?: string;
 }
 
 export interface ErasureTombstone {
@@ -103,6 +105,7 @@ export class IntelligenceEventStore {
       );
 
       CREATE INDEX IF NOT EXISTS idx_personal_events_source ON personal_events(source_id);
+      CREATE INDEX IF NOT EXISTS idx_personal_record_type ON personal_events(json_extract(payload_json, '$.recordType'));
 
       CREATE TABLE IF NOT EXISTS erasure_tombstones (
         source_id TEXT NOT NULL,
@@ -129,6 +132,10 @@ export class IntelligenceEventStore {
         state_hash TEXT NOT NULL
       );
     `);
+    const columns = this.db.prepare("PRAGMA table_info(personal_events)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "knowledge_scope_hash")) {
+      this.db.exec("ALTER TABLE personal_events ADD COLUMN knowledge_scope_hash TEXT");
+    }
   }
 
   close(): void {
@@ -138,6 +145,11 @@ export class IntelligenceEventStore {
   /** Serialize read/derive/append workflows against other Core/CLI writers. */
   transaction<T>(work: () => T): T {
     return this.db.transaction(work).immediate();
+  }
+
+  /** A coherent WAL snapshot that can read while another connection owns a writer transaction. */
+  readTransaction<T>(work: () => T): T {
+    return this.db.transaction(work).deferred();
   }
 
   /**
@@ -197,6 +209,15 @@ export class IntelligenceEventStore {
     return row ? this.mapRow(row) : null;
   }
 
+  /** Both wire representations occur in retained canonical evidence. */
+  getByEventReference(reference: string): StoredEvent | null {
+    if (!reference.startsWith("event:")) return null;
+    const id = reference.slice(6);
+    if (/^\d+$/.test(id)) return this.getBySequence(Number(id));
+    const row = this.db.prepare("SELECT * FROM personal_events WHERE id = ?").get(id) as Record<string,unknown> | undefined;
+    return row ? this.mapRow(row) : null;
+  }
+
   /** Replay feed: canonical sequence order, payloads of erased events withheld. */
   readFrom(afterSequence: number, limit = 1000): StoredEvent[] {
     const rows = this.db
@@ -226,6 +247,21 @@ export class IntelligenceEventStore {
       .prepare(`SELECT * FROM personal_events WHERE source_id = ? ORDER BY sequence ASC`)
       .all(sourceId) as Array<Record<string, unknown>>;
     return rows.map((row) => this.mapRow(row));
+  }
+
+  /** Indexed canonical record feed; erased payloads never re-enter derived maintenance queues. */
+  readRecords(recordType: string): StoredEvent[] {
+    return (this.db.prepare("SELECT * FROM personal_events WHERE erased = 0 AND json_extract(payload_json, '$.recordType') = ? ORDER BY sequence").all(recordType) as Record<string, unknown>[]).map((row) => this.mapRow(row));
+  }
+
+  readProcedureOutcomes(signature: string): StoredEvent[] {
+    return (this.db.prepare("SELECT * FROM personal_events WHERE erased = 0 AND kind = 'verified_outcome' AND json_extract(payload_json, '$.procedure.signature') = ? ORDER BY sequence DESC LIMIT 24").all(signature) as Record<string, unknown>[]).map((row) => this.mapRow(row));
+  }
+
+  /** Set once, in the same transaction as accepting the claim. No source text is retained. */
+  guardKnowledgeScope(sequence: number, hash: string): void {
+    if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error("Invalid knowledge scope hash");
+    this.db.prepare("UPDATE personal_events SET knowledge_scope_hash = ? WHERE sequence = ? AND erased = 0 AND knowledge_scope_hash IS NULL").run(hash, sequence);
   }
 
   /** One page of a source's live events after a time, oldest first, or before a time, newest first: readers walk pages instead of loading the whole source. */
@@ -344,6 +380,7 @@ export class IntelligenceEventStore {
         " AND captured_at < ? AND erased = 0",
       ).run(sourceId, before.toISOString());
       this.retractSequences(linked);
+      this.retractKnowledgeDependents([...oldRows.map(row => row.sequence), ...linked]);
       if (res.changes > 0 || linked.length) this.scheduleInitiativeErasureSweeps();
       return res.changes;
     });
@@ -400,6 +437,28 @@ export class IntelligenceEventStore {
     for (const sequence of sequences) update.run(sequence);
   }
 
+  /** Retract copied knowledge transitively for either canonical event-ref representation. */
+  private retractKnowledgeDependents(sequences: number[]): number[] {
+    const removed = new Set<string>([
+      ...sequences.map(sequence => `event:${sequence}`), ...this.eventReferences(sequences),
+    ]);
+    const affected: number[] = [];
+    let changed = true;
+    while (changed && removed.size) {
+      changed = false;
+      const rows = this.db.prepare("SELECT sequence, evidence_refs FROM personal_events WHERE erased = 0 AND provenance LIKE 'knowledge-%'").all() as Array<{sequence:number;evidence_refs:string}>;
+      for (const row of rows) {
+        if (!(JSON.parse(row.evidence_refs) as string[]).some(ref => removed.has(ref))) continue;
+        this.retractSequences([row.sequence]);
+        affected.push(row.sequence);
+        removed.add(`event:${row.sequence}`);
+        for (const ref of this.eventReferences([row.sequence])) removed.add(ref);
+        changed = true;
+      }
+    }
+    return affected;
+  }
+
   /**
    * Erase derived initiative text when one source key becomes stale or is
    * explicitly withdrawn. This doesn't disable unrelated initiative consent.
@@ -412,6 +471,7 @@ export class IntelligenceEventStore {
       const sequences = this.derivedInitiativeSequences(keys);
       const cos = this.linkedCosReportSequences(new Set(this.eventReferences(sequences)));
       this.retractSequences([...sequences, ...cos]);
+      this.retractKnowledgeDependents([...sequences, ...cos]);
       if (sequences.length || cos.length) this.scheduleInitiativeErasureSweeps();
       return sequences.length + cos.length;
     });
@@ -437,6 +497,7 @@ export class IntelligenceEventStore {
       });
       const cos = this.linkedCosReportSequences(new Set(this.eventReferences(erase)));
       this.retractSequences([...erase, ...cos]);
+      this.retractKnowledgeDependents([...erase, ...cos]);
       if (erase.length || cos.length) this.scheduleInitiativeErasureSweeps();
       return erase.length + cos.length;
     });
@@ -458,6 +519,7 @@ export class IntelligenceEventStore {
       });
       const cos = this.linkedCosReportSequences(new Set(this.eventReferences(found)));
       this.retractSequences([...found, ...cos]);
+      this.retractKnowledgeDependents([...found, ...cos]);
       if (found.length || cos.length) this.scheduleInitiativeErasureSweeps();
       return found.length + cos.length;
     });
@@ -470,28 +532,27 @@ export class IntelligenceEventStore {
    * Returns the sequences whose projections must retract.
    */
   eraseSource(sourceId: string): { tombstone: ErasureTombstone; affectedSequences: number[]; sweeps: PendingErasureSweep[] } {
-    const original = this.db.prepare(
-      "SELECT id, sequence FROM personal_events WHERE source_id = ? AND erased = 0",
-    ).all(sourceId) as Array<{ id: string; sequence: number }>;
-    const own = original.map(row => row.sequence);
-
-    // Prior to removing the original records, find any private synthesis that
-    // cites their event identities or the registered source family. This must
-    // happen in the SAME transaction as the parent erasure.
-    const family = sourceId === "cos.report" ? ["cos:"]
-      : sourceId === "council.advisory" ? ["council:"]
-      : sourceId === "scout.edition" ? ["scout:"]
-      : sourceId === "project.curated" ? ["project:"] : [];
-    const keys = new Set<string>([
-      sourceId,
-      ...original.flatMap(row => ["event:" + row.id, "cos:" + row.id]),
-    ]);
     const impacted = this.transaction(() => {
+      const original = this.db.prepare(
+        "SELECT id, sequence FROM personal_events WHERE source_id = ? AND erased = 0",
+      ).all(sourceId) as Array<{ id: string; sequence: number }>;
+      const own = original.map(row => row.sequence);
+
+      // Resolve dependencies under the same writer lock as parent erasure.
+      const family = sourceId === "cos.report" ? ["cos:"]
+        : sourceId === "council.advisory" ? ["council:"]
+        : sourceId === "scout.edition" ? ["scout:"]
+        : sourceId === "project.curated" ? ["project:"] : [];
+      const keys = new Set<string>([
+        sourceId,
+        ...original.flatMap(row => ["event:" + row.id, "cos:" + row.id]),
+      ]);
       const dependent = this.derivedInitiativeSequences(keys, family);
       const cos = this.linkedCosReportSequences(new Set([
         ...this.eventReferences(own), ...this.eventReferences(dependent),
       ]));
       this.retractSequences([...own, ...dependent, ...cos]);
+      const knowledge = this.retractKnowledgeDependents([...own, ...dependent, ...cos]);
       const now = new Date().toISOString();
       this.db.prepare(
         "INSERT INTO erasure_tombstones (source_id, erased_at, event_count) VALUES (?, ?, ?)",
@@ -503,7 +564,7 @@ export class IntelligenceEventStore {
           "INSERT INTO erasure_sweeps (sweep_id, source_id, surface, status) VALUES (?, ?, ?, 'pending')",
         ).run(crypto.randomUUID(), sourceId, surface);
       }
-      return [...new Set([...own, ...dependent, ...cos])];
+      return [...new Set([...own, ...dependent, ...cos, ...knowledge])];
     });
     return {
       tombstone: this.latestTombstone(sourceId) as ErasureTombstone,
@@ -605,6 +666,7 @@ export class IntelligenceEventStore {
       payload: erased || row.payload_json === null ? undefined : (JSON.parse(String(row.payload_json)) as Record<string, unknown>),
       redacted: Number(row.redacted) === 1,
       erased,
+      ...(row.knowledge_scope_hash ? { knowledgeScopeHash: String(row.knowledge_scope_hash) } : {}),
     };
   }
 }

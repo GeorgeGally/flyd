@@ -65,7 +65,9 @@ export interface UnifiedMemoryResult {
     temporalStatus: string;
   }>;
   historical: DerivedClaim[];
-  conflicts: Array<{ entityId: string; attribute: string; claims: string[] }>;
+  conflicts: Array<{ entityId: string; attribute: string; claims: string[]; scopeId?: string; status?: "unresolved" | "resolved"; claimIds?: string[]; evidenceRefs?: number[] }>;
+  knowledgeVersion?: string;
+  governedScopeHashes?: string[];
   gaps: string[];
   relations: WorldRelation[];
   systemOne?: { model?: string; predicates: Record<string, number>; latencyMs: number; error?: string };
@@ -74,6 +76,8 @@ export interface UnifiedMemoryResult {
 
 export interface CompiledContext {
   generatedAt: string;
+  /** Independently appended project summary captured from this turn's knowledge snapshot. */
+  projectSummary?: string;
   interpretation: IntentInterpretation;
   user: {
     profile: string;

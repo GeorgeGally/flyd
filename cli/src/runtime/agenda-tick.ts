@@ -108,6 +108,16 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       },
     },
     {
+      name: "knowledge", usesModel: false,
+      run: async () => {
+        const { runKnowledgeMaintenance } = await import("../cognition/curator/knowledge-maintenance.js");
+        const count = await runKnowledgeMaintenance();
+        const { expireStaleProposals } = await import("../work-intelligence/skillify/proposal-store.js");
+        expireStaleProposals(); // Also retracts source-erased generated procedure blocks.
+        return count ? `${count} source rechecks ready` : undefined;
+      },
+    },
+    {
       name: "crew", usesModel: false,
       run: async () => {
         const [{ superviseCrew }, { notifyMacOutcome }] = await Promise.all([import("../crew/crew.js"), import("./agenda.js")]);
