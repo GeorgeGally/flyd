@@ -114,12 +114,12 @@ export function openVerifiedInitiativeResearch(input: {
 /** Revocation removes readable generated work text from CoS's separate JSON
  * store. Opaque objective IDs remain only for once-only audit and replay.
  */
-export function purgeInitiativeObjectives(dir = commandDir()): number {
+export function purgeInitiativeObjectives(dir = commandDir(), shouldPurge: (objective: Objective) => boolean = () => true): number {
   let count = 0;
   for (const objective of listObjectives(dir)) {
-    if (objective.origin.surface !== "initiative") continue;
+    if (objective.origin.surface !== "initiative" || !shouldPurge(objective)) continue;
     const changed = mutateObjective(objective.id, (current) => {
-      if (!current || current.origin.surface !== "initiative"
+      if (!current || current.origin.surface !== "initiative" || !shouldPurge(current)
         || (current.words === "(revoked)" && !current.initiative)) return null;
       count++;
       return {

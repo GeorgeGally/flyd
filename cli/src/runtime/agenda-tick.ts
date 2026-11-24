@@ -210,7 +210,13 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
             "initiative.curated", "initiative.mandate",
             "initiative.public-research", "initiative.public-synthesis",
           ].reduce((count, id) => count + store.purgeSourceBefore(id, cutoff), 0);
-          return expired ? `Expired ${expired} old initiative or mandate records` : undefined;
+          const { reconcileInitiativeObjectives } = await import("./initiative/follow-through.js");
+          const scrubbed = reconcileInitiativeObjectives({
+            store, ...(options.now ? { now: options.now } : {}),
+          });
+          return expired || scrubbed
+            ? `Expired ${expired} old initiative records; scrubbed ${scrubbed} invalid CoS objective copies`
+            : undefined;
         } finally { store.close(); }
       },
     },

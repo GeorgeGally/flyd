@@ -11,7 +11,7 @@ import {
 } from "../../intelligence/sensors/source-contracts.js";
 import { deriveInitiatives, initiativeRevision } from "../initiative/candidates.js";
 import { acceptReadOnlyInitiativeMandate, currentReadOnlyMandate } from "../initiative/mandate.js";
-import { runInitiativeFollowThrough } from "../initiative/follow-through.js";
+import { runInitiativeFollowThrough, reconcileInitiativeObjectives } from "../initiative/follow-through.js";
 import { listObjectives } from "../../command/cos/objectives.js";
 
 const now = new Date("2026-11-23T12:00:00Z");
@@ -110,6 +110,28 @@ describe("v10 accepted CoS research follow-through", () => {
       expect(again.reported).toBe(0);
       expect(listObjectives(dir)).toHaveLength(1);
       expect(db.readSourcePage("cos.report", { limit: 10 })).toHaveLength(1);
+    } finally { db.close(); }
+  });
+
+  it("scrubs separately stored CoS objective text after evidence or mandate disappears", async () => {
+    const { db, registry, dir, current } = fixture();
+    try {
+      acceptReadOnlyInitiativeMandate(db, project, { explicitUserAction: true, now, registry });
+      const deps = { store: db, registry, now: () => now,
+        objectiveDir: dir, projects: () => [project], current, cosEnabled: () => true,
+        on: false };
+      expect((await runInitiativeFollowThrough(deps)).reported).toBe(1);
+      expect(listObjectives(dir)[0]?.initiative).toBeTruthy();
+      expect(reconcileInitiativeObjectives(deps)).toBe(0);
+      registry.setStatus(INITIATIVE_MANDATE_CONTRACT.sourceId, "revoked");
+      expect(reconcileInitiativeObjectives(deps)).toBe(1);
+      const scrubbed = listObjectives(dir)[0]!;
+      expect(scrubbed.status).toBe("cancelled");
+      expect(scrubbed.initiative).toBeUndefined();
+      expect(scrubbed.words).toBe("(revoked)");
+      expect(scrubbed.contextRefs).toEqual([]);
+      expect(scrubbed.project).toBeUndefined();
+      expect(reconcileInitiativeObjectives(deps)).toBe(0);
     } finally { db.close(); }
   });
 

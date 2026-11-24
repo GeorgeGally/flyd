@@ -7,7 +7,7 @@ import { readProjects, type Project } from "../../council/projects.js";
 import { localDay } from "../../council/memory-store.js";
 import { recordActivity, type ActivityRecord } from "../../conversation-view/activity.js";
 import { countInitiativeCards, initiativeCardRecorded } from "./cycle.js";
-import { listObjectives, openVerifiedInitiativeResearch, mutateObjective } from "../../command/cos/objectives.js";
+import { listObjectives, openVerifiedInitiativeResearch, mutateObjective, purgeInitiativeObjectives } from "../../command/cos/objectives.js";
 import { recordCosReport } from "../../command/cos/tick.js";
 import type { CosReport } from "../../command/cos/types.js";
 import { currentReadOnlyMandate } from "./mandate.js";
@@ -64,6 +64,50 @@ function usableResearchEvent(event: StoredEvent): {
     typeof item.url === "string" && safePublicLocator(item.url) ? [item.url] : []);
   if (new Set(evidenceRefs.map(url => new URL(url).hostname)).size < 2) return null;
   return { candidateId, revision, projectId: project.id.slice("project:".length), evidenceRefs, sources };
+}
+
+/**
+ * Reconcile the CoS JSON projection with the canonical event spine. This also
+ * runs while initiative is off: revocation/expiry cannot leave its own
+ * generated objective text readable forever. No user-authored objectives are
+ * changed and no worker dispatch is attempted.
+ */
+export function reconcileInitiativeObjectives(deps: FollowThroughDeps = {}): number {
+  const dir = deps.objectiveDir ?? commandDir();
+  const generated = listObjectives(dir).filter(o => o.origin.surface === "initiative" && o.initiative);
+  if (!generated.length) return 0;
+  const registry = deps.registry ?? new SourceContractRegistry();
+  for (const contract of [
+    INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT, INITIATIVE_MANDATE_CONTRACT,
+  ]) registry.register(contract);
+  const granted = [INITIATIVE_CURATED_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT, INITIATIVE_MANDATE_CONTRACT]
+    .every(contract => registry.status(contract.sourceId) === "enabled");
+  if (!granted) return purgeInitiativeObjectives(dir);
+  const owns = !deps.store;
+  const store = deps.store ?? new IntelligenceEventStore();
+  try {
+    const projects = (deps.projects ?? readProjects)();
+    const current = (deps.current ?? (() => currentInitiativeEvidence()))();
+    const now = deps.now?.() ?? new Date();
+    const live = new Map(store.readSourcePage(INITIATIVE_CURATED_CONTRACT.sourceId, { limit: 500 })
+      .filter(e => !e.erased && e.payload?.type === "investigation")
+      .map(e => [e.id, e] as const));
+    return purgeInitiativeObjectives(dir, objective => {
+      const link = objective.initiative;
+      if (!link) return true;
+      const event = live.get(link.researchEventId);
+      if (!event || event.payload?.source_revision !== link.sourceRevision) return true;
+      const sources = event.payload.sources as InitiativeSource[] | undefined;
+      if (!Array.isArray(sources) || !initiativeSourcesCurrent(sources, current)) return true;
+      const projectId = sources.find(s => s.id.startsWith("project:"))?.id.slice("project:".length);
+      const project = projects.find(p => p.id === projectId);
+      if (!project) return true;
+      const mandate = currentReadOnlyMandate(store, project, now);
+      return !mandate || mandate.sourceEventId !== link.mandateEventId;
+    });
+  } finally {
+    if (owns) store.close();
+  }
 }
 
 export async function runInitiativeFollowThrough(deps: FollowThroughDeps = {}): Promise<FollowThroughResult> {
