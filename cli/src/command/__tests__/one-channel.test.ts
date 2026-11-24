@@ -75,7 +75,7 @@ describe("Flyd's own notes to the staff", () => {
       parentRequestId: "desk-0b5e7c1d-1111-2222-3333-444455556666",
     });
     expect(replayed).toBe(false);
-    expect(run.request).toMatchObject({ source: "flyd", originalMessage: "the smaller one", parentRequestId: "desk-0b5e7c1d-1111-2222-3333-444455556666" });
+    expect(run.request).toMatchObject({ source: "flyd", carriesGeorgesWords: true, originalMessage: "the smaller one", parentRequestId: "desk-0b5e7c1d-1111-2222-3333-444455556666" });
     expect(run.request.doneWhen.length).toBeGreaterThan(0);
     expect(sent[0]!.args).toEqual(["note", "--request-id", "flyd-decision-abc", "--json", "-"]);
     expect(sent[0]!.input).toContain("GEORGE'S OWN WORDS — preserve this wording as authority:\nthe smaller one");
@@ -96,6 +96,20 @@ describe("Flyd's own notes to the staff", () => {
     await notifyRun(settled, async (_title, message) => { told.push(message); }, undefined, async () => { throw new Error("no decision step for Flyd's own note"); });
     expect(told).toEqual([]);
     expect(readDomainRun(run.id)?.notified).toBe(true);
+  });
+
+  it("still review a failed note that carries George's own words, while a failed bookkeeping note stays quiet", async () => {
+    const transport = new FirstmateDomainTransport({ home: join(root, "fm"), script: "/fake/fm-inbox.sh", exec });
+    const failed = { format: "raw" as const, brief: "Could not.", detailedReport: "Could not.", decisionsMade: [], unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: ["Could not."], informationLossRisk: "high" as const };
+    const { run: his } = await transport.sendFlydNote({ requestId: "flyd-decision-fail", body: "George's answer: the smaller one", outcome: "Act on George's answer", georgesWords: "the smaller one" });
+    const { run: placement } = await transport.sendFlydNote({ requestId: "flyd-project-threads-9", body: "Say which project each is about.", outcome: "Name each exchange's project" });
+    const reviewed: string[] = [];
+    const decide = async (run: { id: string }) => { reviewed.push(run.id); throw new Error("review unavailable"); };
+    await notifyRun({ ...his, status: "failed", failure: "Could not.", result: failed }, async () => {}, undefined, decide as never);
+    await notifyRun({ ...placement, status: "failed", failure: "Could not.", result: failed }, async () => {}, undefined, decide as never);
+    expect(reviewed).toEqual([his.id]);
+    expect(readDomainRun(his.id)?.notified).not.toBe(true);
+    expect(readDomainRun(placement.id)?.notified).toBe(true);
   });
 
   it("include the staff watch's worker check-ins, kept out of the handoffs it chases", async () => {

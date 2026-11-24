@@ -230,13 +230,6 @@ describe("the relay gate on the self-review's evidence", () => {
       .toBe("I need your decision: The logo can be red or blue: which do you want?");
   });
 
-  it("brings an unstructured handoff as a neutral line naming the work, never its reason code or a process call, and records it", () => {
-    const base = run("--body-file /tmp/flyd-df.json");
-    const notice = captainNotice({ ...base, incompleteReason: "handoff:missing brief,report,evidence" });
-    expect(notice).toBe("Fix the island came back without a clear report, so nothing counts as done yet.");
-    expect(verdicts()).toContainEqual(expect.objectContaining({ text: expect.stringContaining("handoff:missing"), surface: "notification", held: true }));
-  });
-
   it("holds task and run ids, fm/ branches and worktree paths", () => {
     for (const line of ["The island fix in run-12 is merged.", "Merged fm/flyd-island into main.", "Fixed in ~/.treehouse/flyd-c351a7/11/flyd; the island is quiet."]) {
       expect(captainNotice(run(line)), line).toBe('There is news on "Fix the island". Ask Flyd for the details.');

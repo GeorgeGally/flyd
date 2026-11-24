@@ -189,6 +189,30 @@ describe("jobsFrom", () => {
     expect(jobRunFromDomain({ ...domain, result: { ...domain.result!, unresolvedQuestions: ["Ship now?"] } }).question).toBe("Ship now?");
   });
 
+  it("never makes a card of Flyd's own note, whatever became of it, a failed internal check included", () => {
+    const placement: DomainRun = {
+      id: "flyd-project-threads-1", status: "failed", owner: "FirstMate", createdAt: "2026-10-26T09:00:00Z", updatedAt: "2026-10-26T11:00:00Z",
+      failure: "bad_output flyd-project-threads-1: handoff:missing project-attribution",
+      request: { id: "flyd-project-threads-1", domain: "coding", originalMessage: "Say which project each is about", intendedOutcome: "Georgegalanakis: name each exchange's project", doneWhen: [], createdAt: "2026-10-26T09:00:00Z", source: "flyd" },
+      transport: { kind: "firstmate", requestId: "flyd-project-threads-1" },
+      result: { format: "raw", brief: "abcd1234: Georgegalanakis", detailedReport: "abcd1234: Georgegalanakis", decisionsMade: [], unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "high" },
+    };
+    for (const status of ["failed", "incomplete", "queued", "completed", "needs_decision"] as const) {
+      expect(jobsFrom({ runs: [jobRunFromDomain({ ...placement, status })], now: NOW }).jobs).toEqual([]);
+    }
+  });
+
+  it("still shows a held-up Flyd note carrying George's own words, never as a decision for him", () => {
+    const note: DomainRun = {
+      id: "flyd-decision-1", status: "failed", owner: "FirstMate", createdAt: "2026-10-26T09:00:00Z", updatedAt: "2026-10-26T11:00:00Z",
+      failure: "Could not act on it.",
+      request: { id: "flyd-decision-1", domain: "coding", originalMessage: "the smaller one", intendedOutcome: "Act on George's answer: the smaller one", doneWhen: [], createdAt: "2026-10-26T09:00:00Z", source: "flyd", carriesGeorgesWords: true },
+      transport: { kind: "firstmate", requestId: "flyd-decision-1" },
+    };
+    expect(jobsFrom({ runs: [jobRunFromDomain(note)], now: NOW }).jobs).toHaveLength(1);
+    expect(jobsFrom({ runs: [jobRunFromDomain({ ...note, status: "needs_decision" })], now: NOW }).jobs).toEqual([]);
+  });
+
   it("keeps a ready run in Needs you for a day from when it settled, then calls it done, PR or not", () => {
     const pr = "https://github.com/acme/site/pull/42";
     const ready = (over: Partial<JobRun>) => run({ status: "completed", work: "ready", ...over });

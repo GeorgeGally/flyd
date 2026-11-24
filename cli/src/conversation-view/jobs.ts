@@ -100,6 +100,7 @@ export interface JobRun {
   status: string;
   transport?: DomainRun["transport"]["kind"];
   source?: DomainRun["request"]["source"];
+  carriesGeorgesWords?: boolean;
   phase?: string;
   project?: string;
   outcome: string;
@@ -210,6 +211,7 @@ export function jobRunFromDomain(run: DomainRun): JobRun {
     status: run.status,
     transport: run.transport.kind,
     source: run.request.source,
+    ...(run.request.carriesGeorgesWords ? { carriesGeorgesWords: true } : {}),
     ...(run.phase ? { phase: run.phase } : {}),
     ...(run.request.project?.name ? { project: run.request.project.name } : {}),
     outcome: one(run.request.intendedOutcome || run.request.originalMessage),
@@ -275,6 +277,9 @@ function runSignal(run: JobRun, now: number): Signal | null {
 }
 
 function runSignalOf(run: JobRun, now: number): Signal | null {
+  // Flyd's own notes (project placement, check-ins) are its bookkeeping: whatever became of one, an internal check
+  // failing included, it is never a card for George. One carrying his own words still shows when it is held up.
+  if (run.source === "flyd" && !run.carriesGeorgesWords) return null;
   const at = run.updatedAt;
   // Where the work stands is the one work state its reply was read into; its status alone says how it is held.
   const read = run.work ?? workStateOfRun(run.status as DomainRunStatus);

@@ -1,4 +1,3 @@
-import { terminalHandoffFailure } from "../runtime/acceptance.js";
 import { createHash } from "node:crypto";
 import { bossMessageKind, FENCE_HELD, HANDLE_IT_YOURSELF, HELD_FOR_ATTENTION, notesSentToBoss } from "../intelligence/executive/decision-step.js";
 import { recordHeld } from "../council/reply-review.js";
@@ -6,7 +5,7 @@ import { syncFirstmateDomainRuns } from "./firstmate.js";
 import { DESIGN_MATE, syncDesignBoards, syncDesignMateRuns } from "./design-mate.js";
 import { syncLibrarianDomainRuns } from "./librarian.js";
 import { sendRunMessage } from "./messages.js";
-import { captainNotice, gateNotice, noticeKind, type GatedNotice } from "./notice.js";
+import { gateNotice, noticeKind, type GatedNotice } from "./notice.js";
 import { judgeOperationalQuestion } from "./cos/operational-judgment.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
 import { listDomainRuns, mutateDomainRun, readDomainRun, updateDomainRun } from "./store.js";
@@ -166,7 +165,8 @@ function shownInWindow(run: DomainRun, windowIsOpen: (session: string) => boolea
 
 /** Backstage: Flyd's own note to the staff, or its own fix. Its finished work is never George's to hear. */
 function backstageRun(run: DomainRun): boolean {
-  return run.request.source === "flyd" || run.request.source === "self-improvement";
+  if (run.request.source === "flyd") return !(run.status === "failed" && run.request.carriesGeorgesWords);
+  return run.request.source === "self-improvement";
 }
 
 /** Finished work never told: Flyd's own, or shown under his message in the conversation it was asked from. */
@@ -213,7 +213,7 @@ export async function notifyRun(
     if (from) moveReport(run.id, from, { state: "quiet" });
     return;
   }
-  if (designFailure(run) || terminalHandoffFailure(run)) {
+  if (designFailure(run)) {
     await tellFailure(run, from, notify).catch(() => undefined);
     return;
   }
@@ -264,8 +264,8 @@ async function tellFailure(run: DomainRun, from: RunReport | undefined, notify?:
     return;
   }
   // Said as the failure says it; when its detail is not fit to show him (a path, say), the plain fact alone.
-  const line = (terminalHandoffFailure(run) ? captainNotice(run) : null) ?? deliver(reportFromRun(run), "notification").text ?? `The design ${run.phase === "making" || run.phase?.startsWith("build-") ? "build" : "lab"} for ${run.request.intendedOutcome.split(/[.\n]/)[0]!.trim().slice(0, 80)} stopped before it was ready.`;
-  const key = terminalHandoffFailure(run) ? `run:${run.id}:handoff-failed` : `run:${run.id}:failed:${from?.since ?? run.updatedAt}`;
+  const line = deliver(reportFromRun(run), "notification").text ?? `The design ${run.phase === "making" || run.phase?.startsWith("build-") ? "build" : "lab"} for ${run.request.intendedOutcome.split(/[.\n]/)[0]!.trim().slice(0, 80)} stopped before it was ready.`;
+  const key = `run:${run.id}:failed:${from?.since ?? run.updatedAt}`;
   const told = { key, line, kind: noticeKind(run), work: run.request.intendedOutcome, evidenceRefs: [`domain-run:${run.id}`] };
   moveReport(run.id, from, { ...told, state: "sending" });
   const delivered = await deliverOnce([told], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) });

@@ -1,13 +1,11 @@
-import { execFile, spawn } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, truncateSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { firstmateHome, firstmateInboxScript } from "../lib/firstmate-home.js";
 import { FLYD_DIR } from "../lib/config.js";
-import { createLaunchFailureCache, createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError, type LaunchFailureCache } from "../runtime/repeat-guard.js";
-import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type HandoffLayer, type ProseJudge, type ProseOutcome } from "./result.js";
-import { checkDomainHandoff, checkProjectAttributionHandoff, HANDOFF_RETRY_WAIT_MS, handoffFailureReason, handoffReRequest, projectAttributionFailure, validateFirstmateReturn } from "../runtime/acceptance.js";
-import { commandDir, commitDomainRun, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
+import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, type ProseJudge, type ProseOutcome } from "./result.js";
+import { commitDomainRun, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
 import { cameBack, isSettled } from "./run-state.js";
 import { dueReport, quietReport } from "./report.js";
 import type { DomainMessage, DomainRequest, DomainRun, DomainRunStatus } from "./types.js";
@@ -78,6 +76,17 @@ export interface FirstmateReadiness {
   canReceive: boolean | "unknown";
   liveHarness?: boolean;
   reason?: string;
+}
+
+/** What George reads on a note handed over while FirstMate is not running: it is queued, and why. */
+export const FIRSTMATE_WAITING = "waiting for FirstMate to be running";
+
+/**
+ * Whether FirstMate is running to take notes: not when its inbox says it cannot receive and no harness is live.
+ * An unreadable readiness is not taken as down. Flyd never starts a session itself; one persistent FirstMate drains its inbox.
+ */
+export function firstmateRunning(readiness: FirstmateReadiness): boolean {
+  return !(readiness.canReceive === false && !readiness.liveHarness);
 }
 
 /** What `fm-inbox.sh note --json` printed: the note's id, whether it is saved, and whether it replayed one already held. */
@@ -226,6 +235,7 @@ export class FirstmateDomainTransport {
       doneWhen: note.doneWhen?.length ? note.doneWhen : FLYD_NOTE_DONE_WHEN,
       createdAt: new Date().toISOString(),
       source: "flyd",
+      ...(note.georgesWords?.trim() ? { carriesGeorgesWords: true } : {}),
       ...(note.parentRequestId ? { parentRequestId: note.parentRequestId } : {}),
       ...(note.contextRefs?.length ? { contextRefs: note.contextRefs } : {}),
     };
@@ -253,13 +263,16 @@ export class FirstmateDomainTransport {
       updatedAt: now,
       transport: { kind: "firstmate", requestId: request.id, externalId: receipt.id },
     };
+    // Saved is delivered: the note waits in FirstMate's durable inbox, in order, for the running FirstMate to drain.
+    // While it is not running the run says so; Flyd never launches a session or helper for a note.
+    if (!receipt.acknowledged && !firstmateRunning(readiness)) run.waiting = FIRSTMATE_WAITING;
     // A run left on record without its inbox receipt keeps whatever was added to it since; it gains the receipt.
-    mutateDomainRun(run.id, (current) => current ? { ...current, ...run } : run, this.dir);
-    if (!receipt.acknowledged) {
-      const session = await this.startSession(run.id, readiness, (failure, terminal) => suspendFirstmateRun(run, failure, Date.now(), this.dir, terminal));
-      if (session.failure) return { run: suspendFirstmateRun(run, session.failure, Date.now(), this.dir, session.terminal), replayed };
-    }
-    return { run, replayed };
+    const saved = mutateDomainRun(run.id, (current) => {
+      if (!current) return run;
+      const { waiting: _waiting, ...rest } = current;
+      return { ...rest, ...run };
+    }, this.dir);
+    return { run: saved ?? run, replayed };
   }
 
   async sendMessage(run: DomainRun, message: DomainMessage): Promise<{ externalId: string }> {
@@ -289,186 +302,19 @@ export class FirstmateDomainTransport {
     return JSON.parse(stdout) as FirstmateReceipts;
   }
 
-  startSession(request: string, readiness?: FirstmateReadiness, onFailure?: (failure: string, terminal?: RepeatedLoopError) => void): Promise<FirstmateLaunch> {
-    return startFirstmateSession({ home: this.home, script: this.script, exec: this.exec, request, readiness, onFailure });
+  /**
+   * `fm-inbox.sh announce`: the wake for a note already saved but not announced, so the running FirstMate picks it
+   * up. Never a second note; one FirstMate has already acknowledged gets no wake.
+   */
+  async announce(noteId: string): Promise<void> {
+    await this.exec(this.script, ["announce", "--json", noteId], { env: this.env(), timeout: 20_000 });
   }
 }
 
-/**
- * Sessions run on Claude only. Codex and OpenCode are never session runtimes: OpenCode's default model here is its
- * ChatGPT login, and George keeps his ChatGPT/Codex allowance for images (`runtime/provider-policy.ts`), so coding
- * work waits for Claude rather than spending it.
- */
-type SessionRuntime = "claude";
-
-const SESSION_PROMPT = "Run bin/fm-session-start.sh exactly once in this home. Then handle the unread inbox notes, verify the requested work, and publish each stable outcome or genuine decision with bin/fm-inbox.sh reply. Do not send messages to George; Flyd relays replies.";
-const SESSION_LAUNCH_FAILURE = "I couldn't start the work right now. I'll keep it safe and try again when I can.";
-const SESSION_LAUNCH_OPERATION = "firstmate-session-launch";
-const launchRepeats = createRepeatGuard(MAX_IDENTICAL_LAUNCH_FAILURES);
-/** Launch failures per runtime, shared by every request: a runtime that keeps failing the same way is refused from here, without spawning. */
-export const sessionLaunchFailures = createLaunchFailureCache();
-const LAUNCH_RETRY_BASE_MS = 2 * 60_000;
-const LAUNCH_RETRY_MAX_MS = 30 * 60_000;
-const SESSION_OUTPUT_LIMIT = 8 * 1024;
-/** A spawned session that dies later than this after starting failed mid-work, not at launch. */
-const SESSION_STARTUP_MS = 60_000;
-const LAUNCH_COOLDOWN_MS = 5 * 60_000;
 const UNREAD_TOO_LONG_MS = 3 * 60_000;
-const SESSION_IDLE_MS = 15 * 60_000;
-const launchingHomes = new Set<string>();
-const launchCooldownUntil = new Map<string, number>();
 const unreadSignals = new Set<string>();
-const runlessRetry = new Map<string, { attempts: number; nextAt: number; capped: boolean }>();
-const HELPER_START_TOLERANCE_MS = 5_000;
 
-/** A helper session Flyd launched, kept in `<command dir>/firstmate-helpers.json` so a restarted Core or another Flyd process can still recognise it; its output goes to `log`, whose last write is its last sign of work. */
-interface FirstmateHelper {
-  pid: number;
-  startedAt: string;
-  home: string;
-  log: string;
-  stoppingAt?: string;
-}
-
-function helpersPath(): string {
-  return join(commandDir(), "firstmate-helpers.json");
-}
-
-function readHelpers(): FirstmateHelper[] {
-  try {
-    const parsed = JSON.parse(readFileSync(helpersPath(), "utf8")) as unknown;
-    return Array.isArray(parsed) ? parsed.filter((item): item is FirstmateHelper => Number.isInteger(item?.pid) && typeof item?.startedAt === "string" && typeof item?.home === "string" && typeof item?.log === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeHelpers(helpers: FirstmateHelper[]): void {
-  try {
-    const path = helpersPath();
-    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    const temporary = `${path}.${process.pid}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify(helpers, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-    renameSync(temporary, path);
-  } catch {
-    return;
-  }
-}
-
-function forgetHelpers(gone: (helper: FirstmateHelper) => boolean): void {
-  const helpers = readHelpers();
-  const kept = helpers.filter((helper) => !gone(helper));
-  if (kept.length === helpers.length) return;
-  writeHelpers(kept);
-  for (const helper of helpers) if (!kept.includes(helper)) removeLog(helper.log);
-}
-
-/** Empties a running helper's log so its words are not kept, leaving its last write time as the sign of work. */
-function scrubLog(log: string): void {
-  try {
-    const { atime, mtime, size } = statSync(log);
-    if (!size) return;
-    truncateSync(log, 0);
-    utimesSync(log, atime, mtime);
-  } catch {
-    return;
-  }
-}
-
-function removeLog(log: string): void {
-  try {
-    unlinkSync(log);
-  } catch {
-    return;
-  }
-}
-
-/** When the process now holding `pid` started, from `ps`; null when there is no such process. */
-async function processStartedAt(pid: number): Promise<number | null> {
-  try {
-    const { stdout } = await execFileAsync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 5_000, env: { ...process.env, LC_ALL: "C" } });
-    const started = Date.parse(String(stdout).trim());
-    return Number.isFinite(started) ? started : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Line 1 of firstmate's state/.lock is the pid of the session holding the fleet lock. */
-function lockHolderPid(home: string): number | null {
-  try {
-    const pid = Number(readFileSync(join(home, "state", ".lock"), "utf8").split("\n")[0]?.trim());
-    return Number.isInteger(pid) && pid > 0 ? pid : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Recorded helpers whose very process is still running; a record whose process ended, or whose pid now belongs to another process, is dropped with its log. */
-async function liveHelpers(): Promise<FirstmateHelper[]> {
-  const helpers = readHelpers();
-  const ended = new Set<FirstmateHelper>();
-  for (const helper of helpers) {
-    const started = await processStartedAt(helper.pid);
-    if (started === null || Math.abs(started - Date.parse(helper.startedAt)) > HELPER_START_TOLERANCE_MS) ended.add(helper);
-  }
-  if (ended.size) forgetHelpers((helper) => [...ended].some((item) => item.pid === helper.pid && item.startedAt === helper.startedAt && item.home === helper.home));
-  const live = helpers.filter((helper) => !ended.has(helper));
-  for (const helper of live) scrubLog(helper.log);
-  return live;
-}
-
-/** Flyd's own helper, the very process it launched, when it still holds the lock but has written nothing for too long; a helper Flyd did not launch is never one. */
-function idleHelper(helpers: FirstmateHelper[], home: string, nowMs: number): FirstmateHelper | undefined {
-  const holder = lockHolderPid(home);
-  const helper = holder === null ? undefined : helpers.find((item) => item.home === home && item.pid === holder);
-  if (!helper) return undefined;
-  let lastWrite: number;
-  try {
-    lastWrite = statSync(helper.log).mtimeMs;
-  } catch {
-    return undefined;
-  }
-  return nowMs - lastWrite > SESSION_IDLE_MS ? helper : undefined;
-}
-
-/** Stops an idle helper's whole process group: politely first, then for good if it is still there on a later tick. Its record goes once the process is gone. */
-function stopHelper(helper: FirstmateHelper, nowMs: number): void {
-  if (!helper.stoppingAt) {
-    writeHelpers(readHelpers().map((item) => item.home === helper.home && item.pid === helper.pid && item.startedAt === helper.startedAt ? { ...item, stoppingAt: new Date(nowMs).toISOString() } : item));
-  }
-  try {
-    process.kill(-helper.pid, helper.stoppingAt ? "SIGKILL" : "SIGTERM");
-  } catch {
-    return;
-  }
-}
-
-function sessionRuntimes(env = process.env): SessionRuntime[] {
-  const configured = env.FLYD_FIRSTMATE_RUNTIMES?.split(",").map((item) => item.trim()).filter(Boolean);
-  const values = (configured ?? []).filter((value): value is SessionRuntime => value === "claude");
-  // Claude only by default: when it is busy or limited the launch fails and is retried later, never handed to another runtime.
-  return values.length ? values : ["claude"];
-}
-
-function sessionExecutable(runtime: SessionRuntime): string {
-  return runtime;
-}
-
-function sessionArgs(runtime: SessionRuntime): string[] {
-  // Nobody is there to approve a prompt: without a mode, every firstmate script is refused and his notes go unanswered.
-  // "auto" runs routine commands and still blocks risky ones. George chose this on 2026-10-18.
-  return ["-p", "--permission-mode", "auto", "--output-format", "stream-json", "--verbose", SESSION_PROMPT];
-}
-
-const PAID_API_ENV_VARS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"];
-function sessionChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const childEnv = { ...env };
-  for (const name of PAID_API_ENV_VARS) delete childEnv[name];
-  return childEnv;
-}
-
-/** Appends one JSONL line to `~/.flyd/self-review/firstmate-session.jsonl` (`FLYD_SELF_REVIEW_DIR` overrides the directory): a launch attempt `{ at, runtime, outcome: "started" | "usage_limited" | "failed" | "repeated_loop", detail? }` or a note left unread too long `{ at, kind: "unread_note", home, notes }`, or relaunches for notes outside any domain run backing off to their cap `{ at, kind: "unread_relaunch_capped", home, notes }`. The council self-review reads the non-"started" lines in cli/src/council/reply-review.ts. */
+/** Appends one JSONL line to `~/.flyd/self-review/firstmate-session.jsonl` (`FLYD_SELF_REVIEW_DIR` overrides the directory): a note left unread too long while FirstMate is running `{ at, kind: "unread_note", home, notes }`. The council self-review reads it in cli/src/council/reply-review.ts. */
 function recordSessionAttempt(entry: Record<string, unknown>): void {
   try {
     const path = join(process.env.FLYD_SELF_REVIEW_DIR?.trim() || join(FLYD_DIR, "self-review"), "firstmate-session.jsonl");
@@ -477,213 +323,6 @@ function recordSessionAttempt(entry: Record<string, unknown>): void {
   } catch {
     return;
   }
-}
-
-export interface FirstmateLaunch {
-  started: boolean;
-  failure?: string;
-  /** Set when identical launch failures hit the cap: no caller may retry this launch. */
-  terminal?: RepeatedLoopError;
-}
-
-/** The launch an attempt repeats: the same request asking the same home and runtimes to start. */
-function launchInput(home: string, runtimes: SessionRuntime[], request: string): Record<string, unknown> {
-  return { home, runtimes: runtimes.join(","), request };
-}
-
-function forgetLaunchFailures(home: string, request: string): void {
-  launchRepeats.record(SESSION_LAUNCH_OPERATION, launchInput(home, sessionRuntimes(), request), null);
-}
-
-function repeatedLaunchFailure(attempts: number): string {
-  return `I stopped starting the work: ${attempts} identical launch attempts failed the same way, so another one won't change that.`;
-}
-
-export async function startFirstmateSession(options: {
-  home: string;
-  script: string;
-  exec: FirstmateExec;
-  /** The domain run, or the unread notes' requests, this launch serves: identical failures are counted per request. */
-  request: string;
-  readiness?: FirstmateReadiness;
-  env?: NodeJS.ProcessEnv;
-  recordAttempt?: (entry: Record<string, unknown>) => void;
-  onFailure?: (failure: string, terminal?: RepeatedLoopError) => void;
-  launchFailures?: LaunchFailureCache;
-}): Promise<FirstmateLaunch> {
-  const cache = options.launchFailures ?? sessionLaunchFailures;
-  const logAttempt = options.recordAttempt ?? recordSessionAttempt;
-  const record = (entry: Record<string, unknown>): void => {
-    logAttempt(entry);
-    if (typeof entry.runtime === "string" && entry.outcome === "failed" && entry.midSession !== true) {
-      cache.record(entry.runtime, typeof entry.detail === "string" && entry.detail ? entry.detail : String(entry.outcome));
-    }
-  };
-  const ready = options.readiness ?? await (async () => {
-    const { stdout } = await options.exec(options.script, ["ready"], { env: { ...process.env, FM_HOME: options.home }, timeout: 5_000 });
-    const parsed = JSON.parse(stdout) as { can_receive?: boolean; lock?: { live_harness?: boolean } };
-    return { available: true, canReceive: parsed.can_receive === true, liveHarness: parsed.lock?.live_harness === true };
-  })().catch(() => ({ available: true, canReceive: "unknown" as const }));
-  if (ready.canReceive !== false || ready.liveHarness) return { started: false };
-  const configured = sessionRuntimes(options.env);
-  const launch = launchInput(options.home, configured, options.request);
-  if (launchRepeats.blocked(SESSION_LAUNCH_OPERATION, launch)) {
-    const attempts = launchRepeats.attempts(SESSION_LAUNCH_OPERATION, launch);
-    const terminal = new RepeatedLoopError(repeatedLaunchFailure(attempts), attempts);
-    return { started: false, failure: terminal.message, terminal };
-  }
-  const runtimes = configured.filter((candidate) => !cache.blocked(candidate));
-  if (!runtimes.length) {
-    // Every runtime keeps failing the same way, whichever request asks: answer from that and start nothing.
-    const reason = cache.blocked(configured[0]!)!;
-    return { started: false, failure: reason, terminal: new RepeatedLoopError(reason, MAX_IDENTICAL_LAUNCH_FAILURES) };
-  }
-  let runtime: SessionRuntime | undefined;
-  let detail: string | undefined;
-  const fail = (failure: string): FirstmateLaunch => {
-    launchRepeats.record(SESSION_LAUNCH_OPERATION, launch, detail ?? failure);
-    const attempts = launchRepeats.attempts(SESSION_LAUNCH_OPERATION, launch);
-    if (attempts < MAX_IDENTICAL_LAUNCH_FAILURES) return { started: false, failure };
-    const terminal = new RepeatedLoopError(repeatedLaunchFailure(attempts), attempts);
-    record({ runtime: runtime ?? runtimes[0], outcome: "repeated_loop", home: options.home, attempts, detail: (detail ?? failure).slice(0, 500) });
-    return { started: false, failure: terminal.message, terminal };
-  };
-  const succeeded = (started: SessionRuntime): void => {
-    launchRepeats.record(SESSION_LAUNCH_OPERATION, launch, null);
-    cache.record(started, null);
-  };
-  if (options.exec === defaultFirstmateExec) {
-    // A test must never wake a real firstmate session.
-    if (process.env.VITEST && process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH !== "1") return { started: false };
-    if (launchingHomes.has(options.home)) return { started: false };
-    launchingHomes.add(options.home);
-    const handedOffFailure = (failure: string, cause?: string): void => {
-      detail = cause;
-      const stopped = fail(failure);
-      options.onFailure?.(stopped.failure!, stopped.terminal);
-    };
-    const result = await launchDetachedFirstmateSession(options.home, runtimes, record, handedOffFailure, () => launchingHomes.delete(options.home), succeeded);
-    if (!result.failure) return result;
-    detail = result.detail;
-    return fail(result.failure);
-  }
-  for (const candidate of runtimes) {
-    runtime = candidate;
-    try {
-      const result = await options.exec(candidate, sessionArgs(candidate), { env: sessionChildEnv({ ...process.env, ...options.env }), timeout: 30_000 });
-      const output = `${result.stdout}\n${result.stderr}`;
-      if (/usage limit|rate limit|quota exceeded|overloaded/i.test(output)) {
-        detail = output.slice(-500);
-        record({ runtime: candidate, outcome: "usage_limited", detail });
-        continue;
-      }
-      record({ runtime: candidate, outcome: "started" });
-      succeeded(candidate);
-      return { started: true };
-    } catch (error) {
-      detail = error instanceof Error ? error.message : String(error);
-      record({ runtime: candidate, outcome: /usage limit|rate limit|quota/i.test(detail) ? "usage_limited" : "failed", detail: detail.slice(0, 500) });
-    }
-  }
-  return fail(SESSION_LAUNCH_FAILURE);
-}
-
-function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[], record: (entry: Record<string, unknown>) => void, onFailure: (failure: string, detail?: string) => void, release: () => void, succeeded: (runtime: SessionRuntime) => void): Promise<{ started: boolean; failure?: string; detail?: string }> {
-  return new Promise((resolve) => {
-    let handedOff = false;
-    let detail: string | undefined;
-    const attempt = (index: number): void => {
-      const runtime = runtimes[index];
-      if (!runtime) {
-        release();
-        if (handedOff) onFailure(SESSION_LAUNCH_FAILURE, detail);
-        else resolve({ started: false, failure: SESSION_LAUNCH_FAILURE, detail });
-        return;
-      }
-      let settled = false;
-      let spawnedAt: number | undefined;
-      const log = join(commandDir(), "firstmate-helpers", `${process.pid}-${Date.now()}-${runtime}.log`);
-      let child: ReturnType<typeof spawn>;
-      try {
-        mkdirSync(dirname(log), { recursive: true, mode: 0o700 });
-        const fd = openSync(log, "a", 0o600);
-        try {
-          child = spawn(sessionExecutable(runtime), sessionArgs(runtime), { cwd: home, env: sessionChildEnv({ ...process.env, FM_HOME: home }), detached: true, stdio: ["ignore", fd, fd] });
-        } finally {
-          closeSync(fd);
-        }
-      } catch (error) {
-        detail = (error instanceof Error ? error.message : String(error)).slice(0, 500);
-        record({ runtime, outcome: "failed", detail });
-        attempt(index + 1);
-        return;
-      }
-      child.once("error", (error) => {
-        if (settled) return;
-        settled = true;
-        removeLog(log);
-        detail = error.message.slice(0, 500);
-        record({ runtime, outcome: "failed", detail });
-        attempt(index + 1);
-      });
-      child.once("spawn", () => {
-        handedOff = true;
-        spawnedAt = Date.now();
-        if (child.pid) {
-          forgetHelpers((helper) => helper.home === home);
-          writeHelpers([...readHelpers(), { pid: child.pid, startedAt: new Date().toISOString(), home, log }]);
-        }
-        child.unref();
-        record({ runtime, outcome: "started" });
-        resolve({ started: true });
-      });
-      child.once("close", (code) => {
-        const output = existsSync(log) ? readFileSync(log, "utf8").slice(-SESSION_OUTPUT_LIMIT) : "";
-        const stopped = readHelpers().some((helper) => helper.home === home && helper.pid === child.pid && helper.stoppingAt);
-        if (child.pid) forgetHelpers((helper) => helper.home === home && helper.pid === child.pid);
-        removeLog(log);
-        if (stopped) {
-          settled = true;
-          release();
-          return;
-        }
-        const limited = /usage limit|rate limit|quota exceeded|overloaded/i.test(output);
-        if (limited || code !== 0) {
-          detail = output.slice(-500);
-          const midSession = spawnedAt !== undefined && Date.now() - spawnedAt >= SESSION_STARTUP_MS;
-          record({ runtime, outcome: limited ? "usage_limited" : "failed", detail, ...(midSession ? { midSession } : {}) });
-          if (!settled) {
-            settled = true;
-            attempt(index + 1);
-          }
-        } else {
-          release();
-          succeeded(runtime);
-        }
-      });
-    };
-    attempt(0);
-  });
-}
-
-function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, nowMs = Date.now(), dir?: string, terminal?: RepeatedLoopError): DomainRun {
-  const current = readDomainRun(run.id, dir) ?? run;
-  if (isSettled(current.status)) return current;
-  if (terminal) {
-    const { launchRetry: _retry, ...rest } = current;
-    const at = new Date(nowMs).toISOString();
-    const stopped: DomainRun = { ...rest, status: "failed", failure: terminal.message, result: parseDomainResult(terminal.message).result, updatedAt: at, report: dueReport("failed", at) };
-    return commitDomainRun(current, stopped, dir);
-  }
-  const attempts = (current.launchRetry?.attempts ?? 0) + 1;
-  const delay = Math.min(LAUNCH_RETRY_BASE_MS * 2 ** (attempts - 1), LAUNCH_RETRY_MAX_MS);
-  const suspended: DomainRun = {
-    ...current,
-    failure,
-    launchRetry: { attempts, nextAt: new Date(nowMs + delay).toISOString() },
-    updatedAt: new Date(nowMs).toISOString(),
-  };
-  return commitDomainRun(current, suspended, dir);
 }
 
 interface FirstmateReply {
@@ -698,6 +337,8 @@ interface FirstmateNote {
   at?: string;
   request_id?: string | null;
   acknowledged?: boolean;
+  /** Whether its wake is on FirstMate's queue; null when the note predates that record. */
+  announced?: boolean | null;
   reply?: FirstmateReply | null;
 }
 
@@ -769,31 +410,28 @@ async function askForAClearStatus(run: DomainRun, cursor: string | undefined, tr
   return commitDomainRun(sent.run, { ...sent.run, statusAskedAt: now.toISOString() });
 }
 
+/** A run the retired contract gate held as "working" while its one structured re-request went unanswered. */
+function heldByOldGate(run: DomainRun): boolean {
+  const retry = (run as DomainRun & { handoffRetry?: { answeredAt?: string } }).handoffRetry;
+  return Boolean(retry && typeof retry === "object" && !retry.answeredAt);
+}
+
+/** Pending notes oldest first: the order FirstMate's inbox takes them in. */
+function inboxOrder(notes: FirstmateNote[]): FirstmateNote[] {
+  return [...notes].sort((a, b) => (Date.parse(a.at ?? "") || 0) - (Date.parse(b.at ?? "") || 0) || a.id.localeCompare(b.id));
+}
+
 /**
- * Flyd's one structured re-request for a settled reply that missed the handoff contract, through the run's own
- * transport; the run as saved after it, carrying the record that it was asked. Undelivered, nothing is recorded.
+ * Delivers the notes queued while FirstMate was not running to the running FirstMate, in order: each one saved but
+ * not announced gets its wake. A note already announced waits on FirstMate's own queue; nothing is sent twice.
  */
-async function askForAStructuredHandoff(run: DomainRun, missing: HandoffLayer[], cursor: string | undefined, transport: FirstmateDomainTransport, now: Date): Promise<DomainRun> {
-  const { sendRunMessage } = await import("./messages.js");
-  const sent = await sendRunMessage({ run, kind: "question", body: handoffReRequest(missing), from: "flyd", transport })
-    .catch(() => ({ delivered: false, run: undefined }));
-  if (!sent.delivered || !sent.run) return sent.run ?? run;
-  return commitDomainRun(sent.run, { ...sent.run, handoffRetry: { askedAt: now.toISOString(), ...(cursor ? { cursor } : {}), missing } });
-}
-
-/** A report-less first reply is held as "working" (nothing announced) until its one re-request is answered. */
-function withheldForReRequest(run: DomainRun): DomainRun {
-  const { report: _report, notified: _notified, ...rest } = run;
-  return { ...rest, status: "working" };
-}
-
-/** The terminal report-layer failure for a held run whose one re-request went unanswered past the wait, else undefined. */
-function unansweredReportFailure(run: DomainRun, now: Date): DomainRun | undefined {
-  const retry = run.handoffRetry;
-  if (run.status !== "working" || !retry || retry.answeredAt || !retry.missing.includes("report")) return undefined;
-  if (now.getTime() - Date.parse(retry.askedAt) <= HANDOFF_RETRY_WAIT_MS) return undefined;
-  const reason = handoffFailureReason(retry.missing);
-  return { ...run, status: "failed", failure: reason, incompleteReason: reason, handoffRetry: { ...retry, answeredAt: now.toISOString() }, report: dueReport("failed", now.toISOString()), updatedAt: now.toISOString() };
+async function deliverQueuedNotes(pending: FirstmateNote[], transport: FirstmateDomainTransport): Promise<void> {
+  for (const note of inboxOrder(pending)) {
+    // fm-inbox.sh `receipts` reports `announced` as true, false or null (unknown, which `announce` refuses): only false gets a wake.
+    if (note.acknowledged || note.announced !== false) continue;
+    // One that cannot be announced now is tried again on the next sync; the ones after it still go, in order.
+    await transport.announce(note.id).catch(() => undefined);
+  }
 }
 
 export async function syncFirstmateDomainRuns(options: {
@@ -805,7 +443,6 @@ export async function syncFirstmateDomainRuns(options: {
 } = {}): Promise<DomainRun[]> {
   const transport = options.transport ?? new FirstmateDomainTransport();
   if (!transport.available()) return [];
-  const helpers = await liveHelpers();
   let receipts: FirstmateReceipts;
   try {
     receipts = await transport.receipts();
@@ -813,70 +450,25 @@ export async function syncFirstmateDomainRuns(options: {
     return [];
   }
   const nowMs = (options.now ?? (() => new Date()))().getTime();
-  const oldPending = (receipts.pending ?? []).filter((note) => note.at && nowMs - Date.parse(note.at) > UNREAD_TOO_LONG_MS);
-  if (oldPending.length) {
-    const newlyUnread = oldPending.filter((note) => !unreadSignals.has(`${transport.home}:${note.id}`));
+  const pending = receipts.pending ?? [];
+  // Whether FirstMate is running decides only what the queued notes say and when they are delivered: Flyd never starts it.
+  const readiness = pending.length ? await transport.ready() : undefined;
+  const running = !readiness || firstmateRunning(readiness);
+  if (readiness && running) {
+    await deliverQueuedNotes(pending, transport);
+    // A note FirstMate, running, has left unread too long is recorded once for the self-review.
+    const newlyUnread = pending.filter((note) => note.at && nowMs - Date.parse(note.at) > UNREAD_TOO_LONG_MS && !unreadSignals.has(`${transport.home}:${note.id}`));
     for (const note of newlyUnread) unreadSignals.add(`${transport.home}:${note.id}`);
     if (newlyUnread.length) recordSessionAttempt({ kind: "unread_note", home: transport.home, notes: newlyUnread.map((note) => note.id) });
-  } else {
+  } else if (!pending.length) {
     for (const key of unreadSignals) if (key.startsWith(`${transport.home}:`)) unreadSignals.delete(key);
-    runlessRetry.delete(transport.home);
   }
-  const readiness = oldPending.length ? await transport.ready() : undefined;
-  const idle = readiness?.liveHarness ? idleHelper(helpers, transport.home, nowMs) : undefined;
-  if (idle) {
-    stopHelper(idle, nowMs);
-    return [];
-  }
-  // A settled run still waiting on the answer to its one structured re-request is read until that answer comes,
-  // or until the wait after which it counts as unanswered (acceptance.ts) has passed.
-  const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && (!isSettled(run.status) || (run.handoffRetry && !run.handoffRetry.answeredAt && run.status !== "cancelled" && nowMs - Date.parse(run.handoffRetry.askedAt) <= HANDOFF_RETRY_WAIT_MS)));
-  if (readiness) {
-    if (readiness.canReceive === false && !readiness.liveHarness) {
-      const pending = receipts.pending ?? [];
-      const waitingRun = runs.find((run) => !isSettled(run.status) && pending.some((note) => note.id === run.transport.externalId || note.request_id === run.transport.requestId));
-      const retry = runlessRetry.get(transport.home);
-      const due = waitingRun
-        ? !waitingRun.launchRetry || Date.parse(waitingRun.launchRetry.nextAt) <= nowMs
-        : (retry?.nextAt ?? 0) <= nowMs;
-      const cooling = (launchCooldownUntil.get(transport.home) ?? 0) > nowMs;
-      if (due && !cooling) {
-        launchCooldownUntil.set(transport.home, nowMs + LAUNCH_COOLDOWN_MS);
-        const runless = oldPending.filter((note) => !note.request_id || !readDomainRun(note.request_id));
-        const request = waitingRun?.id ?? (runless.length ? runless : oldPending).map((note) => note.request_id ?? note.id).sort().join(",");
-        if (!waitingRun) {
-          const attempts = (retry?.attempts ?? 0) + 1;
-          const delay = Math.min(LAUNCH_RETRY_BASE_MS * 2 ** (attempts - 1), LAUNCH_RETRY_MAX_MS);
-          const capped = delay === LAUNCH_RETRY_MAX_MS;
-          if (capped && !retry?.capped) recordSessionAttempt({ kind: "unread_relaunch_capped", home: transport.home, notes: oldPending.map((note) => note.id) });
-          if (capped && runless.length) forgetLaunchFailures(transport.home, request);
-          runlessRetry.set(transport.home, { attempts, nextAt: nowMs + delay, capped });
-        }
-        const suspend = async (run: DomainRun, failure: string, at: number, terminal?: RepeatedLoopError): Promise<void> => {
-          const next = suspendFirstmateRun(run, failure, at, undefined, terminal);
-          if (terminal && next.status === "failed") await options.onChanged?.(next);
-        };
-        const session = await transport.startSession(request, readiness, waitingRun ? (failure, terminal) => void suspend(waitingRun, failure, Date.now(), terminal).catch(() => undefined) : undefined).catch(() => ({ started: false, failure: undefined, terminal: undefined }));
-        if (session.started && waitingRun?.launchRetry) {
-          commitDomainRun(waitingRun, { ...waitingRun, failure: undefined, updatedAt: new Date(nowMs).toISOString() });
-        } else if (session.failure && waitingRun) {
-          await suspend(waitingRun, session.failure, nowMs, session.terminal);
-        }
-      }
-    }
-  }
+  const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && !isSettled(run.status));
   if (!runs.length) return [];
   const judge = options.judge ?? await defaultProseJudge();
   const notes = [...(receipts.pending ?? []), ...(receipts.handled ?? [])];
   const changed: DomainRun[] = [];
   for (const run of runs) {
-    const lapsed = unansweredReportFailure(run, new Date(nowMs));
-    if (lapsed) {
-      const settled = commitDomainRun(run, lapsed);
-      changed.push(settled);
-      await options.onChanged?.(settled);
-      continue;
-    }
     // fm-inbox.sh takes one reply per note, so FirstMate answers each of
     // George's later decisions or corrections on that message's own note.
     const noteIds = new Set([run.transport.externalId, ...(run.messages ?? []).map((message) => message.externalId)].filter(Boolean));
@@ -886,7 +478,6 @@ export async function syncFirstmateDomainRuns(options: {
     const original = own.find((item) => item.request_id === run.transport.requestId || item.id === run.transport.externalId);
     let next: DomainRun = run;
     if (original?.acknowledged && run.status === "queued") {
-      forgetLaunchFailures(transport.home, run.id);
       next = { ...next, status: "accepted", updatedAt: (options.now ?? (() => new Date()))().toISOString() };
     }
     // The newest reply is the run's current state; one already taken is never taken again.
@@ -898,15 +489,10 @@ export async function syncFirstmateDomainRuns(options: {
     // A reply Flyd cannot read as done, failed or a decision leaves the run open.
     let statusUnclear = false;
     let unclearFrom: string | undefined;
-    // A settled reply that missed the contract gets one structured re-request (askForAStructuredHandoff).
-    let reRequest: { missing: HandoffLayer[]; cursor?: string } | undefined;
     if (reply && (!reply.cursor || !run.transport.replyCursor || cursorOrder(reply.cursor) > cursorOrder(run.transport.replyCursor))) {
+      // FirstMate's reply is the report, verbatim: structured fields are used when it carries them, and otherwise
+      // the whole reply is the report (parseDomainResult). No shape is required and nothing is asked again.
       const parsed = parseDomainResult(reply.body!);
-      // The staff often answers in prose: its words are the outcome. The layered
-      // contract is still asked for, and a reply that misses it is kept whole
-      // with the gap noted, never turned from finished work into "incomplete".
-      const handoff = validateDomainHandoff(parsed.result);
-      const strict = checkDomainHandoff(parsed.result);
       // Only a structured reply's own status or Flyd's model may settle a run;
       // prose words no model could read stay "unclear" rather than being guessed.
       const outcome: ProseOutcome = parsed.status ?? (parsed.result.format === "raw" ? await proseOutcome(reply.body!, run, judge) : "completed");
@@ -915,60 +501,28 @@ export async function syncFirstmateDomainRuns(options: {
       // never a fresh decision for George.
       const predates = Boolean(reply.at) && Date.parse(reply.at!) < Date.parse(run.createdAt);
       const status: DomainRunStatus = outcome === "unclear" ? "working" : predates && outcome === "needs_decision" ? "cancelled" : outcome;
-      if ((isSettled(run.status) || (run.handoffRetry && !run.handoffRetry.answeredAt)) && !cameBack(status)) {
-        // A settled run read only for its re-request's answer takes nothing short of an outcome: it stays as it was.
-        next = { ...next, transport: { ...next.transport, replyCursor: reply.cursor } };
-      } else {
-        // The contract after light normalisation (parseDomainResult): a return that meets it is taken as is. One that
-        // misses it, on an outcome Flyd can act on, is recorded and asked once to restate itself in the contract's shape;
-        // the answer to that ask is never asked again, and if it still misses, the reason names each missing layer.
-        const contract = validateFirstmateReturn(parsed.result);
-        // Project-attribution tasks have their own deterministic check: a finished
-        // handoff without per-exchange project names or a prose report is bad_output,
-        // failed at the boundary with its named layer, never re-requested. FirstMate's
-        // own failed or needs_decision outcome stands with its brief. The failure is
-        // recorded on the run with its named layer and surfaces as a run failure.
-        const attribution = checkProjectAttributionHandoff(run, parsed.result);
-        const attributionFailure = status === "completed" && !predates && !attribution.ok ? projectAttributionFailure(run, attribution) : undefined;
-        // Only an outcome answers the re-request; "still working" leaves it open.
-        const answering = Boolean(run.handoffRetry && !run.handoffRetry.answeredAt) && cameBack(status);
-        if (!contract.ok && !run.handoffRetry && !predates && cameBack(status) && run.request.source !== "flyd" && !attributionFailure) {
-          reRequest = { missing: contract.missing, ...(reply.cursor ? { cursor: reply.cursor } : {}) };
-        }
-        const stillShort = answering && !contract.ok ? handoffFailureReason(contract.missing) : undefined;
-        const terminalReportFailure = Boolean(stillShort && !contract.ok && contract.missing.includes("report"));
-        const recordedStatus: DomainRunStatus = attributionFailure || terminalReportFailure ? "failed" : status;
-        const { notified, failure, incompleteReason: _previous, launchRetry: _retry, statusAskedAt, ...rest } = next;
-        // The answer to the re-request restating the same outcome is the same news, never told twice.
-        const restated = answering && status === run.status;
-        const news = !predates && !restated && (status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result));
-        const settledAt = reply.at ?? (options.now ?? (() => new Date()))().toISOString();
-        next = {
-          ...rest,
-          status: recordedStatus,
-          result: parsed.result,
-          updatedAt: reply.at ?? (options.now ?? (() => new Date()))().toISOString(),
-          transport: { ...next.transport, replyCursor: reply.cursor },
-          // A new outcome is announced again; the same one is not, nor an old reply replayed.
-          ...(predates ? { notified: true } : notified !== undefined && !news ? { notified } : {}),
-          // The outcome's report, in the same commit as the outcome: a restart can never lose it (command/report.ts).
-          // A reply after work was sent back to its boss is reviewed afresh even when it says the same (as is one on a run
-          // recorded before the report record that was never announced).
-          ...(cameBack(recordedStatus) && (predates || news || terminalReportFailure || attributionFailure || (run.report ? run.report.sentBack : !notified))
-            ? { report: predates ? quietReport(recordedStatus, settledAt) : dueReport(recordedStatus, settledAt) } : {}),
-          ...(status === "failed" && !attributionFailure ? { failure: parsed.result.brief } : failure !== undefined && !news && !attributionFailure ? { failure } : {}),
-          ...(!handoff.ok && !attributionFailure ? { incompleteReason: handoff.reason } : {}),
-          ...(stillShort ? { incompleteReason: stillShort } : {}),
-          ...(strict.fragment && !stillShort && !attributionFailure ? { incompleteReason: strict.reason, failure: strict.reason } : {}),
-          ...(terminalReportFailure ? { failure: stillShort, incompleteReason: stillShort } : {}),
-          ...(attributionFailure ? { failure: attributionFailure, incompleteReason: attributionFailure } : {}),
-          ...(statusAskedAt && outcome === "unclear" ? { statusAskedAt } : {}),
-          ...(answering ? { handoffRetry: { ...run.handoffRetry!, answeredAt: settledAt } } : {}),
-        };
-        if (outcome === "unclear") {
-          statusUnclear = true;
-          unclearFrom = reply.cursor;
-        }
+      const { notified, failure, incompleteReason: _previous, statusAskedAt, handoffRetry: _retry, ...rest } = next as DomainRun & { handoffRetry?: unknown };
+      const news = !predates && (status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result));
+      const settledAt = reply.at ?? (options.now ?? (() => new Date()))().toISOString();
+      next = {
+        ...rest,
+        status,
+        result: parsed.result,
+        updatedAt: settledAt,
+        transport: { ...next.transport, replyCursor: reply.cursor },
+        // A new outcome is announced again; the same one is not, nor an old reply replayed.
+        ...(predates ? { notified: true } : notified !== undefined && !news ? { notified } : {}),
+        // The outcome's report, in the same commit as the outcome: a restart can never lose it (command/report.ts).
+        // A reply after work was sent back to its boss is reviewed afresh even when it says the same (as is one on a run
+        // recorded before the report record that was never announced).
+        ...(cameBack(status) && (predates || news || (run.report ? run.report.sentBack : !notified))
+          ? { report: predates ? quietReport(status, settledAt) : dueReport(status, settledAt) } : {}),
+        ...(status === "failed" ? { failure: parsed.result.brief } : failure !== undefined && !news ? { failure } : {}),
+        ...(statusAskedAt && outcome === "unclear" ? { statusAskedAt } : {}),
+      };
+      if (outcome === "unclear") {
+        statusUnclear = true;
+        unclearFrom = reply.cursor;
       }
     } else if (run.status === "incomplete" && run.result) {
       // Recorded before prose counted as an outcome: read again what it said.
@@ -984,12 +538,26 @@ export async function syncFirstmateDomainRuns(options: {
         ...(cameBack(status) ? { report: stale && status === "completed" ? quietReport(status, settledAt) : dueReport(status, settledAt) } : {}),
       };
       statusUnclear = outcome === "unclear";
-    } else if (run.status === "working" && !run.handoffRetry && run.result?.format === "raw") {
+    } else if (run.status === "working" && run.result && heldByOldGate(run)) {
+      // Held by the retired structured re-request, which never came back: the held reply is the report.
+      const parsed = parseDomainResult(run.result.raw.at(-1) ?? run.result.detailedReport);
+      const outcome: ProseOutcome = parsed.status ?? (parsed.result.format === "raw" ? await proseOutcome(run.result.raw.at(-1) ?? run.result.detailedReport, run, judge) : "completed");
+      const status: DomainRunStatus = outcome === "unclear" ? "working" : outcome;
+      const { handoffRetry: _retry, incompleteReason: _previous, statusAskedAt: _asked, ...rest } = next as DomainRun & { handoffRetry?: unknown };
+      const settledAt = (options.now ?? (() => new Date()))().toISOString();
+      next = {
+        ...rest,
+        status,
+        result: parsed.result,
+        ...(status === "failed" ? { failure: parsed.result.brief } : {}),
+        ...(cameBack(status) ? { report: dueReport(status, settledAt), updatedAt: settledAt } : {}),
+      };
+      statusUnclear = outcome === "unclear";
+      unclearFrom = run.transport.replyCursor;
+    } else if (run.status === "working" && run.result?.format === "raw") {
       // A reply taken before its "status: …" lines could be read: read it again.
       const parsed = parseDomainResult(run.result.raw.at(-1) ?? run.result.detailedReport);
       if (parsed.status && parsed.status !== "working") {
-        const handoff = validateDomainHandoff(parsed.result);
-        const strict = checkDomainHandoff(parsed.result);
         const { incompleteReason: _previous, statusAskedAt: _asked, ...rest } = next;
         const stale = nowMs - Date.parse(run.updatedAt) > LEGACY_ANNOUNCE_WITHIN_MS;
         next = {
@@ -999,23 +567,20 @@ export async function syncFirstmateDomainRuns(options: {
           ...(stale && parsed.status === "completed" ? { notified: true } : {}),
           ...(parsed.status === "failed" ? { failure: parsed.result.brief } : {}),
           ...(cameBack(parsed.status) ? { report: (stale && parsed.status === "completed" ? quietReport : dueReport)(parsed.status, (options.now ?? (() => new Date()))().toISOString()) } : {}),
-          ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
-          ...(strict.fragment ? { incompleteReason: strict.reason, failure: strict.reason } : {}),
         };
       }
     }
-    const held = reRequest?.missing.includes("report") ? withheldForReRequest(next) : undefined;
-    const settledNext = next;
-    if (held) next = held;
+    // A note still queued says why while FirstMate is not running, and stops saying it once FirstMate is.
+    const waiting = next.status === "queued" && !running ? FIRSTMATE_WAITING : undefined;
+    if (next.waiting !== waiting) {
+      const { waiting: _waiting, ...rest } = next;
+      next = waiting ? { ...rest, waiting } : rest;
+    }
     if (JSON.stringify(next) === JSON.stringify(run)) continue;
     // Only what this sync changed is applied, so a message `flyd view` sent meanwhile survives.
     next = commitDomainRun(run, next);
     // Flyd's own notes (check-ins, closes) settle from their reply, but are never chased for a clearer one.
     if (statusUnclear && !next.statusAskedAt && next.request.source !== "flyd") next = await askForAClearStatus(next, unclearFrom, transport, (options.now ?? (() => new Date()))());
-    if (reRequest) {
-      next = await askForAStructuredHandoff(next, reRequest.missing, reRequest.cursor, transport, (options.now ?? (() => new Date()))());
-      if (held && !next.handoffRetry) next = commitDomainRun(next, { ...settledNext, transport: next.transport, messages: next.messages });
-    }
     changed.push(next);
     await options.onChanged?.(next);
   }

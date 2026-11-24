@@ -281,7 +281,7 @@ describe("before display", () => {
     };
   }
 
-  it("fails an unstructured project-attribution return as a surfaced run failure, with no re-request", async () => {
+  it("settles a project-placement reply as it is, even naming a project not on the list: never a failure, never a re-request", async () => {
     const id = "flyd-project-threads-1794406370827";
     const originalMessage = [
       "Flyd's own note, no work asked and nothing for George. Say which project each is about.",
@@ -290,7 +290,7 @@ describe("before display", () => {
       "abcd1234 | the dashboard is slow",
       "beef5678 | new email rules",
     ].join("\n");
-    const reply = { id: "note-9", at: "2026-10-14T01:00:00.000Z", body: "abcd1234: DIR\nbeef5678: Liesel", cursor: "000000000001" };
+    const reply = { id: "note-9", at: "2026-10-14T01:00:00.000Z", body: "abcd1234: Georgegalanakis\nbeef5678: Liesel", cursor: "000000000001" };
     const sentNotes: string[] = [];
     const exec: FirstmateExec = async (_script, args, options) => {
       if (args[0] === "note") {
@@ -302,7 +302,7 @@ describe("before display", () => {
     const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
     saveDomainRun({
       id, owner: "FirstMate", status: "accepted",
-      request: { id, domain: "coding", originalMessage, intendedOutcome: "Say which project each exchange is about", doneWhen: ["every id listed has a line in the reply"], createdAt: "2026-10-14T00:00:00.000Z" },
+      request: { id, domain: "coding", originalMessage, intendedOutcome: "Say which project each exchange is about", doneWhen: ["every id listed has a line in the reply"], createdAt: "2026-10-14T00:00:00.000Z", source: "flyd" },
       createdAt: "2026-10-14T00:00:00.000Z", updatedAt: "2026-10-14T00:00:00.000Z",
       transport: { kind: "firstmate", requestId: id, externalId: "note-9" },
     });
@@ -310,12 +310,10 @@ describe("before display", () => {
     await syncFirstmateDomainRuns({ transport, judge: async () => "completed" });
 
     const run = readDomainRun(id)!;
-    expect(run.status).toBe("failed");
-    expect(run.failure).toContain(id);
-    expect(run.failure).toMatch(/report/);
-    expect(run.incompleteReason).toBe(run.failure);
-    expect(run.report).toMatchObject({ state: "due", status: "failed" });
-    expect(run.handoffRetry).toBeUndefined();
+    expect(run.status).toBe("completed");
+    expect(run.failure).toBeUndefined();
+    expect(run.incompleteReason).toBeUndefined();
+    expect(run.result?.detailedReport).toBe(reply.body);
     expect(sentNotes).toEqual([]);
   });
 

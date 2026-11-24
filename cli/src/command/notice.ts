@@ -1,4 +1,3 @@
-import { terminalHandoffFailure } from "../runtime/acceptance.js";
 import { gateOutgoing, outgoingShortfalls, recordHeld, relayMayShow, screenOutgoing } from "../council/reply-review.js";
 import type { Said } from "../council/standard.js";
 import { plainSaid } from "../lib/backstage.js";
@@ -102,14 +101,6 @@ export function gateNotice(run: DomainRun, text: string, asks: boolean, written 
 /** The notification text for a run, or null when nothing George cares about happened, or when what it says may not reach him as written. */
 export function captainNotice(run: DomainRun): string | null {
   if (!run.result) return null;
-  // An unstructured handoff is not an outcome. The contract's reason code and
-  // the re-request are Flyd's own process (runtime/acceptance.ts): he hears
-  // that nothing counts as done, never the code or a process call, and the
-  // line it would have been is recorded.
-  if (run.incompleteReason?.startsWith("handoff:missing") || terminalHandoffFailure(run)) {
-    const raw = `${run.incompleteReason} - nothing was reported as done. Rerun it with a brief, a report and evidence.`;
-    return gateOutgoing(outgoing(run, raw), `${namedWork(run).replace(/[.!?]+$/, "") || "Some of your work"} came back without a clear report, so nothing counts as done yet.`);
-  }
   const brief = stripCommitIds(plainBrief(run.result.brief));
   if (!brief) return null;
   if (run.status === "needs_decision") return decisionNotice(run, brief);
