@@ -545,18 +545,17 @@ export class SnapshotDiffer {
   }
 
   /**
-   * The card for finished work the reply carries (its picture, the page it changed): the relay's own line
-   * when it has one, else the reply's first line as Flyd says it. Card-ness was settled by the artefact.
+   * The card for finished work the reply carries (its picture, the page it changed): a landed or stuck relay's
+   * own line, else the reply's words as Flyd says them, its question left to the buttons under the card.
    */
   private resultCard(message: ConversationMessage, relay: GeorgeLine | undefined, staffWords: boolean, asked?: string): RenderedMessage["card"] {
-    if (relay && relay.kind !== "absorbed") {
+    if (relay?.kind === "landed" || relay?.kind === "blocker") {
       const line = inFlydsVoice(relay.line).replace(/[:;,]$/, "");
-      // A question he has moved past is no longer his call: the work it shows is told plainly.
       if (relay.kind === "landed") return { kind: "landed", line, ...(relay.url ? { url: relay.url } : {}) };
-      return { kind: relay.kind === "blocker" ? "blocker" : "note", line };
+      return { kind: "blocker", line };
     }
     const voiced = inFlydsVoice(message.text);
-    const line = condense(staffWords ? plainSaid(voiced) : voiced, { maxChars: 240, keepAsk: false }).trim();
+    const line = condense(staffWords ? plainSaid(voiced) : voiced, { maxChars: 240, keepAsk: false }).replace(/(?:^|\s+)[^.!?\n]*\?["”')\]]*$/, "").trim();
     // The staff's line passes the same outgoing checks as any relay: a line that fails leaves no card.
     if (!line || (staffWords && this.heldRelay(line, asked))) return undefined;
     return { kind: "note", line };

@@ -237,6 +237,15 @@ describe("SnapshotDiffer relays", () => {
     expect(shown!.choice).toMatchObject({ options: ["Yes", "No"] });
   });
 
+  it("tells a relayed change that also asks him by what was done, its question asked once under the card", () => {
+    const [shown] = new SnapshotDiffer().next({ messages: [
+      { id: "t1", role: "assistant", text: "Changed the header on the shop page. Shall I push it?", aside: true, page: { url: "http://127.0.0.1:4000/shop", label: "127.0.0.1:4000/shop" } },
+    ], working: false }).messages;
+    expect(shown!.choice).toMatchObject({ options: ["Yes", "No"] });
+    expect(shown!.card!.line).toContain("header on the shop page");
+    expect(shown!.card!.line).not.toContain("push it");
+  });
+
   it("never calls a reply that puts nothing to him his call, nor says a short one twice", () => {
     const status = "Work is moving: three jobs are open and none is waiting on you right now.";
     const [, shown] = new SnapshotDiffer().next({ messages: [
