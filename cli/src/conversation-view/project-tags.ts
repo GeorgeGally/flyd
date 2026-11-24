@@ -63,9 +63,7 @@ export function threadCatalogue(registry: string, projects: Array<{ id: string; 
     const entry = /^- (\S+)(?: \[[^\]]*\])? - ([^:;(]+?)(?: \([^)]*\))?\s*[:;]/.exec(line);
     if (!entry) continue;
     const [, slug, name] = entry as unknown as [string, string, string];
-    // A firstmate task is named after its project's slug ("posttraction-login-fix").
-    const taskId = slug.length >= 3 && /^[a-z0-9-]+$/.test(slug) ? [new RegExp(`(?<![a-z0-9/._-])${slug}(?:-[a-z0-9]+)+`)] : [];
-    if (!known([slug, name])) out.push({ name: name.trim(), aliases: [name.trim()], ...(taskId.length ? { patterns: taskId } : {}) });
+    if (!known([slug, name])) out.push({ name: name.trim(), aliases: [name.trim()] });
   }
   for (const project of projects) {
     const name = project.name.replace(/\s*\(.*\)\s*$/, "").trim();

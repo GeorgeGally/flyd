@@ -493,13 +493,9 @@ describe("learning from Claude Code sessions", () => {
     expect((await readSessionTurns(lookalike, 0, "2026-01-01", PROJECTS, tasteSessionRoots(PROJECTS))).turns).toEqual([]);
 
     // Even listed as a root, the automated tool's folder is never read.
-    process.env.FLYD_TASTE_ROOTS = "/Users/george/.claude-memory/claude-memory-compiler";
-    try {
-      expect(tasteSessionRoots(PROJECTS)).toEqual(["/Users/george/.claude-memory/claude-memory-compiler"]);
-      expect(sessionFiles(join(dir, "projects"), "2026-01-01", tasteSessionRoots(PROJECTS))).toEqual([]);
-    } finally {
-      delete process.env.FLYD_TASTE_ROOTS;
-    }
+    const listed = [...PROJECTS, project("compiler", "Compiler", ["/Users/george/.claude-memory/claude-memory-compiler"])];
+    expect(tasteSessionRoots(listed)).toContain("/Users/george/.claude-memory/claude-memory-compiler");
+    expect(sessionFiles(join(dir, "projects"), "2026-01-01", tasteSessionRoots(listed))).not.toContain(compiler);
   });
 
   it("skips a whole session an agent started, even turns that read like George", async () => {

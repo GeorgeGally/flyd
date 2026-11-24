@@ -98,7 +98,8 @@ until the 1st and he hears that once too.
 ## Token usage
 
 Every call Flyd makes itself, on the Anthropic API or the OpenAI-style client
-(OpenCode Go, OpenAI, OpenRouter, CommandCode, reply summaries), adds its tokens
+(OpenCode Go, OpenAI, OpenRouter, CommandCode, xAI: reply summaries, composer
+predictions, dictation cleanup and query rewrites included), adds its tokens
 to its source's day in `~/.flyd/token-usage.json` (`cli/src/lib/token-usage.ts`,
 62 days kept; no price for non-Anthropic calls), and one line to the per-call
 trail `~/.flyd/claude-usage.jsonl` (model, source, tokens; never prompt text).

@@ -28,7 +28,7 @@ import { readProjects, type Project } from "./projects.js";
 // (~/.claude/projects/**/*.jsonl), never tool output, pasted text or the
 // assistant's words (the reply before his turn is context for the model,
 // never evidence). Only sessions under his own code roots are read (the
-// project registry's repos, or FLYD_TASTE_ROOTS); crewmate worktrees,
+// project registry's repos); crewmate worktrees,
 // automated tools' sessions and agent-launched sessions are skipped. Each
 // learning call carries only the existing rules related to its messages.
 // PRIVACY: candidate turns are sent, redacted, to Flyd's configured model.
@@ -637,14 +637,10 @@ export function isAgentSessionDir(name: string): boolean {
 
 /**
  * The folders George's own sessions run in: the code roots of his registered
- * projects, or FLYD_TASTE_ROOTS (comma- or colon-separated paths) when set,
- * which replaces the registry's list. Sessions anywhere else are never read.
+ * projects. Sessions anywhere else are never read.
  */
-export function tasteSessionRoots(projects: Project[], env: NodeJS.ProcessEnv = process.env): string[] {
-  const override = env.FLYD_TASTE_ROOTS?.trim();
-  const roots = override
-    ? override.split(/[,:]/).map((root) => root.trim().replace(/^~(?=\/|$)/, homedir()))
-    : projects.flatMap((project) => project.repos);
+export function tasteSessionRoots(projects: Project[]): string[] {
+  const roots = projects.flatMap((project) => project.repos);
   return [...new Set(roots.map((root) => root.replace(/\/+$/, "")).filter((root) => root.startsWith("/")))];
 }
 

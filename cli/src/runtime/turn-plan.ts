@@ -115,10 +115,12 @@ export const TEAMS = {
 // header ("[Captain is replying from Flyd to … His reply follows.]") is
 // plumbing; only his words after it count.
 const REPLY_HEADER = /^\s*\[(?:Captain is replying from Flyd|Flyd is answering for the captain)\b[^\]\n]*\]\s*/;
-const SHORT_REPLY_PARTS = [
-  // yes
+const YES_PARTS = [
   "y(?:es|eah|ep|up|a)?", "sure", "ok(?:ay)?", "k+", "fine", "correct", "right", "exactly", "absolutely", "definitely", "please",
   "go(?: ahead| for it)?", "do it", "do that", "sounds good", "looks good", "lgtm", "perfect", "great", "cool", "nice", "good", "agreed", "approved?", "ship it", "that one", "this one",
+];
+const SHORT_REPLY_PARTS = [
+  ...YES_PARTS,
   // no
   "no", "nope", "nah", "not now", "not yet", "later", "skip(?: it)?", "leave it", "never ?mind", "cancel(?: it)?", "don'?t",
   // acknowledgements
@@ -127,7 +129,11 @@ const SHORT_REPLY_PARTS = [
   "(?:option|choice|number|no\\.?|#) ?\\d{1,2}", "\\d{1,2}", "[a-d]", "(?:the )?(?:first|second|third|fourth|last|other|former|latter)(?: one| option)?",
   "both", "neither", "either", "all(?: of them)?", "none(?: of them)?",
 ];
-const SHORT_REPLY = new RegExp(`^(?:${SHORT_REPLY_PARTS.join("|")})(?:[\\s,.!]+(?:${SHORT_REPLY_PARTS.join("|")}))?$`, "i");
+const pair = (first: string[]): RegExp => new RegExp(`^(?:${first.join("|")})(?:[\\s,.!]+(?:${SHORT_REPLY_PARTS.join("|")}))?$`, "i");
+const SHORT_REPLY = pair(SHORT_REPLY_PARTS);
+const APPROVAL = pair(YES_PARTS);
+// Flyd offering to do something ("Want me to check your calendar and draft the reply?").
+const OFFERS_WORK = /\b(?:(?:do you |would you )?want me to|would you like me to|shall i|should i|i can(?!'|not)|i could|happy to|let me know if you(?:'d)? (?:like|want) me to)\b/i;
 
 /** His own words in a message, without the window's reply header. */
 export function replyWords(message: string): string {
@@ -138,14 +144,16 @@ export function replyWords(message: string): string {
  * True for a short reply that takes the light path: a yes/no, a choice pick
  * or an acknowledgement, alone or with one more ("yes, thanks"), including his
  * reply to a question Flyd or FirstMate put to him. Anything with more to say
- * ("no, make it blue") is not one.
+ * ("no, make it blue") is not one, and nor is a yes to work Flyd just offered
+ * (`previous`, Flyd's last line): the work he approved needs the full loop.
  */
-export function isShortReply(message: string): boolean {
+export function isShortReply(message: string, previous?: string): boolean {
   const said = replyWords(message);
   const words = said.replace(/[\p{Extended_Pictographic}\uFE0F]+/gu, " ").replace(/[.!?…]+$/u, "").replace(/\s+/g, " ").trim();
+  const offered = previous !== undefined && OFFERS_WORK.test(previous);
   // A thumbs-up on its own is a yes.
-  if (!words) return said.length > 0 && said.length <= 8;
-  return words.length <= 40 && SHORT_REPLY.test(words);
+  if (!words) return !offered && said.length > 0 && said.length <= 8;
+  return words.length <= 40 && SHORT_REPLY.test(words) && !(offered && APPROVAL.test(words));
 }
 
 /** The light path's ceiling: a tool call to carry the reply where it goes, then the line back to him. */

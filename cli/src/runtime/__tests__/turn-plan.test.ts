@@ -180,6 +180,21 @@ describe("short replies take the light path", () => {
     }
   });
 
+  it("keeps a yes to work Flyd just offered on the full loop, and the light path for every other short reply", () => {
+    const offer = "I've found the thread. Want me to check your calendar and draft the reply?";
+    for (const text of ["go ahead", "do it", "yes please", "ship it", "Yes", "sure, thanks", "👍"]) {
+      expect(isShortReply(text, offer), text).toBe(false);
+    }
+    for (const text of ["no", "not now", "thanks", "got it", "option 2", "the second one"]) {
+      expect(isShortReply(text, offer), text).toBe(true);
+    }
+    // A yes/no answer to a question, a pick between choices and an acknowledgement of news stay light.
+    expect(isShortReply("yes", "Do you mean the repeated CapFive cards?")).toBe(true);
+    expect(isShortReply("the first one", "Two options: ship the hero fix now, or wait for review?")).toBe(true);
+    expect(isShortReply("thanks", "The hero fix landed on main.")).toBe(true);
+    expect(isShortReply("go ahead", "I can't reach your calendar right now.")).toBe(true);
+  });
+
   it("keeps the route and its hand-off, so the reply reaches the same destination, on a tight budget", () => {
     const withPassOn = [...tools, { name: "pass_on_question" }];
     const delegate = planTurn(jev("delegate", "coding"), [], { shortReply: true });

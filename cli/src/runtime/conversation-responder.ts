@@ -998,6 +998,11 @@ const PROJECT_TOPIC = /\b(?:flyd|repo|repository|codebase|code|source|runtime|br
  * go for a run?") answered better without 20KB of AGENTS.md and git logs in
  * the way; follow-ups inherit the previous turn's need.
  */
+function lastFlydLine(history: ConversationTurn[]): string | undefined {
+  const last = history.at(-1);
+  return last?.role === "assistant" ? last.content : undefined;
+}
+
 export function needsProjectContext(message: string, history: ConversationTurn[], repoNames: string[] = []): boolean {
   const recentUser = [...history].reverse().find((turn) => turn.role === "user")?.content ?? "";
   const names = repoNames.map((name) => name.toLowerCase()).filter((name) => name.length > 2);
@@ -1288,7 +1293,7 @@ export async function respondToConversation(
   }
   const answerReading = preparationNote && reading ? { ...reading, route: "answer" as const } : reading;
   const availableReading = mobile && answerReading?.route === "delegate" ? { ...answerReading, route: "answer" as const } : answerReading;
-  const plan = planTurn(availableReading, room?.cover ?? [], { unattended, shortReply: !unattended && isShortReply(input.message) });
+  const plan = planTurn(availableReading, room?.cover ?? [], { unattended, shortReply: !unattended && isShortReply(input.message, lastFlydLine(input.history)) });
   turnPlan = plan;
   // Stage: the one skill that fits this turn (its know-how rides in this turn
   // only) and, on the fast path, the one backstage note Jev found relevant.

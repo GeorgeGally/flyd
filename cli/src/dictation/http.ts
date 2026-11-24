@@ -2,6 +2,7 @@ import { Agent } from "undici";
 import { apiModelId, getKey, resolveModelConnection, usesOpenAITransport } from "../lib/config.js";
 import { qualifiedModelProvider } from "../runtime/flyd-worker-config.js";
 import { opencodeHeaders } from "../runtime/opencode-headers.js";
+import { openAITokens, recordTokenUsage } from "../lib/token-usage.js";
 
 // Dictation latency is dominated by round trips, so its requests share one
 // keep-alive pool. fn down warms it (TLS to the transcription and cleanup
@@ -87,6 +88,7 @@ export const completeText: CompleteText = async ({ model, system, user, maxToken
     signal,
   });
   if (!response.ok) throw new Error(`Dictation cleanup HTTP ${response.status}`);
-  const body = await response.json() as { choices?: Array<{ message?: { content?: string | null } }> };
+  const body = await response.json() as { choices?: Array<{ message?: { content?: string | null } }>; usage?: Parameters<typeof openAITokens>[0] };
+  try { recordTokenUsage({ source: "dictation", model, tokens: openAITokens(body.usage) }); } catch { /* bookkeeping never breaks a call */ }
   return body.choices?.[0]?.message?.content ?? "";
 };
