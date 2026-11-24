@@ -22,6 +22,9 @@ One buildable spec for the next Flyd: George works with one brilliant, proactive
 
 - [What Flyd can see of George's work](tickets/01-proactive-signals.md): git + Claude Code sessions, the ArtAndTech/Invention Studio repo and his GPT/Claude chats, Liesel boards as taste votes; studio repo and chat import not yet wired.
 
+- [What a firstmate-shaped team is](tickets/02-team-shape.md): reuse secondmate homes + brief/status/result files; relays fail on a strict reply regex and per-note firstmate launches; Research desk first, Operations last.
+- [Which models make which decisions](tickets/08-model-strategy.md): Jev routes and picks the tier; reasoning tier for hard chat, planning, taste and news; Opus (+Gemini trial) for creative review; ~$3-4/day extra.
+
 ## Not yet specified
 
 - The main screen as a whole: how chat, inline artefacts, the ambient layer, creative reviews and project canvases fit on one surface (after the ambient, briefing and canvas tickets).
