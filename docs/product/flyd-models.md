@@ -95,6 +95,15 @@ from its reported token usage and added to this calendar month's total in
 an inbox note for his next briefing; at 100% Claude drops out of every chain
 until the 1st and he hears that once too.
 
+## Token usage
+
+Every call Flyd makes itself, on the Anthropic API or the OpenAI-style client
+(OpenCode Go, OpenAI, OpenRouter, CommandCode, reply summaries), adds its tokens
+to its source's day in `~/.flyd/token-usage.json` (`cli/src/lib/token-usage.ts`,
+62 days kept; no price for non-Anthropic calls), and one line to the per-call
+trail `~/.flyd/claude-usage.jsonl` (model, source, tokens; never prompt text).
+Each agenda-tick job records under its own source, `runtime/agenda-tick:<job>`.
+
 ## Environment variables
 
 | Variable | Default | Effect |
@@ -105,7 +114,8 @@ until the 1st and he hears that once too.
 | `FLYD_CLAUDE` | on | `0` keeps Claude out of every job |
 | `FLYD_CLAUDE_CHAT_EFFORT` | `medium` | Sonnet's effort for chat turns (`low` answers faster, checks in more) |
 | `FLYD_CLAUDE_MONTHLY_CAP_USD` | `100` | Monthly Claude spend cap in US dollars |
-| `FLYD_CLAUDE_USAGE_LOG` | — | Path of an opt-in per-call usage trail, for measuring cache hits |
+| `FLYD_CLAUDE_USAGE_LOG` | `~/.flyd/claude-usage.jsonl` | Path of the per-call usage trail (all providers); `0` or `off` turns it off |
+| `FLYD_TOKEN_USAGE_FILE` | `~/.flyd/token-usage.json` | Where tokens per source per day are kept |
 | `OPENCODE_API_KEY` | — | Key for `opencode-go` entries and reply summaries |
 | `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `COMMANDCODE_API_KEY` | — | Keys for `openai`, `openrouter` and `commandcode` entries |
 | `FLYD_ROUTING_FALLBACK_MODEL` | — | Pins the room reader and view router to one exact model |

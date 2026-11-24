@@ -405,7 +405,10 @@ export function opencodeProvider(apiKey: string, model: string, fetchFn: FetchFn
         }),
       });
       if (!response.ok) throw new Error(`OpenCode Go ${response.status}`);
-      const body = (await response.json()) as { choices?: Array<{ message?: { content?: unknown } }> };
+      const body = (await response.json()) as { choices?: Array<{ message?: { content?: unknown } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+      // Loaded on use, like the Claude ledger above: tokens per source per day.
+      const { openAITokens, recordTokenUsage } = await import("../lib/token-usage.js");
+      recordTokenUsage({ source: "summaries", model: `opencode-go:${model}`, tokens: openAITokens(body.usage) });
       return tidySummary(body.choices?.[0]?.message?.content);
     },
   };
