@@ -6,6 +6,7 @@ import { FRONT_STYLE } from "./page/front-style.js";
 import { pageMarkup, type PageOptions } from "./page/markup.js";
 import { MACHINE_STYLE } from "./page/machine-style.js";
 import { MESSAGE_STYLE } from "./page/message-style.js";
+import { SIDEBAR_LIB } from "./page/sidebar-lib.js";
 import { ARTEFACT_CHAT_SCRIPT } from "./page/script-artefact-chat.js";
 import { BRIEF_SCRIPT } from "./page/script-brief.js";
 import { COLUMNS_SCRIPT } from "./page/script-columns.js";
@@ -47,6 +48,7 @@ const STYLE = BASE_STYLE + joined([CHROME_STYLE, MESSAGE_STYLE, COMPOSER_STYLE])
 
 const SCRIPT = joined([
   CORE_SCRIPT,
+  SIDEBAR_LIB,
   MESSAGES_SCRIPT,
   BRIEF_SCRIPT,
   REPLIES_SCRIPT,

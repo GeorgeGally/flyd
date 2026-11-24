@@ -337,7 +337,7 @@ export const COMPOSER_SCRIPT = `
     grow();
     input.setSelectionRange(text.length, text.length);
   }
-  commandMenu(input, document.getElementById("commands"), function () { typingPredictions.reset(); grow(); });
+  commandMenu(input, document.getElementById("commands"), function () { typingPredictions.reset(); grow(); }, projectShortcuts);
 
   // Where his message goes, said above the box: Flyd's general chat ("" is no
   // project) unless he is in a project's thread or picks one. One click changes it.
@@ -693,6 +693,14 @@ export const COMPOSER_SCRIPT = `
     var text = input.value.trim();
     var sending = attachments.slice();
     if (!text && !sending.length) { if (spoken) endVoiceWait(); return; }
+    // "/flyd" alone is a shortcut to that project's thread, not a message; a skill of the same name still runs as typed.
+    var shortcut = !spoken && !sending.length && !replying ? sideShortcutFor(text, projectShortcuts()) : null;
+    if (shortcut && !(commandList || []).some(function (c) { return c.name.toLowerCase() === shortcut.name; })) {
+      input.value = "";
+      grow();
+      followThread(shortcut.thread);
+      return;
+    }
     // A story's answer is drawn under the story itself, with its own "reading" line.
     if (centre === "news" && newsPicked && VIEW_TOKEN) { if (spoken) endVoiceWait(); newsSubmit(newsPicked, text, sending); return; }
     // A reply goes where the thing he is replying to always sent it: its run, its decision or its answer.

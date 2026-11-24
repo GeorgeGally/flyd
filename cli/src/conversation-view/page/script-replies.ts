@@ -18,7 +18,8 @@ export const REPLIES_SCRIPT = `
       return commandList;
     }).catch(function () { return []; });
   }
-  function commandMenu(input, menu, chosen) {
+  // \`projects\`, in the main message box only, lists the project shortcuts ("/flyd"): picking one opens that project's thread.
+  function commandMenu(input, menu, chosen, projects) {
     var matches = [];
     var index = 0;
     var revision = 0;
@@ -43,6 +44,7 @@ export const REPLIES_SCRIPT = `
         var name = document.createElement("span");
         name.className = "name";
         name.textContent = "/" + command.name;
+        if (command.thread) item.className += " project";
         var about = document.createElement("span");
         about.className = "about";
         about.textContent = command.description;
@@ -62,9 +64,12 @@ export const REPLIES_SCRIPT = `
       loadCommands().then(function (list) {
         if (request !== revision || !input.isConnected) return;
         if (!/^\\/([\\w:.-]*)$/.test(input.value)) return;
-        var starts = list.filter(function (c) { return c.name.toLowerCase().indexOf(query) === 0; });
+        var shortcuts = projects ? projects() : [];
+        var exact = list.concat(shortcuts).filter(function (c) { return c.name.toLowerCase() === query; });
+        var places = shortcuts.filter(function (c) { return c.name.indexOf(query) === 0 && c.name !== query; });
+        var starts = list.filter(function (c) { return c.name.toLowerCase().indexOf(query) === 0 && c.name.toLowerCase() !== query; });
         var contains = list.filter(function (c) { return c.name.toLowerCase().indexOf(query) > 0; });
-        matches = starts.concat(contains).slice(0, 50);
+        matches = exact.concat(places, starts, contains).slice(0, 50);
         index = 0;
         menu.hidden = false;
         render();
@@ -73,6 +78,14 @@ export const REPLIES_SCRIPT = `
     function choose(at) {
       var command = matches[at];
       if (!command) return;
+      if (command.thread) {
+        // A project shortcut is not a message: it opens that project's thread and leaves the box empty.
+        input.value = "";
+        close();
+        if (chosen) chosen();
+        if (typeof followThread === "function") followThread(command.thread);
+        return;
+      }
       input.value = "/" + command.name + " ";
       close();
       if (chosen) chosen();

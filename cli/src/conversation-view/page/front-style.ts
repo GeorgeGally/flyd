@@ -87,16 +87,52 @@ export const FRONT_STYLE = `
 .job .frame img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; border-radius: 3px; }
 /* The open job's picture is already in the middle, large: the card does not show it twice. */
 .job.on .frame { display: none; }
-.job .t {
-  font: 500 17px/1.34 var(--sans); letter-spacing: -0.011em; overflow-wrap: anywhere; text-wrap: pretty;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
-}
-.job.needs .t { font-size: 19px; line-height: 1.29; letter-spacing: -0.015em; }
-/* A card is read at a glance: a short title and one line. Everything else is in the open job. */
-.job .t { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-.job .next {
-  margin: 8px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
+/* A card is read at a glance: its one line is written to fit and shown whole, never cut off. Everything else is in the open job. */
+.job .next { display: block; margin: 8px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); overflow-wrap: anywhere; text-wrap: pretty; }
+.jfoot { display: flex; align-items: baseline; gap: 8px; margin-top: 14px; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
+.jfoot .w { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* Now: one line a job, no card around it. The project, a small dot that says where it stands when pointed at, then what is happening. */
+.flines { display: flex; flex-direction: column; gap: 2px; }
+:root[data-layout="front"] .job.line { margin: 0; padding: 12px 22px; background: none; border-radius: var(--card-radius); overflow: visible; }
+.job.line:hover, .job.line.on { background: var(--card); }
+.job.line.on { box-shadow: none; }
+.ltop { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.job.line .jproject { font: 600 14px/1.35 var(--sans); color: var(--ink); overflow-wrap: anywhere; }
+:root[data-layout="front"] .job.line .next { margin: 4px 0 0; padding: 0; font: 400 16px/1.45 var(--sans); color: var(--ink2); }
+:root[data-layout="front"] .job.line.done .next { color: var(--mute); }
+.ldot { display: inline-block; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--mute); cursor: help; }
+.ldot[data-tone="moving"] { background: #3A8F5C; }
+.ldot[data-tone="needs"] { background: var(--hot); }
+.ldot[data-tone="done"] { background: color-mix(in srgb, var(--mute) 60%, transparent); }
+/* A line that changed rises into place, alone: the old words are gone before the new ones arrive, so nothing overlaps. */
+.swap-in { animation: line-in .32s ease-out both; }
+@keyframes line-in { from { transform: translateY(40%); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .swap-in { animation: none; } :root[data-layout="front"] .jobs { transition: none; } }
+
+/* For this chat: what the page already holds that matches the talk. Words first; a picture only when it is meant to be seen. */
+.fterms { margin: -8px 0 20px; padding: 0 22px; font: 400 13px/1.4 var(--sans); color: var(--mute); }
+.ccards { display: flex; flex-direction: column; gap: 12px; }
+.ccard { display: flex; flex-direction: column; padding: 20px 22px 18px; border-radius: var(--card-radius); background: var(--card); color: var(--ink); text-decoration: none; transition: background-color .2s ease; }
+a.ccard:hover { background: var(--sheet); }
+.ccard .cframe { display: block; margin: 0 0 16px; padding: var(--mat-pad); border-radius: 5px; background: var(--mat); aspect-ratio: 16 / 10; overflow: hidden; }
+.ccard .cframe img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 3px; }
+.ccard .ctitle { font: 500 16px/1.35 var(--sans); letter-spacing: -0.01em; overflow-wrap: anywhere; text-wrap: pretty; }
+.ccard .ctext { margin: 6px 0 0; font: 400 14px/1.45 var(--sans); color: var(--ink2); overflow-wrap: anywhere; }
+.ccard .cby { margin: 16px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
+/* While Flyd looks: plain shimmering bars where cards will be; the cards then arrive one after another. */
+.ccard.shimmer { gap: 10px; }
+.ccard.shimmer span { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg, var(--sheet) 25%, var(--paper) 50%, var(--sheet) 75%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+.ccard.shimmer span:first-child { width: 70%; height: 16px; }
+.ccard.shimmer span:last-child { width: 40%; }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.ccard.arrive { animation: card-in .36s ease-out both; animation-delay: calc(var(--i, 0) * 140ms); }
+@keyframes card-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.fchat .fmore { margin-top: 12px; }
+@media (prefers-reduced-motion: reduce) { .ccard.shimmer span, .ccard.arrive { animation: none; } }
+
+/* The phone's one live line and the sheet's close: a phone's alone. */
+.now-strip, .sheet-close { display: none; }
 /* A decision's named answers sit on its card, under what it says, with room above them. */
 .jobask { margin: 0 0 16px; border-radius: var(--card-radius); background: var(--card); transition: background-color .2s ease, box-shadow .2s ease; }
 .jobask > .job { margin: 0; background: none; box-shadow: none; }
@@ -113,7 +149,7 @@ export const FRONT_STYLE = `
 
 .job .m { display: flex; align-items: center; gap: 6px; margin-top: 18px; font: 400 12.5px/1.4 var(--sans); color: var(--mute); white-space: nowrap; min-width: 0; }
 .job .m .s { color: var(--ink2); }
-.job .m .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.job .m .p { min-width: 0; overflow-wrap: anywhere; }
 .job .m .w { margin-left: auto; padding-left: 8px; font-variant-numeric: tabular-nums; }
 .fnew { color: var(--hot); }
 .job.done .t { font-weight: 400; color: var(--ink2); }
@@ -446,13 +482,13 @@ button.jv-thread { cursor: pointer; }
   :root[data-layout="front"] { --gut: 20px; --c-left: 0px; --c-right: 0px; --pad-x: var(--gut); --card-pad: 18px; --mat-pad: 8px; }
   /* No tabs on a phone: jobs and artefacts both run as strips above the conversation. */
   :root[data-layout="front"] .rtabs { display: none; }
-  :root[data-layout="front"][data-rtab] .jobs, :root[data-layout="front"][data-rtab] .rail:not([hidden]) { display: block !important; }
+  :root[data-layout="front"][data-rtab] .rail:not([hidden]) { display: block !important; }
   :root[data-layout="front"] body { font-size: 18px; background: var(--paper); }
   :root[data-layout="front"] header { padding: 0 var(--gut); }
   :root[data-layout="front"] header .controls { flex: none; margin-left: auto; order: 1; }
   :root[data-layout="front"] header .controls { gap: 0; }
   :root[data-layout="front"] .front-date { display: none; }
-  :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { position: static; width: auto; overflow: visible; padding: 0; }
+  :root[data-layout="front"] .rail { position: static; width: auto; overflow: visible; padding: 0; }
   :root[data-layout="front"] .rail { display: block; margin-bottom: 24px; }
   :root[data-layout="front"] .rail .news .story-pic,
   :root[data-layout="front"] .rail .news .card-stories > li > .story-stat { height: 188px; }
@@ -467,10 +503,24 @@ button.jv-thread { cursor: pointer; }
   .jobs .history { max-height: 232px; overflow-y: auto; }
   .fstrip::-webkit-scrollbar { display: none; }
   .fstrip > * { flex: 0 0 248px; width: 248px; min-width: 0; margin: 0; scroll-snap-align: start; }
-  /* A phone card is narrow: the one line wraps once rather than stop mid-word. */
-  .job .next { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
+  /* The sidebar folds into one live line under the top line; a tap opens it as a sheet from the bottom. */
+  :root[data-layout="front"][data-rtab="jobs"] .now-strip:not([hidden]) {
+    display: flex; align-items: center; gap: 10px; width: calc(100% - var(--gut) * 2); margin: 8px var(--gut) 4px; padding: 12px 14px;
+    border: 0; border-radius: 12px; background: var(--card); color: var(--ink); font: 400 15px/1.4 var(--sans); text-align: left; cursor: pointer;
+  }
+  .now-strip-text { flex: 1; min-width: 0; color: var(--ink2); overflow-wrap: anywhere; }
+  .now-strip-more { flex: none; color: var(--mute); font-size: 13px; }
+  :root[data-layout="front"][data-rtab="jobs"] .jobs {
+    display: block !important; position: fixed !important; left: 0; right: 0; bottom: 0; top: calc(var(--head-h) + 8px); z-index: 6; width: auto;
+    overflow-y: auto !important; padding: 16px var(--gut) 40px !important; border-radius: 18px 18px 0 0; background: var(--paper);
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, .15); transform: translateY(105%); transition: transform .35s cubic-bezier(.2, .9, .3, 1); animation: none;
+  }
+  :root[data-layout="front"][data-sheet] .jobs { transform: none; }
+  :root[data-layout="front"] .sheet-close { display: block; margin: 0 0 24px auto; padding: 8px 2px; border: 0; background: none; font: 500 15px/1.3 var(--sans); color: var(--ink); cursor: pointer; }
+  :root[data-layout="front"] .job.line { padding: 12px 6px; }
+  .fterms { padding: 0 6px; }
   .fhead, .fempty, .fmore { padding-left: 0; padding-right: 0; }
-  .jobs, :root[data-layout="front"] .rail { padding: 0 var(--gut) !important; }
+  :root[data-layout="front"] .rail { padding: 0 var(--gut) !important; }
   :root[data-layout="front"] .stage-head { position: static; padding: 18px var(--gut) 0; margin: 4px 0 0; }
   .stage-head h1 { font-size: 22px; }
   :root[data-layout="front"] main { margin: 0 !important; padding: 8px var(--gut) calc(var(--composer-h, 130px) + 24px) !important; min-height: 60vh; }
