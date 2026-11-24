@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="shared.css">
 <style>
   body { overflow: hidden; }
+  :root { --rest-w: 56px; --alert-w: min(320px, calc(100vw - 24px)); --open-w: min(540px, calc(100vw - 24px)); }
 
   /* A plain desktop so the island is seen in context, not on a stage. */
   .desk {
@@ -51,45 +52,55 @@
   .island {
     position: fixed; top: 6px; left: 50%; transform: translateX(-50%);
     z-index: 10;
-    width: 236px; height: 34px; border-radius: 17px;
+    width: var(--rest-w); height: 34px; border-radius: 17px;
     background: #0b0b0c; color: #f2f2f4;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
     overflow: hidden;
     transition: width 0.42s cubic-bezier(.3,1.3,.5,1), height 0.42s cubic-bezier(.3,1.3,.5,1), border-radius 0.42s;
     cursor: default;
   }
-  .island.peek { width: 380px; }
-  .island.open { width: 540px; height: var(--open-h, 300px); border-radius: 26px; }
+  .island.alerting { width: var(--alert-w); }
+  .island.open { width: var(--open-w); height: var(--open-h, 300px); border-radius: 26px; }
 
   .rest {
-    position: absolute; inset: 0; display: flex; align-items: center; gap: 10px; padding: 0 14px;
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 0 18px;
     font-size: 13px; transition: opacity 0.2s;
   }
   .island.open .rest { opacity: 0; pointer-events: none; }
-  .dots { display: flex; gap: 4px; flex: none; }
-  .dots .dot { width: 6px; height: 6px; }
-  .rest .swap { flex: 1; color: #d8d8dc; }
-  .rest .swap > span { color: #d8d8dc; }
+
+  /* One text node per line, so two lines can never be on screen together.
+     A change fades the old text out completely, swaps it while invisible,
+     then fades the new text in (see setLine below). */
+  .line { display: block; min-width: 0; }
+  .line > span {
+    display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    opacity: 1; transform: none; transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+  .line > span.out { opacity: 0; transform: translateY(-4px); }
+  .line > span.pre { opacity: 0; transform: translateY(4px); transition: none; }
+  .rest .line { color: #d8d8dc; text-align: center; max-width: 100%; }
+  /* Resting: one small dot, nothing to read. Its colour carries the only news
+     (green breathing = work under way, amber = something to look at). */
+  .rest .dot { width: 8px; height: 8px; transition: background 0.4s, opacity 0.2s; }
+  .island.alerting .rest .dot { display: none; }
 
   .panel {
-    position: absolute; left: 0; right: 0; top: 0; padding: 18px 18px 18px;
+    position: absolute; left: 50%; transform: translateX(-50%); width: var(--open-w); top: 0; padding: 18px 18px 18px;
     opacity: 0; transition: opacity 0.2s; pointer-events: none;
   }
   .island.open .panel { opacity: 1; pointer-events: auto; transition-delay: 0.12s; }
   .panel h2 { margin: 2px 6px 10px; font-size: 13px; font-weight: 600; color: #8e8e93; }
 
   .row {
-    display: grid; grid-template-columns: 8px 112px 1fr; align-items: center; gap: 12px;
+    display: grid; grid-template-columns: 112px 1fr; align-items: center; gap: 12px;
     width: 100%; padding: 10px 8px; border: 0; background: transparent; border-radius: 12px;
     text-align: left; font-size: 14px;
   }
   .row:hover { background: rgba(255, 255, 255, 0.07); }
   .row .name { color: #f2f2f4; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .row .swap > span { color: #c7c7cc; }
-  .island [data-tone="moving"] ~ .swap > .swap-in {
-    background-image: linear-gradient(90deg, #c7c7cc 0%, #c7c7cc 40%, #fff 50%, #c7c7cc 60%, #c7c7cc 100%);
-  }
-  .rest [data-tone] + .swap > .swap-in { color: #d8d8dc; }
+  .row .line > span { color: #c7c7cc; }
+  .row[data-tone="look"] .line > span { color: #f2f2f4; }
+  .row[data-tone="alert"] .line > span { color: #ff8f84; }
 
   /* Tapping a line shows what happened, in order, inside the island. */
   .detail { display: none; padding: 4px 8px 2px; }
@@ -108,8 +119,7 @@
   }
 
   /* The one case that earns attention: it holds the island, no OK needed. */
-  .island.alerting { width: 400px; }
-  .island.alerting .rest .swap > span { color: #fff; }
+  .island.alerting .rest .line > span { color: #ff8f84; }
 
   .guide {
     position: fixed; left: 16px; right: 16px; bottom: 24px; margin: 0 auto; max-width: 560px;
@@ -128,17 +138,9 @@
     .window { left: 0; right: 0; top: 0; bottom: 0; border-radius: 0; border: 0; }
     .window .bar { height: 88px; align-items: flex-end; padding-bottom: 12px; }
     .window pre { padding: 24px 20px; font-size: 12px; }
-    .island { top: 10px; width: 140px; }
-    .island .rest .swap { display: none; }
-    .island .rest { justify-content: center; }
-    .island.peek { width: calc(100vw - 24px); }
-    .island.peek .rest .swap, .island.alerting .rest .swap { display: block; }
-    .island.peek .rest, .island.alerting .rest { justify-content: flex-start; }
-    .island.open, .island.alerting { width: calc(100vw - 24px); }
-    .row { grid-template-columns: 8px 1fr; gap: 2px 12px; font-size: 14px; }
-    .row .dot { grid-row: 1; }
-    .row .swap { grid-column: 2; }
-    .row .swap > span { white-space: normal; }
+    .island { top: 10px; }
+    .row { grid-template-columns: 1fr; gap: 2px; font-size: 14px; }
+    .row .line > span { white-space: normal; }
     .panel h2 { margin-bottom: 6px; }
     .guide { bottom: 16px; }
   }
@@ -162,8 +164,8 @@ function frame(t) {
 
 <div class="island" id="island" aria-live="polite">
   <div class="rest" id="rest">
-    <div class="dots" id="dots"></div>
-    <div class="swap" id="restText"></div>
+    <div class="dot" id="pip"></div>
+    <div class="line" id="restText"></div>
   </div>
   <div class="panel" id="panel">
     <div class="rows" id="rows"><h2>Going on now</h2></div>
@@ -183,10 +185,36 @@ function frame(t) {
 
 <script src="shared.js"></script>
 <script>
-  const { jobs, startLive, swapText } = FLYD;
+  const { jobs, startLive } = FLYD;
+
+  // Change a line's text without ever showing two lines at once. The line owns
+  // a single span: fade it out fully, swap the text while it is invisible, fade
+  // it in. If more changes arrive meanwhile, only the latest is shown.
+  const FADE = 190;
+  function setLine(el, text) {
+    if (el._want === text) return;
+    el._want = text;
+    if (!el.firstElementChild) el.appendChild(document.createElement("span"));
+    if (!el._busy) runLine(el);
+  }
+  function runLine(el) {
+    const s = el.firstElementChild;
+    if (s.textContent === el._want) return;
+    const show = () => {
+      s.classList.add("pre");
+      s.textContent = el._want;
+      void s.offsetWidth;
+      s.classList.remove("out", "pre");
+    };
+    el._busy = true;
+    const done = () => { el._busy = false; if (s.textContent !== el._want) runLine(el); };
+    if (!s.textContent) { show(); setTimeout(done, FADE); return; }
+    s.classList.add("out");
+    setTimeout(() => { show(); setTimeout(done, FADE); }, FADE);
+  }
+
   const island = document.getElementById("island");
   const rows = document.getElementById("rows");
-  const dots = document.getElementById("dots");
   const restText = document.getElementById("restText");
   const touch = matchMedia("(hover: none)").matches;
   if (touch) document.getElementById("guideText").textContent = "Tap the island to see what's going on.";
@@ -194,17 +222,12 @@ function frame(t) {
   const state = {};       // job id -> { step, history: [{t, text}] }
   const rowEls = {};
   let alerting = false;
-  let peekTimer = null;
   let detailJob = null;
 
   jobs.forEach((job) => {
-    const d = document.createElement("span");
-    d.className = "dot"; d.id = "dot-" + job.id;
-    dots.appendChild(d);
-
     const r = document.createElement("button");
     r.className = "row";
-    r.innerHTML = `<span class="dot"></span><span class="name">${job.project}</span><span class="swap"></span>`;
+    r.innerHTML = `<span class="name">${job.project}</span><span class="line"></span>`;
     r.addEventListener("click", (e) => { e.stopPropagation(); showDetail(job); });
     rows.appendChild(r);
     rowEls[job.id] = r;
@@ -215,10 +238,7 @@ function frame(t) {
     if (alerting) return;
     const look = jobs.filter((j) => state[j.id].step?.tone === "look").length;
     const moving = jobs.filter((j) => state[j.id].step?.tone === "moving").length;
-    const parts = [];
-    if (moving) parts.push(`${moving} moving`);
-    if (look) parts.push(`${look} ready to look at`);
-    swapText(restText, parts.join(" · ") || "All quiet");
+    document.getElementById("pip").dataset.tone = look ? "look" : moving ? "moving" : "done";
   };
 
   const clock = () => {
@@ -233,22 +253,12 @@ function frame(t) {
     if (s.history.length > 6) s.history.shift();
     if (alerting && job.id === "capfive") return;
 
-    document.getElementById("dot-" + job.id).dataset.tone = step.tone;
     const r = rowEls[job.id];
-    r.querySelector(".dot").dataset.tone = step.tone;
-    swapText(r.querySelector(".swap"), step.text);
+    r.dataset.tone = step.tone;
+    setLine(r.querySelector(".line"), step.text);
     if (detailJob === job) renderDetail();
 
-    // A change peeks out for a few seconds, then the island settles again.
-    // Only changes that mean something peek: a finish or something to look at.
-    if (!island.classList.contains("open") && !alerting && (step.tone === "done" || step.tone === "look")) {
-      island.classList.add("peek");
-      swapText(restText, `${job.project}: ${step.text}`);
-      clearTimeout(peekTimer);
-      peekTimer = setTimeout(() => { island.classList.remove("peek"); restCalm(); }, 4200);
-    } else if (!island.classList.contains("peek")) {
-      restCalm();
-    }
+    restCalm();
   });
 
   function fitHeight() {
@@ -259,7 +269,6 @@ function frame(t) {
   let closeTimer = null;
   function open() {
     clearTimeout(closeTimer);
-    island.classList.remove("peek");
     island.classList.add("open");
     fitHeight();
   }
@@ -307,18 +316,16 @@ function frame(t) {
     island.classList.toggle("alerting", alerting);
     const capRow = rowEls.capfive;
     if (alerting) {
-      clearTimeout(peekTimer); island.classList.remove("peek");
-      document.querySelectorAll("#dot-capfive, #rows .row:first-of-type .dot").forEach((d) => (d.dataset.tone = "alert"));
-      capRow.querySelector(".dot").dataset.tone = "alert";
-      swapText(restText, "CapFive client is waiting on the deploy");
-      swapText(capRow.querySelector(".swap"), "Client is waiting on the deploy");
+      capRow.dataset.tone = "alert";
+      setLine(restText, "CapFive client is waiting on the deploy");
+      setLine(capRow.querySelector(".line"), "Client is waiting on the deploy");
       alertBtn.textContent = "Client answered";
     } else {
       const s = state.capfive.step;
-      document.getElementById("dot-capfive").dataset.tone = s.tone;
-      capRow.querySelector(".dot").dataset.tone = s.tone;
-      swapText(capRow.querySelector(".swap"), s.text);
+      capRow.dataset.tone = s.tone;
+      setLine(capRow.querySelector(".line"), s.text);
       alertBtn.textContent = "Show a client waiting";
+      setLine(restText, "");
       restCalm();
     }
   });

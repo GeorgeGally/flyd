@@ -43,10 +43,9 @@ It leaves out four things that are clunky in Posttraction:
 
 A calm black pill sits at the top centre over a normal desktop.
 
-- **Resting.** One dot per job and a summary such as "4 moving · 1 ready to look at". The dots breathe while work is moving.
-- **Peek.** Only a finish or "ready for your eye" makes the pill widen for about 4 seconds to say which project and what happened. Then it settles again. Routine steps never peek.
-- **Hover** (tap on a phone). The pill opens into the live lines. Clicking a line shows that job's recent steps with times, plus **Open its canvas**. Moving the pointer away collapses it.
-- **Show a client waiting** demonstrates one of the four interruptions agreed in ticket 03 (a client is waiting, money is at risk, something live is broken, or a creative review is holding work up). The resting pill turns to a red dot and a plain sentence. It holds that state until the situation changes, not until George clicks OK.
+- **Resting.** One small dot in a black pill, with no text. The pill has one fixed size (56 × 34) that never changes while it rests. The dot is green and breathes while work is moving, turns amber when something is ready to look at, and is grey when all is quiet. Routine steps and finishes change nothing you can see.
+- **Hover** (tap on a phone). The pill opens into the live lines (one line per job, no dots). When it closes it returns to exactly the resting size. Clicking a line shows that job's recent steps with times, plus **Open its canvas**. Moving the pointer away collapses it.
+- **Show a client waiting** demonstrates one of the four interruptions agreed in ticket 03 (a client is waiting, money is at risk, something live is broken, or a creative review is holding work up). The pill widens to show one short plain sentence in red ("CapFive client is waiting on the deploy"). It holds that state until the situation changes, not until George clicks OK, then returns to the resting dot.
 
 ## C. Project overview from chat (`c-overview.html`)
 
@@ -81,9 +80,9 @@ Use all three, each for one job:
    - Content follows the governed-evidence rules: shown as evidence, never written into memory automatically.
    - Lookups happen once the chat settles, not on every keystroke.
 2. **B replaces today's dynamic-island notifications** as the Mac presence outside the chat window:
-   - At rest it is a quiet pill.
-   - It peeks only for a finish or a "ready for your eye".
-   - It holds a plain red sentence only for the four interruptions.
+   - At rest it is one small dot, fixed size, no text.
+   - Its colour says if something is ready for George's eye.
+   - It grows to a plain red sentence only for the four interruptions.
    - It never shows a spinner without words, never a "Sent" echo, and never a cut-off headline.
 
    This answers ticket 11.
@@ -93,4 +92,4 @@ Use all three, each for one job:
 
 - Should the inspirations follow only the chat, or also the project canvas George has open? Posttraction followed the section being edited.
 - What does "Add to canvas" add to: the current project's canvas, or a scratch board?
-- When a peek and an interruption arrive together, the interruption wins. Is a red dot and one sentence enough, or should the island also play a sound for the client and money cases?
+- Is one red sentence enough, or should the island also play a sound for the client and money cases?
