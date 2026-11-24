@@ -207,9 +207,9 @@ export const MESSAGES_SCRIPT = `
     el.classList.toggle("answer", !!message.answers);
     el.classList.toggle("aside", !!message.aside);
   }
-  // A relayed staff update is a compact card: a coloured dot for what kind of news it is, one line, its link, its picture.
+  // An artefact the reply carries is a compact card: a coloured dot for what kind of news it is, one line, its link, its picture.
   // No label sits above the line: what needs him says so inside the sentence, the rest is the dot's colour.
-  var STATE_LEADS = { decision: "Needs your choice", needs: "Needs your choice", blocker: "Stuck", stuck: "Stuck" };
+  var STATE_LEADS = { blocker: "Stuck", stuck: "Stuck" };
   function stateLine(state, line) {
     var lead = STATE_LEADS[state];
     line = String(line || "");
@@ -219,33 +219,11 @@ export const MESSAGES_SCRIPT = `
   function linkWord(url) {
     return /\\/pull\\/\\d+/.test(url) ? "Open the change ↗" : url.replace(/^https?:\\/\\/(www\\.)?/, "").replace(/\\/$/, "") + " ↗";
   }
-  // Several pieces of work in one reply: its opening line, then a compact card each, never paragraphs.
-  function outcomeCards(outcomes) {
-    var box = document.createElement("div");
-    box.className = "outcomes";
-    if (outcomes.lead) box.appendChild(Object.assign(document.createElement("p"), { className: "outcomes-lead", textContent: outcomes.lead }));
-    outcomes.items.forEach(function (item) {
-      var card = document.createElement("div");
-      card.className = "card card-compact card-" + item.state;
-      var text = document.createElement("div");
-      text.className = "card-text";
-      text.appendChild(Object.assign(document.createElement("p"), { className: "card-line", textContent: stateLine(item.state, item.title) }));
-      if (item.line) text.appendChild(Object.assign(document.createElement("p"), { className: "card-sub", textContent: item.line }));
-      if (item.url) text.appendChild(Object.assign(document.createElement("a"), { className: "card-link", href: item.url, target: "_blank", rel: "noopener noreferrer", textContent: linkWord(item.url) }));
-      card.appendChild(text);
-      box.appendChild(card);
-    });
-    return box;
-  }
   function staffCard(el, message) {
-    var old = el.querySelector(":scope > .card, :scope > .outcomes");
+    var old = el.querySelector(":scope > .card");
     if (old) old.remove();
-    el.classList.toggle("carded", !!(message.card || message.outcomes));
-    el.classList.toggle("carded-decision", !message.outcomes && !!message.card && message.card.kind === "decision");
-    if (message.outcomes) {
-      el.insertBefore(outcomeCards(message.outcomes), el.querySelector(":scope > .summary") || el.querySelector(":scope > .body"));
-      return;
-    }
+    // A card is an artefact Core attached (finished work with its page or picture); everything else is a message.
+    el.classList.toggle("carded", !!message.card);
     if (!message.card) return;
     var box = document.createElement("div");
     box.className = "card card-" + message.card.kind;

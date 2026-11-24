@@ -1,5 +1,5 @@
 import { choiceOf } from "./choices.js";
-import { happened, NOT_LANDED, readWork, type ReadState } from "../lib/work-state.js";
+import { happened, NOT_LANDED } from "../lib/work-state.js";
 import { namesBackstage } from "../runtime/honesty-check.js";
 import { plainSaid } from "../lib/backstage.js";
 import { inFlydsVoice } from "./flyd-voice.js";
@@ -194,15 +194,18 @@ export function georgeMarkdown(said: Exclude<GeorgeLine, { kind: "absorbed" }>):
  * Any text Flyd shows him, held to MAX_LINES short lines: lists and headings
  * flattened to prose, sentences kept whole from the top until the next would
  * pass the budget. A sentence that waits on him is always kept, unless a card
- * already asks it (`keepAsk: false`). Links in what is kept stay; a pull
+ * already asks it (`keepAsk: false`); with `dropAsk` every question is
+ * left out, for a card whose question is asked under it. Links in what is kept stay; a pull
  * request named only in what was cut is kept at the end. The full text waits
  * behind "more". Pure.
  */
-export function condense(text: string, options: { maxChars?: number; keepAsk?: boolean } = {}): string {
+export function condense(text: string, options: { maxChars?: number; keepAsk?: boolean; dropAsk?: boolean } = {}): string {
   const maxChars = options.maxChars ?? MAX_CHARS;
   const trimmed = text.trim();
   if (!trimmed) return "";
-  const said = proseSentences(trimmed);
+  const prose = proseSentences(trimmed);
+  const said = options.dropAsk ? prose.filter((sentence) => !/\?["”')\]]*$/.test(sentence)) : prose;
+  if (options.dropAsk && said.length === 0) return "";
   // "You're right." only acknowledges; what he needs starts after it.
   while (said.length > 1 && isAcknowledgement(said[0]!)) said.shift();
   if (said.length === 0) return clip(inline(trimmed), maxChars);
@@ -240,110 +243,4 @@ function shownLength(text: string): number {
 /** Whether text already fits what he reads first: short, with no list or table to scan. */
 export function fitsAtAGlance(text: string): boolean {
   return shownLength(text.trim()) <= MAX_CHARS && !/^\s*(?:(?:[-*+]|\d+[.)])\s|\|)/m.test(text);
-}
-
-/** Words with a link taken out of them, put back together: no stray commas or empty brackets. */
-function tidy(text: string): string {
-  return text.replace(/\(\s*\)/g, "").replace(/\s*,\s*,/g, ",").replace(/^[\s:,;—–-]+/, "").replace(/[\s:,;]+$/, "").replace(/\s+([,.;:])/g, "$1").replace(/\s+/g, " ").trim();
-}
-
-/** Where a piece of work stands; "handled" is a question of his Flyd already answered for him. */
-export type OutcomeState = "landed" | "underway" | "needs" | "stuck" | "note" | "handled";
-
-export interface OutcomeCard {
-  /** What the piece of work is, in a few words. */
-  title: string;
-  /** Where it stands, one short line; empty when the title says it all. */
-  line: string;
-  state: OutcomeState;
-  url?: string;
-}
-
-/** A reply that reports several pieces of work: its opening line and one card per piece. */
-export interface Outcomes {
-  lead?: string;
-  items: OutcomeCard[];
-}
-
-const ITEM = /^(?:\d+[.)]|[-*+])\s+(.+)$/;
-/** No more cards than this at once: the rest of the reply waits behind "more". */
-const MAX_CARDS = 6;
-/** Few enough words before a colon to be a name, not a sentence. */
-const NAMED = /^([^:.!?]{2,60}?):\s+(.+)$/;
-const TITLE_CHARS = 70;
-
-/** A card's state for each work state the words can say: stopped work is stuck, finished work waiting on him is his. */
-export const OUTCOME_STATE: Record<ReadState, OutcomeState> = { needs_you: "needs", ready: "needs", blocked: "stuck", moving: "underway", landed: "landed" };
-
-/** Where one piece of work stands, from its own words, read by the one work reader (lib/work-state.ts). */
-export function stateOfItem(words: string): OutcomeState {
-  const reading = readWork(words);
-  return reading ? OUTCOME_STATE[reading] : "note";
-}
-
-/**
- * A reply that lists several pieces of work ("**Chief-of-staff voice**: the
- * phantom alerts are fixed…") as cards, one per piece: its name, where it
- * stands in a line, a state, and its link; a question Flyd already answered
- * for him (`handled`) reads as handled, not his call. Null when the reply is
- * not such a list: fewer than two top-level items. Pure.
- */
-export function outcomesOf(text: string, handled?: (text: string) => boolean): Outcomes | null {
-  const lines = text.replace(/```[\s\S]*?```/g, "").split("\n");
-  const items: OutcomeCard[] = [];
-  let firstItem = -1;
-  // A lead-in such as "**Flyd (merged):**" says where the items under it stand.
-  let context: OutcomeState = "note";
-  for (const [index, raw] of lines.entries()) {
-    const found = ITEM.exec(raw);
-    if (!found) {
-      const said = inline(raw).trim();
-      if (said) context = /:$/.test(said) ? stateOfItem(said.replace(/:$/, "")) : "note";
-      continue;
-    }
-    if (firstItem < 0) firstItem = index;
-    const item = found[1]!;
-    const url = item.match(URL)?.find((link) => PULL.test(link)) ?? item.match(URL)?.[0];
-    const bold = /^\*\*(.+?)\*\*\s*[:.—–-]?\s*(.*)$/.exec(item);
-    // Links go on the card, not in its words.
-    const plain = tidy(inline(item.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")).replace(URL, ""));
-    let title: string;
-    let rest: string;
-    // "**Flyd decides itself** and Flyd watches staff are stuck…": the bold words open a sentence, they do not name the item.
-    if (bold && !/^(?:and|or|but|&|,)/i.test(bold[2]!.trim())) {
-      title = tidy(inline(bold[1]!).replace(URL, ""));
-      rest = tidy(inline(bold[2]!).replace(URL, ""));
-    } else {
-      const named = NAMED.exec(plain);
-      title = named ? named[1]! : sentences(plain)[0] ?? plain;
-      rest = named ? named[2]! : sentences(plain).slice(1).join(" ");
-    }
-    const first = sentences(rest.replace(URL, "").trim())[0] ?? "";
-    const own = stateOfItem(`${title} ${rest}`);
-    const state = own === "note" ? context : own;
-    items.push({
-      title: capitalise(clip(inFlydsVoice(title).replace(/\.$/, ""), TITLE_CHARS)),
-      line: first ? asLine(inFlydsVoice(first)) : "",
-      state: state === "needs" && handled?.(item) ? "handled" : state,
-      ...(url ? { url } : {}),
-    });
-  }
-  if (items.length < 2) return null;
-  items.splice(MAX_CARDS);
-  const opening = lines.slice(0, Math.max(0, firstItem)).join("\n");
-  const said = proseSentences(opening).filter((sentence) => !LABEL.test(sentence));
-  const lead = said.length ? asLine(inFlydsVoice(said[0]!)) : undefined;
-  return { ...(lead ? { lead } : {}), items };
-}
-
-/**
- * A single reply as one compact card: its first line said whole, the next as
- * the line under it, and where that leaves the work. Pure.
- */
-export function replyCard(text: string): { state: OutcomeState; line: string; sub?: string } | null {
-  const said = sentences(condense(text, { keepAsk: true }).replace(URL, "").replace(/\s+([.,;:])/g, "$1"));
-  if (!said[0]) return null;
-  const line = clip(said[0], LINE_CHARS * 2);
-  const sub = said[1] ? clip(said[1], LINE_CHARS * 2) : undefined;
-  return { state: stateOfItem(said.slice(0, 2).join(" ")), line, ...(sub ? { sub } : {}) };
 }
