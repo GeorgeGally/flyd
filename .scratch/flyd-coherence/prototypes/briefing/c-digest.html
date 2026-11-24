@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daily digest</title>
+<link rel="stylesheet" href="briefing.css">
+<style>
+  header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px var(--gutter); }
+  header.top h1 { margin: 0; font-size: 15px; font-weight: 650; }
+  .proto-bar.inline { position: static; transform: none; z-index: auto; }
+
+  .page { max-width: 1120px; margin: 0 auto; padding: 24px var(--gutter) 96px; }
+  .seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--track); }
+  .seg button { border: 0; background: transparent; border-radius: 999px; padding: 7px 16px; font-size: 14px; font-weight: 600; color: var(--muted); }
+  .seg button.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+  .mast { display: grid; gap: 14px; margin-top: 28px; max-width: 64ch; }
+  .mast h2 { margin: 0; font-size: clamp(28px, 3.6vw, 42px); line-height: 1.1; font-weight: 650; letter-spacing: -.015em; }
+  .mast .sum { margin: 0; font-size: 18px; line-height: 1.5; color: var(--ink-2); text-wrap: pretty; }
+  .mast .meta { margin: 0; font-size: 13px; color: var(--faint); }
+
+  .cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 56px; margin-top: 52px; align-items: start; }
+  .col { min-width: 0; }
+
+  /* Done as tiles: the proof thumbnail leads */
+  .tiles .outcomes { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+  .tiles .outcome { grid-template-columns: 1fr; gap: 4px; background: var(--surface); border-radius: var(--radius); padding: 12px 12px 18px; box-shadow: var(--shadow); align-content: start; }
+  .tiles .outcome .thumb { grid-row: auto; width: 100%; height: auto; aspect-ratio: 76 / 46; margin-bottom: 10px; box-shadow: none; }
+  .tiles .outcome .thumb svg { height: 100%; }
+  .tiles .outcome > p, .tiles .outcome .row { padding: 0 4px; }
+
+  .look { background: var(--surface); border-radius: var(--radius); padding: 20px 20px 22px; box-shadow: var(--shadow); }
+  .look + .look { margin-top: 18px; }
+  .look .opts { gap: 10px; }
+  .look .opt { padding: 7px 7px 10px; }
+  .look .opt .ln { display: none; }
+
+  .side .sec > h2 { font-size: 16px; }
+
+  @media (max-width: 900px) {
+    .cols { grid-template-columns: 1fr; gap: 0; margin-top: 40px; }
+    .cols .col + .col { margin-top: 36px; padding-top: 32px; border-top: 1px solid var(--line); }
+  }
+  @media (max-width: 640px) {
+    .tiles .outcomes { grid-template-columns: 1fr; gap: 12px; }
+    .tiles .outcome { grid-template-columns: 76px 1fr; gap: 4px 14px; padding: 12px 14px 16px 12px; }
+    .tiles .outcome > * { grid-column: 2; }
+    .tiles .outcome .thumb { grid-column: 1; grid-row: 1 / span 4; width: 76px; height: 56px; aspect-ratio: auto; margin: 0; box-shadow: 0 0 0 1px var(--line); }
+    .tiles .outcome > p, .tiles .outcome .row { padding: 0; }
+    .look { padding: 16px 14px 18px; }
+    .look .opt .ln { display: block; }
+    .mast .sum { font-size: 16px; }
+    .proto-bar.inline a { padding: 6px 9px; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Flyd</h1>
+  <nav class="proto-bar inline"><a href="a-chat.html">Chat</a><a href="b-report.html">Report</a><a class="on" href="c-digest.html">Digest</a><a href="index.html">All</a></nav>
+</header>
+
+<main class="page">
+  <div class="seg" role="tablist" aria-label="Edition">
+    <button role="tab" data-ed="morning">Morning</button>
+    <button role="tab" data-ed="evening">Evening</button>
+  </div>
+  <div id="edition" class="staged"></div>
+</main>
+
+<script src="data.js"></script>
+<script src="briefing.js"></script>
+<script>
+  const { B, esc, byId, outcomes, experiments, decisions, review, bind, reveal } = BRIEFUI;
+  const M = B.morning;
+
+  const editions = {
+    evening: {
+      title: `${B.day} evening`,
+      summary: "Four things done, five experiments running and two looks moving on my pick. Only CapFive's go-live waits for you.",
+      meta: "Arrives in chat at 18:30. Covers 07:30 to now.",
+      outs: B.outcomes, exps: B.experiments, progress: {}, decs: B.decisions, revs: B.reviews,
+      planTitle: "Tomorrow", plan: B.next,
+    },
+    morning: {
+      title: `${B.day} morning`,
+      summary: M.summary,
+      meta: "Arrives in chat at 07:30. Covers 18:30 yesterday to now.",
+      outs: M.outcomes, progress: M.progress, decs: M.decisions.map((id) => byId(B.decisions, id)),
+      exps: B.experiments.filter((e) => (M.progress[e.id] ?? e.done) > 0),
+      revs: M.reviews.map((id) => byId(B.reviews, id)),
+      planTitle: M.planTitle, plan: M.plan,
+    },
+  };
+
+  const root = document.getElementById("edition");
+  function show(ed) {
+    const e = editions[ed];
+    document.querySelectorAll(".seg button").forEach((b) => { const on = b.dataset.ed === ed; b.classList.toggle("on", on); b.setAttribute("aria-selected", on); });
+    root.innerHTML = `
+      <div class="mast rv"><h2>${esc(e.title)}</h2><p class="sum">${esc(e.summary)}</p><p class="meta">${esc(e.meta)}</p></div>
+      <div class="cols">
+        <div class="col">
+          <section class="sec tiles"><h2>Done</h2>${outcomes(e.outs)}</section>
+          <section class="sec"><h2>For your eye</h2>${e.revs.map((r) => `<div class="look">${review(r)}</div>`).join("")}</section>
+        </div>
+        <div class="col side">
+          <section class="sec"><h2>Under way</h2>${experiments(e.exps, e.progress)}</section>
+          <section class="sec"><h2>Decided, and why</h2>${decisions(e.decs)}</section>
+          <section class="sec"><h2>${esc(e.planTitle)}</h2><ol class="nexts rv">${e.plan.map((n) => `<li>${esc(n)}</li>`).join("")}</ol></section>
+        </div>
+      </div>`;
+    history.replaceState(null, "", `#${ed}`);
+    reveal(root, 60, 80);
+  }
+  document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => show(b.dataset.ed)));
+  bind(root);
+  show(location.hash === "#morning" ? "morning" : "evening");
+</script>
+</body>
+</html>

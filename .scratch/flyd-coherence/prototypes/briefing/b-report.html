@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Work report</title>
+<link rel="stylesheet" href="briefing.css">
+<style>
+  header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px var(--gutter); }
+  header.top h1 { margin: 0; font-size: 15px; font-weight: 650; }
+  .proto-bar.inline { position: static; transform: none; z-index: auto; }
+
+  /* chat: two report cards, one per big piece of work */
+  .chat { max-width: 680px; margin: 0 auto; padding: 12px var(--gutter) 80px; display: flex; flex-direction: column; gap: 22px; }
+  .chat .msg p { margin: 0; }
+  .when { align-self: center; font-size: 12px; color: var(--faint); }
+  .card { display: grid; grid-template-columns: 200px 1fr; gap: 0; margin-top: 14px; background: var(--surface); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; text-align: left; border: 0; padding: 0; width: 100%; }
+  .card:hover { box-shadow: 0 0 0 1px var(--line-2), var(--shadow); }
+  .card .cover { min-height: 150px; }
+  .card .cover > * { height: 100%; }
+  .card .txt { padding: 20px 22px 22px; display: grid; gap: 6px; align-content: start; }
+  .card .t { font-size: 17px; font-weight: 650; line-height: 1.3; }
+  .card .s { font-size: 14px; color: var(--muted); }
+  .card .counts { font-size: 13px; color: var(--faint); }
+  .card .open { margin-top: 18px; justify-self: start; }
+
+  /* report: opens over chat like a presentation */
+  .report { position: fixed; inset: 0; z-index: 40; background: var(--bg); overflow-y: auto; transform: translateY(24px); opacity: 0; pointer-events: none; transition: opacity .45s ease, transform .45s ease; }
+  .report.up { transform: none; opacity: 1; pointer-events: auto; }
+  .report .bar-top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px var(--gutter); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  .report .page { max-width: 920px; margin: 0 auto; padding: 32px var(--gutter) 120px; }
+  .report h2.head { margin: 0; font-size: clamp(26px, 3.4vw, 40px); line-height: 1.12; font-weight: 650; letter-spacing: -.015em; max-width: 22ch; text-wrap: balance; }
+  .report .lede { margin: 16px 0 0; font-size: 17px; color: var(--muted); max-width: 52ch; }
+  .report .stage { margin-top: 36px; border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); aspect-ratio: 16 / 8; position: relative; }
+  .report .stage > .px, .report .stage > .hero { height: 100%; }
+  .report .stage .playbtn { position: absolute; right: 14px; bottom: 14px; }
+  .report .body { margin-top: 56px; }
+  .report .sec > h2 { font-size: 19px; margin-bottom: 20px; }
+  .report .opts { gap: 18px; }
+  .report .nexts { font-size: 16px; }
+  .done-list { margin: 0; padding-left: 20px; display: grid; gap: 8px; font-size: 16px; }
+  .report .change { margin-top: 28px; }
+
+  @media (max-width: 640px) {
+    .card { grid-template-columns: 1fr; }
+    .card .cover { min-height: 0; aspect-ratio: 16 / 8; }
+    .card .txt { padding: 16px 16px 18px; }
+    .report .stage { aspect-ratio: 4 / 3; }
+    .report .page { padding-top: 20px; }
+    .proto-bar.inline a { padding: 6px 9px; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Flyd</h1>
+  <nav class="proto-bar inline"><a href="a-chat.html">Chat</a><a class="on" href="b-report.html">Report</a><a href="c-digest.html">Digest</a><a href="index.html">All</a></nav>
+</header>
+
+<main class="chat" id="chat">
+  <div class="when">16:40</div>
+</main>
+
+<div class="report" id="report" role="dialog" aria-modal="true" aria-label="Report">
+  <div class="bar-top"><button class="btn" id="back">Back to chat</button><span class="proj" id="rproj"></span></div>
+  <div class="page" id="rpage"></div>
+</div>
+
+<script src="data.js"></script>
+<script src="briefing.js"></script>
+<script>
+  const { B, esc, byId, outcomes, experiments, decisions, review, bind, forProject, art, play, picks } = BRIEFUI;
+
+  // One report per big piece of work. Each holds the same four things, scoped to that work.
+  const reports = [
+    {
+      id: "gg", project: "georgegalanakis", review: "pixel",
+      title: "Pixel transition for the portfolio",
+      head: "The portfolio now moves between projects in one pixel transition",
+      lede: "Three takes built, one carried through all six case studies. A timing test finishes tonight.",
+      done: ["Three takes built: Rise, Scatter and Sweep", "Rise carried through all six case studies", "Runs at 60fps on a mid-range phone"],
+      next: ["Build 900ms and put both timings side by side", "Tune the transition on phone once you've seen both"],
+      say: "The portfolio transition is done. It's on Rise, and the other two takes are in the report.",
+    },
+    {
+      id: "aat", project: "ArtAndTech", review: "hero",
+      title: "ArtAndTech homepage, first draft",
+      head: "The homepage is drafted and leads with the work",
+      lede: "Copy written from the founding charter, every portfolio fact checked. The first line is on A while the rest is written.",
+      done: ["Homepage copy drafted from the founding charter", "Every portfolio fact checked against the studio repo", "Three first lines written for the hero"],
+      next: ["Write the work section in the chosen voice", "Lay the draft onto the v1 homepage design"],
+      say: "The ArtAndTech homepage draft is ready. It leads with the work, not the charter.",
+    },
+  ];
+  const parts = (r) => ({
+    outs: forProject(B.outcomes, r.project),
+    exps: forProject(B.experiments, r.project),
+    decs: forProject(B.decisions, r.project),
+    rev: byId(B.reviews, r.review),
+  });
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+  const chat = document.getElementById("chat");
+  reports.forEach((r) => {
+    const p = parts(r);
+    const opt = byId(p.rev.options, picks[p.rev.id] || p.rev.pick);
+    const m = document.createElement("div");
+    m.className = "msg flyd";
+    m.innerHTML = `<p>${esc(r.say)}</p>
+      <button class="card" data-open="${r.id}">
+        <div class="cover">${art(p.rev, opt)}</div>
+        <div class="txt">
+          <span class="t">${esc(r.title)}</span>
+          <span class="s">${esc(r.lede)}</span>
+          <span class="counts">${plural(r.done.length, "outcome", "outcomes")} · ${plural(p.exps.length, "experiment", "experiments")} · ${plural(p.decs.length, "decision", "decisions")} · one look</span>
+          <span class="btn solid open">Open report</span>
+        </div>
+      </button>`;
+    chat.appendChild(m);
+  });
+  const tail = document.createElement("div");
+  tail.className = "msg flyd";
+  tail.innerHTML = "<p>Neither needs you. Work keeps moving on my picks, and you can change any of them from the report.</p>";
+  chat.appendChild(tail);
+
+  const report = document.getElementById("report");
+  const rpage = document.getElementById("rpage");
+  function open(id) {
+    const r = byId(reports, id);
+    const p = parts(r);
+    const opt = byId(p.rev.options, picks[p.rev.id] || p.rev.pick);
+    document.getElementById("rproj").textContent = r.project;
+    rpage.innerHTML = `
+      <h2 class="head">${esc(r.head)}</h2>
+      <p class="lede">${esc(r.lede)}</p>
+      <div class="stage">${art(p.rev, opt)}${p.rev.kind === "pixel" ? '<button class="btn playbtn" id="playbtn">Play</button>' : ""}</div>
+      <div class="body">
+        <section class="sec"><h2>Done</h2><ul class="done-list">${r.done.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></section>
+        <section class="sec"><h2>The look</h2><p class="q" style="margin:0;font-size:16px;font-weight:600">${esc(p.rev.question)}</p>${review(p.rev, { question: false })}</section>
+        <section class="sec"><h2>Under way</h2>${experiments(p.exps, {}, { project: false })}</section>
+        <section class="sec"><h2>Decided, and why</h2>${decisions(p.decs, { project: false })}</section>
+        <section class="sec"><h2>Next</h2><ol class="nexts">${r.next.map((n) => `<li>${esc(n)}</li>`).join("")}</ol>
+          <div class="actions change"><button class="btn" id="back2">Back to chat</button></div></section>
+      </div>`;
+    report.classList.add("up");
+    report.scrollTop = 0;
+    history.replaceState(null, "", `#${id}`);
+    const pb = document.getElementById("playbtn");
+    if (pb) pb.onclick = () => play(rpage.querySelector(".stage [data-px]"), 3600);
+    document.getElementById("back2").onclick = close;
+  }
+  function close() {
+    report.classList.remove("up");
+    history.replaceState(null, "", location.pathname);
+    // the cover follows any change made in the report
+    reports.forEach((r) => {
+      const rev = byId(B.reviews, r.review);
+      const cover = chat.querySelector(`[data-open="${r.id}"] .cover`);
+      cover.innerHTML = art(rev, byId(rev.options, picks[rev.id] || rev.pick));
+    });
+  }
+  chat.addEventListener("click", (e) => { const c = e.target.closest("[data-open]"); if (c) open(c.dataset.open); });
+  document.getElementById("back").onclick = close;
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+
+  bind(rpage, (type, d) => {
+    if (type === "pick") {
+      const stage = rpage.querySelector(".stage");
+      const pb = stage.querySelector("#playbtn");
+      stage.innerHTML = art(d.review, d.option);
+      if (pb) { stage.appendChild(pb); }
+      play(stage.querySelector("[data-px]"), 3600);
+    }
+  });
+
+  const h = location.hash.slice(1);
+  if (byId(reports, h)) open(h);
+</script>
+</body>
+</html>
