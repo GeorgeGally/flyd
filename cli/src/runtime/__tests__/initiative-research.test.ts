@@ -54,11 +54,15 @@ function bundle(n: number): EvidenceBundle {
     evidence: Array.from({ length: n }, (_, i) => ({
       id: "public-" + i, capability: "web", backend: "test", kind: "reference",
       title: "Particle arrays for interactive typography and rendering",
-      content: "Particle arrays for interactive typography and rendering are documented.",
+      content: i === 0
+        ? "Particle arrays for interactive typography and rendering work in a documented shader pipeline."
+        : "Particle arrays for interactive typography and rendering are also explained in independent tutorials.",
       locator: i === 0 ? "https://example.org/particle-typography" : "https://docs.example.net/particles",
       sourceItemId: "s" + i, retrievedAt: now.toISOString(), queryLabel: "main",
       nativeRank: i, localRelevance: 1, freshness: 1, sourceQuality: 1,
-      provenance: [],
+      provenance: [{ capability: "web", backend: "test", queryLabel: "main",
+        nativeRank: i, sourceItemId: "s" + i, locator: i === 0
+          ? "https://example.org/particle-typography" : "https://docs.example.net/particles" }],
     })),
   } as unknown as EvidenceBundle;
 }
@@ -108,6 +112,36 @@ describe("v10 independently checked public research", () => {
       expect(JSON.stringify(options)).not.toContain(project.what);
       expect(depth).toBe("quick");
       expect(result.finding).toContain("NOT been demonstrated");
+    } finally { db.close(); }
+  });
+
+  it("does not call syndicated copies on two hosts independent corroboration", async () => {
+    const { db, registry } = fixture();
+    try {
+      const repeated = bundle(2);
+      repeated.evidence[1]!.title = repeated.evidence[0]!.title;
+      repeated.evidence[1]!.content = repeated.evidence[0]!.content;
+      const receipt = await researchInitiative(candidate(), edition, {
+        registry, now: () => now, engine: { research: vi.fn(async () => repeated) } as never,
+      });
+      expect(receipt.status).toBe("inconclusive");
+      expect(receipt.citedEvidence).toHaveLength(1);
+    } finally { db.close(); }
+  });
+
+  it("checks contradictory public evidence even in the quick research depth", async () => {
+    const { db, registry } = fixture();
+    try {
+      const conflicting = bundle(2);
+      conflicting.evidence[0]!.content =
+        "Particle arrays for interactive typography and rendering support shader animation.";
+      conflicting.evidence[1]!.content =
+        "Particle arrays for interactive typography and rendering do not support shader animation.";
+      const receipt = await researchInitiative(candidate(), edition, {
+        registry, now: () => now, engine: { research: vi.fn(async () => conflicting) } as never,
+      });
+      expect(receipt.status).toBe("contradictory");
+      expect(receipt.counterEvidence.length).toBeGreaterThan(0);
     } finally { db.close(); }
   });
 

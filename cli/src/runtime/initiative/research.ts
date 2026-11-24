@@ -1,4 +1,5 @@
 import { EvidenceEngine } from "../../evidence/evidence-engine.js";
+import { extractEvidenceConflicts } from "../../evidence/contradictions.js";
 import { createDefaultEvidenceRegistry } from "../../evidence/default-registry.js";
 import type { EvidenceBundle, EvidenceItem, ResearchDepth } from "../../evidence/types.js";
 import { EgressPolicyGateway } from "../../intelligence/egress-policy-gateway.js";
@@ -178,24 +179,24 @@ export async function researchInitiative(
   const engine = deps.engine ?? new EvidenceEngine(createDefaultEvidenceRegistry());
   let evidence: EvidenceBundle;
   const maxWall = Math.max(1_000, Math.min(45_000, deps.maxWallMs ?? 20_000));
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    // Promise.race only enforces the return deadline. Individual adapter
-    // cancellation/abort is a later backend contract; the run's durable
-    // claim prevents a concurrent retry in the meantime.
+    // This deadline bounds Flyd's reply; underlying evidence adapters do
+    // not yet accept an AbortSignal. Do not claim the provider was cancelled.
     evidence = await Promise.race([
       engine.research(publicQuery, "quick" satisfies ResearchDepth,
         { locators: publicLocators as string[], includeSearch: true }),
       new Promise<never>((_, reject) => {
-        const id = setTimeout(() => reject(new Error("evidence_timeout")), maxWall);
-        // No leaking timer if research resolves first is desirable, but the
-        // event loop can still exit: see subsequent cancellation hardening.
-        id.unref?.();
+        timeout = setTimeout(() => reject(new Error("evidence_timeout")), maxWall);
+        timeout.unref?.();
       }),
     ]);
   } catch (error) {
     return finish("failed", "Public evidence research did not complete.",
       error instanceof Error ? error.message.slice(0, 120) : "research_error",
       { researchCalls: 1 });
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
   if (!publicResearchConsentCurrent(registry, new Date())) {
     return finish("not_permitted", "Public research permission was revoked or expired before completion.", "consent_revoked_after_fetch",
@@ -204,8 +205,20 @@ export async function researchInitiative(
   const item = eligibleItem(candidate, edition);
   if (!item) return finish("stale", "The public source changed during research.", "source_changed", { researchCalls: 1 });
 
+  // Two domains are not two independent sources if both carry the same
+  // syndicated document. Check distinct public hosts AND material extracts.
+  const seenHosts = new Set<string>();
+  const seenDocuments = new Set<string>();
   const matches = evidence.evidence.filter(row => matchingPublicItem(item, row))
-    .filter(row => row.locator && safePublicLocator(row.locator))
+    .filter(row => {
+      if (!row.locator || !safePublicLocator(row.locator)) return false;
+      const host = evidenceHost(row.locator);
+      const text = `${row.title ?? ""} ${row.content}`.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 1_200);
+      if (!host || !text || seenHosts.has(host) || seenDocuments.has(text)) return false;
+      seenHosts.add(host);
+      seenDocuments.add(text);
+      return true;
+    })
     .slice(0, MAX_PUBLIC_EVIDENCE);
   const linked = matches.map(row => ({
     id: row.id,
@@ -215,7 +228,12 @@ export async function researchInitiative(
   }));
   const hosts = new Set(linked.map(x => x.host).filter(Boolean));
   const gaps = evidence.gaps.map(g => g.code).slice(0, 5);
-  const contradicted = evidence.conflicts.length > 0;
+  // Quick EvidenceEngine runs do not populate conflicts. Reuse its existing
+  // contradiction analyzer here instead of falsely treating [] as agreement.
+  const matchedIds = new Set(matches.map(row => row.id));
+  const conflicts = [...evidence.conflicts, ...extractEvidenceConflicts(matches)]
+    .filter(conflict => matchedIds.has(conflict.left) && matchedIds.has(conflict.right));
+  const contradicted = conflicts.length > 0;
   // Separate model opt-in. The model sees ONLY fetched PUBLIC article snippets
   // (not the project name, local observations, original candidate or mandate).
   const publicSynthesis = matches.length
@@ -238,7 +256,7 @@ export async function researchInitiative(
     { citedEvidence: linked, gaps, researchCalls: 1,
       ...(publicSynthesis.interpretation ? { publicInterpretation: publicSynthesis.interpretation } : {}),
       modelCalls: publicSynthesis.modelCalls,
-      counterEvidence: evidence.conflicts.map(c => c.reason.slice(0, 180)).slice(0, 3) });
+      counterEvidence: conflicts.map(c => c.reason.slice(0, 180)).slice(0, 3) });
 }
 
 /** Bounded event payload; no arbitrary raw pages, model instructions or bytes. */
