@@ -177,7 +177,7 @@ describe("runSelfImprovement", () => {
 });
 
 describe("domain handoffs as improvement evidence", () => {
-  it("surfaces failed and unstructured manager handoffs without losing the raw result", () => {
+  it("surfaces a failed manager handoff, and never a prose reply accepted as the report", () => {
     const base = {
       id: "domain-a",
       request: {
@@ -200,7 +200,7 @@ describe("domain handoffs as improvement evidence", () => {
 
     const evidence = gatherEvidence({ flydDir: home, now: NOW });
     expect(evidence.find((item) => item.id === "domain:domain-a")?.text).toContain("handoff broke");
-    expect(evidence.find((item) => item.id === "domain-result:domain-b")?.text).toContain("unstructured domain handoff");
+    expect(evidence.some((item) => item.id.endsWith(":domain-b"))).toBe(false);
   });
 });
 

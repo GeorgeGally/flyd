@@ -224,14 +224,6 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
         id: `domain:${run.id}`, kind: "domain", at: run.updatedAt,
         text: `${run.request.domain} domain work failed under ${run.owner}: "${run.request.intendedOutcome.slice(0, 220)}" — ${(run.failure ?? run.result?.brief ?? "unknown").slice(0, 300)}`,
       });
-      continue;
-    }
-    if (!run.result || !["completed", "incomplete", "needs_decision"].includes(run.status)) continue;
-    if (run.result.format === "raw") {
-      evidence.push({
-        id: `domain-result:${run.id}`, kind: "domain", at: run.updatedAt,
-        text: `${run.owner} returned an unstructured domain handoff. Flyd preserved the raw detail, but the layered brief/report/evidence contract was not met for: "${run.request.intendedOutcome.slice(0, 220)}"`,
-      });
     }
   }
 

@@ -450,6 +450,36 @@ describe("FirstMate domain transport", () => {
     expect(judged).toBe(0);
   });
 
+  it("settles a run the retired re-request held, from its own held reply, and tells George once", async () => {
+    const now = new Date("2026-11-24T00:00:00.000Z");
+    const structured = parseDomainResult(JSON.stringify({ brief: "Fixed.", detailed_report: "Changed the call site." })).result;
+    const prose = "I looked at it but I'm not sure yet.";
+    const held = (id: string, result: DomainRun["result"]) => ({
+      id, request: { ...request(), id }, owner: "FirstMate", status: "working" as const,
+      createdAt: request().createdAt, updatedAt: "2026-11-01T00:00:00.000Z", result,
+      handoffRetry: { askedAt: "2026-11-01T00:00:00.000Z", cursor: "1", missing: ["report"] },
+      transport: { kind: "firstmate" as const, requestId: id, externalId: `note-${id}`, replyCursor: "1" },
+    });
+    saveDomainRun(held("held-structured", structured) as DomainRun);
+    saveDomainRun(held("held-prose", parseDomainResult(prose).result) as DomainRun);
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
+      pending: [],
+      handled: ["held-structured", "held-prose"].map((id) => ({ id: `note-${id}`, request_id: id, acknowledged: true, reply: { id: `note-${id}`, body: "older", cursor: "1" } })),
+    }), stderr: "" });
+    const judge = async () => "unclear" as const;
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+
+    await syncFirstmateDomainRuns({ transport, now: () => now, judge });
+    const runs = new Map(listDomainRuns().map((run) => [run.id, run as DomainRun & { handoffRetry?: unknown }]));
+    expect(runs.get("held-structured")!.status).toBe("completed");
+    expect(runs.get("held-structured")!.report).toEqual({ state: "due", status: "completed", since: now.toISOString(), at: now.toISOString() });
+    expect(runs.get("held-structured")!.handoffRetry).toBeUndefined();
+    expect(runs.get("held-prose")!.status).toBe("working");
+    expect(runs.get("held-prose")!.handoffRetry).toBeUndefined();
+
+    expect(await syncFirstmateDomainRuns({ transport, now: () => now, judge })).toEqual([]);
+  });
+
   it("reads again a run once left incomplete, announcing it only if recent", async () => {
     const prose = "Done: the footer link now opens the right page.";
     const now = new Date("2026-10-17T00:00:00.000Z");

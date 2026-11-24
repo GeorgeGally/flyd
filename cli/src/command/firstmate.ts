@@ -409,6 +409,12 @@ async function askForAClearStatus(run: DomainRun, cursor: string | undefined, tr
   return commitDomainRun(sent.run, { ...sent.run, statusAskedAt: now.toISOString() });
 }
 
+/** A run the retired contract gate held as "working" while its one structured re-request went unanswered. */
+function heldByOldGate(run: DomainRun): boolean {
+  const retry = (run as DomainRun & { handoffRetry?: { answeredAt?: string } }).handoffRetry;
+  return Boolean(retry && typeof retry === "object" && !retry.answeredAt);
+}
+
 /** Pending notes oldest first: the order FirstMate's inbox takes them in. */
 function inboxOrder(notes: FirstmateNote[]): FirstmateNote[] {
   return [...notes].sort((a, b) => (Date.parse(a.at ?? "") || 0) - (Date.parse(b.at ?? "") || 0) || a.id.localeCompare(b.id));
@@ -420,6 +426,7 @@ function inboxOrder(notes: FirstmateNote[]): FirstmateNote[] {
  */
 async function deliverQueuedNotes(pending: FirstmateNote[], transport: FirstmateDomainTransport): Promise<void> {
   for (const note of inboxOrder(pending)) {
+    // fm-inbox.sh `receipts` reports `announced` as true, false or null (unknown, which `announce` refuses): only false gets a wake.
     if (note.acknowledged || note.announced !== false) continue;
     // One that cannot be announced now is tried again on the next sync; the ones after it still go, in order.
     await transport.announce(note.id).catch(() => undefined);
@@ -530,6 +537,20 @@ export async function syncFirstmateDomainRuns(options: {
         ...(cameBack(status) ? { report: stale && status === "completed" ? quietReport(status, settledAt) : dueReport(status, settledAt) } : {}),
       };
       statusUnclear = outcome === "unclear";
+    } else if (run.status === "working" && run.result && heldByOldGate(run)) {
+      // Held by the retired structured re-request, which never came back: the held reply is the report.
+      const parsed = parseDomainResult(run.result.raw.at(-1) ?? run.result.detailedReport);
+      const outcome: ProseOutcome = parsed.status ?? (parsed.result.format === "raw" ? await proseOutcome(run.result.raw.at(-1) ?? run.result.detailedReport, run, judge) : "completed");
+      const status: DomainRunStatus = outcome === "unclear" ? "working" : outcome;
+      const { handoffRetry: _retry, incompleteReason: _previous, statusAskedAt: _asked, ...rest } = next as DomainRun & { handoffRetry?: unknown };
+      const settledAt = (options.now ?? (() => new Date()))().toISOString();
+      next = {
+        ...rest,
+        status,
+        result: parsed.result,
+        ...(status === "failed" ? { failure: parsed.result.brief } : {}),
+        ...(cameBack(status) ? { report: dueReport(status, settledAt), updatedAt: settledAt } : {}),
+      };
     } else if (run.status === "working" && run.result?.format === "raw") {
       // A reply taken before its "status: …" lines could be read: read it again.
       const parsed = parseDomainResult(run.result.raw.at(-1) ?? run.result.detailedReport);
