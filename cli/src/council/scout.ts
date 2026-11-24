@@ -738,7 +738,7 @@ function recordFailures(sources: ScoutSource[], gathered: { failed: string[]; he
 const RETRY_PAUSED_AFTER_MS = 3 * 86_400_000;
 
 /**
- * A source paused for fetch failures (a Reddit block, a feed outage) gets one
+ * A source paused for fetch failures (a feed outage; subreddits are never paused this way) gets one
  * retry once it has rested a few days: back to active, one failure from being
  * paused again. Sources paused for low fitness stay paused — that was taste.
  */
