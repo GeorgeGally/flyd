@@ -123,6 +123,33 @@ function sessionTitle(path: string, size: number): string {
   return shortConversationTitle(first?.text ?? "");
 }
 
+/** Titles of his Claude Code sessions touched since a moment, newest first: what he has been working on. */
+export function recentSessionTitles(since: number, limit = 8, root = claudeProjectsRoot()): string[] {
+  const files: Array<{ path: string; size: number; mtimeMs: number }> = [];
+  let dirs: string[];
+  try { dirs = readdirSync(root); } catch { return []; }
+  for (const dir of dirs) {
+    let names: string[];
+    try { names = readdirSync(join(root, dir)); } catch { continue; }
+    for (const name of names) {
+      if (!name.endsWith(".jsonl")) continue;
+      const path = join(root, dir, name);
+      try {
+        const stat = statSync(path);
+        if (stat.isFile() && stat.size > 0 && stat.mtimeMs >= since) files.push({ path, size: stat.size, mtimeMs: stat.mtimeMs });
+      } catch { /* gone since it was listed */ }
+    }
+  }
+  const titles: string[] = [];
+  for (const file of files.sort((a, b) => b.mtimeMs - a.mtimeMs)) {
+    if (titles.length >= limit) break;
+    let title = "";
+    try { title = sessionTitle(file.path, file.size).trim(); } catch { continue; }
+    if (title && !titles.includes(title)) titles.push(title);
+  }
+  return titles;
+}
+
 function sessionProject(path: string, size: number, fallback: string): string {
   const head = readRange(path, 0, Math.min(size, START_SCAN_BYTES));
   for (const line of head.split("\n")) {
