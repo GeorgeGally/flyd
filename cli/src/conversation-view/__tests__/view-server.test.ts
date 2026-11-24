@@ -246,6 +246,14 @@ describe("SnapshotDiffer relays", () => {
     expect(shown!.card!.line).not.toContain("push it");
   });
 
+  it("keeps the finished work on a result card when its words only mention what needs him", () => {
+    const [shown] = new SnapshotDiffer().next({ messages: [
+      { id: "note:1", role: "user", text: "is the deploy fixed?" },
+      { id: "t1", role: "assistant", text: "Fixed the bug where the deploy step needs your token twice. Also tidied the footer.", answers: "note:1", page: { url: "http://127.0.0.1:4000/", label: "127.0.0.1:4000" } },
+    ], working: false }).messages.filter((message) => message.role === "assistant");
+    expect(shown!.card!.line).toContain("needs your token twice");
+  });
+
   it("leaves every question off a result card, wherever it stands and whatever dots it carries", () => {
     for (const text of [
       "Updated the hero on index.html. Ship it to staging.example.com?",

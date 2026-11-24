@@ -548,14 +548,14 @@ export class SnapshotDiffer {
    * The card for finished work the reply carries (its picture, the page it changed): a landed or stuck relay's
    * own line, else the reply's words as Flyd says them, its question left to the buttons under the card.
    */
-  private resultCard(message: ConversationMessage, relay: GeorgeLine | undefined, staffWords: boolean, asked?: string): RenderedMessage["card"] {
+  private resultCard(message: ConversationMessage, relay: GeorgeLine | undefined, staffWords: boolean, asks: boolean, asked?: string): RenderedMessage["card"] {
     if (relay?.kind === "landed" || relay?.kind === "blocker") {
       const line = inFlydsVoice(relay.line).replace(/[:;,]$/, "");
       if (relay.kind === "landed") return { kind: "landed", line, ...(relay.url ? { url: relay.url } : {}) };
       return { kind: "blocker", line };
     }
     const voiced = inFlydsVoice(message.text);
-    const line = condense(staffWords ? plainSaid(voiced) : voiced, { maxChars: 240, keepAsk: false, dropAsk: true }).trim();
+    const line = condense(staffWords ? plainSaid(voiced) : voiced, { maxChars: 240, keepAsk: false, dropAsk: asks }).trim();
     // The staff's line passes the same outgoing checks as any relay: a line that fails leaves no card.
     if (!line || (staffWords && this.heldRelay(line, asked))) return undefined;
     return { kind: "note", line };
@@ -656,7 +656,7 @@ export class SnapshotDiffer {
       const staffWords = message.aside === true || message.answers?.startsWith("note:") === true;
       // A card only for finished work the reply carries; a question it asks keeps its buttons, card or message.
       const intent = cardIntentOf({ role: message.role, shots, landed: relay?.kind === "landed", ...(message.page ? { page: message.page } : {}), ...(message.form ? { form: message.form } : {}) });
-      const card: RenderedMessage["card"] = intent === "result" && !routine && !parts.whole ? this.resultCard(message, relay, staffWords, asked) : undefined;
+      const card: RenderedMessage["card"] = intent === "result" && !routine && !parts.whole ? this.resultCard(message, relay, staffWords, choice !== undefined, asked) : undefined;
       // The card, or for his staff's words a plain line, is his glance: the reply as written waits behind it, never shown twice.
       if ((card || (staffWords && message.role === "assistant" && !message.form)) && !parts.summary) parts.summary = briefOf(staffWords ? plainSaid(message.text) : message.text);
       // What he has to act on stays open under the card, never folded behind "as written".
