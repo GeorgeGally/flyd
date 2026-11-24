@@ -1,6 +1,7 @@
 import { Agent } from "undici";
 import { apiModelId, getKey, resolveModelConnection, usesOpenAITransport } from "../lib/config.js";
 import { qualifiedModelProvider } from "../runtime/flyd-worker-config.js";
+import { opencodeHeaders } from "../runtime/opencode-headers.js";
 
 // Dictation latency is dominated by round trips, so its requests share one
 // keep-alive pool. fn down warms it (TLS to the transcription and cleanup
@@ -72,7 +73,7 @@ export const completeText: CompleteText = async ({ model, system, user, maxToken
   const provider = qualifiedModelProvider(model);
   const response = await dictationFetch(`${connection.baseURL ?? `${OPENAI_ORIGIN}/v1`}/chat/completions`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${connection.apiKey}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${connection.apiKey}`, "Content-Type": "application/json", ...opencodeHeaders(connection.baseURL) },
     body: JSON.stringify({
       model: apiModelId(model),
       messages: [

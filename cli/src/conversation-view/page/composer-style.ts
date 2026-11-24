@@ -1,17 +1,16 @@
 /** The message box: what it is replying to, attachments, voice and the command list. */
 export const COMPOSER_STYLE = `
-/* What his next message replies to: one line over the box, and ✕ goes back to plain talk. */
-.composer .replying { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; padding: 8px 8px 8px 14px; border-radius: 10px; background: var(--tint); }
+.composer .replying { display: flex; flex: 0 0 100%; box-sizing: border-box; align-items: center; gap: 8px; min-width: 0; margin: 0; padding: 2px 0 4px 9px; border-left: 2px solid var(--accent); }
 .composer .replying[hidden] { display: none; }
-.composer .replying-to { flex: 1; min-width: 0; margin: 0; font: 400 14px/1.4 var(--sans); color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.composer .replying-to { flex: 1; min-width: 0; margin: 0; font: 400 13px/1.4 var(--sans); color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .composer .replying-to span { color: var(--strong); }
-.composer .replying-clear { flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: none; cursor: pointer; font: 400 14px/1 var(--sans); color: var(--muted); }
+.composer .replying-clear { flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: none; cursor: pointer; font: 400 12px/20px var(--sans); color: var(--muted); }
 .composer .replying-clear:hover { color: var(--strong); background: var(--faint); }
 .composer .row {
   position: relative; max-width: calc(36em * 1.25); margin: 0 auto; padding: 0 1.875em;
 }
 .composer .field {
-  display: flex; align-items: flex-end; gap: 0.6em;
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.6em; row-gap: 6px;
   background: var(--tint); border-radius: 0.4em; padding: 0.5em 0.6em 0.5em 0.75em; margin-left: -0.75em;
   border: 0; transition: background-color 140ms ease;
 }

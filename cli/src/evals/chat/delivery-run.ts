@@ -57,7 +57,7 @@ async function notification(testCase: DeliveryCase): Promise<Pick<DeliveryObserv
       const at = new Date().toISOString();
       return { delivered: true, run: { ...target, messages: [...(target.messages ?? []), { id: `${target.id}-${(target.messages?.length ?? 0) + 1}`, kind, body, ...(from ? { from } : {}), at, deliveredAt: at }] } };
     },
-    async (target, send) => (decided = await decideRun(target, send, (prompt) => quickQuery(prompt, { json: true }))),
+    async (target, send) => (decided = await decideRun(target, send, (prompt) => quickQuery(prompt, { json: true, source: "evals/chat/delivery-run" }))),
   );
   const told = said as { text: string; kind?: string } | null;
   // The notification is the lead line; the shape is what tapping it opens.

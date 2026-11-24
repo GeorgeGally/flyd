@@ -31,8 +31,9 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
     ${LEFT_BUTTON}${options.workCanvas ? '<a href="/work" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">work</a>' : ""}<a href="/whatsapp" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">people</a><button id="prefs-open" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="prefs">preferences</button>
   </span>
 </header>
-<div class="prefs" id="prefs" hidden role="dialog" aria-label="Preferences">
-  <p class="prefs-title">Preferences</p>
+<div class="prefs" id="prefs" hidden role="dialog" aria-modal="true" aria-label="Preferences">
+  <div class="prefs-page">
+  <div class="prefs-top"><p class="prefs-title">Preferences</p><button id="prefs-close" type="button" aria-label="Close preferences">Done</button></div>
   <button id="mode" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Full replies</span><span class="prefs-about">Every reply as written, not Flyd's reading</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="theme" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Light theme</span><span class="prefs-about">Dark when off</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="rail-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Right column</span><span class="prefs-about">Past conversations and finished work</span></span><span class="track" aria-hidden="true"></span></button>
@@ -40,6 +41,7 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
   <button id="preparation-link" type="button"><span class="prefs-words"><span class="prefs-name">Local preparation</span><span class="prefs-about">Review drafts and stop preparation</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
   <button id="routines-link" type="button"><span class="prefs-words"><span class="prefs-name">Routines</span><span class="prefs-about">Useful requests, ready to use again</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
   <button id="taste-link" type="button"><span class="prefs-words"><span class="prefs-name">Taste</span><span class="prefs-about">What Flyd knows about your taste</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
+  </div>
 </div>
 ${LEFT_HTML}
 ${FRONT_HTML}
@@ -70,7 +72,6 @@ ${FRONT_HTML}
   <div class="row">
     <p class="unread" id="staff" role="status" hidden></p>
     <ul class="commands" id="commands" role="listbox" aria-label="Skills and commands" hidden></ul>
-    <div class="replying" id="replying" hidden><p class="replying-to">Replying to <span id="replying-title"></span></p><button class="replying-clear" type="button" id="replying-clear" aria-label="Stop replying to this">✕</button></div>
     <p class="notice" id="notice" role="status" aria-live="polite" hidden></p>
     <div class="attachments" id="attachments" hidden></div>
     <div class="article-confirm" id="article-confirm" hidden>
@@ -78,18 +79,19 @@ ${FRONT_HTML}
       <button type="button" id="article-confirm-yes">Remember</button>
       <button type="button" id="article-confirm-no">Not now</button>
     </div>
-    <div class="scope-line"><button class="scope" id="scope" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="scope-menu">To: <span id="scope-name">Flyd</span></button><ul class="scope-menu" id="scope-menu" role="listbox" aria-label="Where this message goes" hidden></ul></div>
+    <div class="scope-line"><button class="scope" id="scope" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="scope-menu"><span id="scope-name">Project</span></button><ul class="scope-menu" id="scope-menu" role="listbox" aria-label="Where this message goes" hidden></ul></div>
     <div class="field">
+      <div class="replying" id="replying" hidden><p class="replying-to">Replying to <span id="replying-title"></span></p><button class="replying-clear" type="button" id="replying-clear" aria-label="Stop replying to this">✕</button></div>
       <button class="attach" id="attach" type="button" aria-label="Attach images or documents" title="Attach images or documents">+</button>
       <input type="file" id="attach-input" multiple hidden tabindex="-1">
       <span class="story-chip" id="story-chip" hidden><span class="story-chip-name" id="story-chip-name"></span><button type="button" id="story-chip-clear" aria-label="Stop asking about this story">✕</button></span>
       <div class="typing">
         <div class="prediction-layer" id="prediction-layer" aria-hidden="true" hidden><span class="prediction-prefix" id="prediction-prefix"></span><span class="prediction-suffix" id="prediction-suffix"></span></div>
-        <textarea id="input" rows="1" placeholder="Message ${label}" aria-label="Message ${label}"></textarea>
+        <textarea id="input" rows="1" placeholder="Message" aria-label="Message"></textarea>
       </div>
       <span class="voice-wait" id="voice-wait" role="status" hidden><span class="spokes" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="voice-wait-said" id="voice-wait-said"></span></span>
       <button class="prediction-toggle" id="prediction-toggle" type="button" aria-label="Toggle typing suggestions" aria-pressed="true">↹</button>
-      <button id="send" type="submit" disabled aria-label="Send to ${label}">Send</button>
+      <button id="send" type="submit" disabled aria-label="Send message">Send</button>
     </div>
     <div class="hint" id="usage"></div>
   </div>

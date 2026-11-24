@@ -48,7 +48,7 @@ export async function runImproveCommand(action = "status", options: { force?: bo
       const { query } = await import("../lib/llm.js");
       const { notifyMac } = await import("../runtime/agenda.js");
       const result = await runSelfImprovement({
-        complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
+        complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true, source: "commands/improve" }),
         notify: notifyMac,
         force: options.force ?? true,
       });

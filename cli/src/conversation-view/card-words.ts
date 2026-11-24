@@ -13,8 +13,8 @@ import { STATE_WORDS, type Place } from "./placement.js";
  * easel main)") is never shown as written: Flyd's quick model says it once as
  * a plain outcome (what changed, what he can do now), and the reading is kept
  * on disk by the raw line so the card is rewritten once, never per render.
- * Until a reading is stored, and whenever the model fails or says it in
- * developer words, the card says a plain line for its state instead: what he
+ * Until a reading is stored, and whenever the model fails, the card says a
+ * plain line for its state instead: what he
  * needs to do when it needs him, never "an update is ready". Render never
  * calls the model; the server schedules the rewrite, and gives up on a line
  * after a few failed tries.
@@ -266,24 +266,36 @@ async function defaultAsk(prompt: string): Promise<string> {
   return quickQuery(prompt, { source: "card-words", json: true });
 }
 
-/** One rewrite. Resolves with the reading, or null when the model failed or said it in developer words. Never rejects. */
-export async function translateCard(source: CardSource, ask: CardAsk = defaultAsk): Promise<CardWords | null> {
+function fallbackFor(source: CardSource): CardWords {
+  const group: Place = source.answers?.length || /^(?:needs you|ready for you|report ready)$/i.test(source.state)
+    ? "needs"
+    : /^(?:done|handled for you)$/i.test(source.state) ? "done" : "moving";
+  return fallbackWords(source.project, group, source.state, source.asks !== false);
+}
+
+async function translateCardResult(source: CardSource, ask: CardAsk): Promise<{ words: CardWords | null; rejected: boolean }> {
   try {
     const words = cardWordsFromModel(await ask(cardWordsPrompt(source)));
-    if (words && source.answers?.length && !words.body.trim().endsWith("?")) return null;
-    // A note that asks nothing is never turned into a question for him ("Tell me whether to keep that version").
-    if (words && source.asks === false && (asksSomething(words.body) || asksSomething(words.title))) return null;
-    return words;
+    if (!words || (source.answers?.length && !words.body.trim().endsWith("?")) ||
+      (source.asks === false && (asksSomething(words.body) || asksSomething(words.title)))) {
+      return { words: fallbackFor(source), rejected: true };
+    }
+    return { words, rejected: false };
   } catch {
-    return null;
+    return { words: null, rejected: false };
   }
+}
+
+/** One rewrite. Resolves with the reading, fallback words after a rejected reply, or null when the model call fails. */
+export async function translateCard(source: CardSource, ask: CardAsk = defaultAsk): Promise<CardWords | null> {
+  return (await translateCardResult(source, ask)).words;
 }
 
 let running: Promise<void> | null = null;
 
 /**
  * Rewrite the cards with no stored reading, one call at a time, storing each
- * (a failure too, so the same line is not sent again until RETRY_MS passes).
+ * (a provider failure too, so the same line is not sent again until RETRY_MS passes).
  * Render never calls this. A run already under way stands for this one.
  */
 export function scheduleCardWords(
@@ -303,11 +315,13 @@ export function scheduleCardWords(
   if (!wanted.length) return;
   const job = (async () => {
     for (const source of wanted) {
-      const words = await translateCard(source, options.ask);
+      const { words, rejected } = await translateCardResult(source, options.ask ?? defaultAsk);
       const tries = (stored.get(source.key)?.tries ?? (stored.has(source.key) ? 1 : 0)) + 1;
-      remember(words ? { key: source.key, ...words, at: new Date(now()).toISOString() } : { key: source.key, at: new Date(now()).toISOString(), failed: true, tries }, path);
-      console.info(`[card-words] key=${source.key} outcome=${words ? "ok" : tries >= MAX_TRIES ? "failed, not asked again" : "failed"}`);
-      if (words) options.onStored?.();
+      remember(words && !rejected
+        ? { key: source.key, ...words, at: new Date(now()).toISOString() }
+        : { key: source.key, at: new Date(now()).toISOString(), failed: true, tries: rejected ? MAX_TRIES : tries }, path);
+      console.info(`[card-words] key=${source.key} outcome=${words && !rejected ? "ok" : rejected || tries >= MAX_TRIES ? "failed, not asked again" : "failed"}`);
+      if (words && !rejected) options.onStored?.();
     }
   })().catch(() => undefined).finally(() => {
     running = null;

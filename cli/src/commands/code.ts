@@ -185,7 +185,7 @@ export async function runAgent(): Promise<void> {
         const slow = new Promise<string>((_, reject) => setTimeout(() => reject(new Error("greeting timed out")), 25_000).unref());
         const { readUserProfile } = await import("../lib/user-profile.js");
         const profile = (() => { try { return readUserProfile(); } catch { return null; } })();
-        return museGreeting({ briefing, hypothesis, profile, now: new Date() }, (prompt) => Promise.race([query(prompt), slow]));
+        return museGreeting({ briefing, hypothesis, profile, now: new Date() }, (prompt) => Promise.race([query(prompt, undefined, undefined, undefined, undefined, { source: "commands/code" }), slow]));
       },
       copyToClipboard: (text) => new Promise<void>((resolve, reject) => {
         void import("node:child_process").then(({ spawn }) => {

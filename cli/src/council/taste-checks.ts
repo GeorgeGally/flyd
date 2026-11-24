@@ -18,7 +18,7 @@ import { tasteSkillKind, type TasteProfile, type TasteRule } from "./taste.js";
 export const CHECK_REPEATS = 3;
 
 /** The checks Flyd can run today, by name. */
-export type TasteCheckName = "spacing";
+export type TasteCheckName = "spacing" | "snapping";
 
 export interface TasteRulePlan {
   rule: TasteRule;
@@ -44,7 +44,8 @@ export function tasteCheckPlan(profile: TasteProfile): TasteRulePlan[] {
     .filter((rule) => !rule.principle && rule.count >= CHECK_REPEATS && rule.skill !== "none")
     .map((rule): TasteRulePlan => {
       const layers: FixLayer[] = ["prompt"];
-      const check = tasteSkillKind(rule) === "spacing" ? "spacing" as const : undefined;
+      const check = /\bsnapp?\w*/i.test(rule.text) && /\b(?:grid|guide)\w*/i.test(rule.text) && /\b(?:pen|pencil|draw\w*|path|bezier)\b/i.test(rule.text)
+        ? "snapping" : tasteSkillKind(rule) === "spacing" ? "spacing" : undefined;
       if (check) layers.push("check");
       const layer = layers.sort(STRONGER)[0] as "check" | "prompt";
       if (layer === "check") return { rule, layer, check };
@@ -55,8 +56,27 @@ export function tasteCheckPlan(profile: TasteProfile): TasteRulePlan[] {
 
 /** The built-in checks his taste has armed: each held by at least one thrice-repeated rule. */
 export function armedTasteChecks(profile: TasteProfile): Array<{ check: TasteCheckName; rules: TasteRule[] }> {
-  const rules = tasteCheckPlan(profile).filter((plan) => plan.check === "spacing").map((plan) => plan.rule);
-  return rules.length ? [{ check: "spacing", rules }] : [];
+  const plans = tasteCheckPlan(profile);
+  return (["spacing", "snapping"] as const).flatMap((check) => {
+    const rules = plans.filter((plan) => plan.check === check).map((plan) => plan.rule);
+    return rules.length ? [{ check, rules }] : [];
+  });
+}
+
+/** Inspect drawing-tool source for snapping and a modifier to bypass it. */
+export function snappingTrips(source: string): SpacingTrip[] {
+  const code = source.replace(/<!--[\s\S]*?-->|\/\*[\s\S]*?\*\/|(^|[^:"'`])\/\/[^\n]*/g, "$1");
+  const drawing = /\btool\s*===?\s*["'](?:pen|pencil|bezier)["']|data-tool=["'](?:pen|pencil|bezier)["']|\b\w*(?:[Pp]en|[Pp]encil|[Bb]ezier|[Pp]ath)(?:Tool|Editor|Down|Move|Handler)\b|\b(?:pointer|mouse)(?:down|move)\b[\s\S]{0,400}?\.(?:push|lineTo)\(/.test(code);
+  if (!drawing) return [];
+  const trips = [{ line: "Drawing tools must snap to grid points, guides and existing points, with a modifier key to disable snapping." }];
+  const call = /\bsnap\w*\s*\([^)]*(?:grid|guide|point)[^)]*\)/i.exec(code) ?? /Math\.round\([^)]*\/[^)]*grid\w*[^)]*\)/i.exec(code);
+  if (!call) return trips;
+  const near = code.slice(Math.max(0, call.index - 300), call.index + call[0].length + 300);
+  return /\b(?:alt|shift|meta|ctrl)Key\b|\bkey\s*===?\s*["'](?:Alt|Shift|Meta|Control)["']/.test(near) ? [] : trips;
+}
+
+export function snappingCritique(trips: SpacingTrip[]): string {
+  return ["Snapping check failed (this round cannot pass until it holds):", ...trips.map((trip) => `- ${trip.line}`)].join("\n");
 }
 
 // ---------------------------------------------------------------------------

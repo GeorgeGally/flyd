@@ -12,7 +12,7 @@ import { designModel } from "../../command/design-claude.js";
 import { DEFAULT_MODEL_ROUTING, modelRoutes, setModelRouting, type ModelRoute } from "../model-routing.js";
 
 const claudeThen = (claude: string, ...rest: ModelRoute[]): ModelRoute[] => [{ provider: "anthropic", model: claude }, ...rest];
-// George's live setup on 2026-11-15 moved into the one config: DeepSeek, OpenCode and the ChatGPT login listed in every job.
+// Retired DeepSeek and image-only routes must stay out of text jobs.
 const RETIRED: ModelRoute[] = [
   { provider: "opencode-go", model: "deepseek-v4.1-flash" },
   { provider: "commandcode", model: "deepseek/deepseek-v4-flash" },
@@ -36,8 +36,8 @@ beforeEach(() => {
     quick: [...RETIRED, ...claudeThen("claude-haiku-5-5")],
     background: [...RETIRED, ...claudeThen("claude-haiku-5-5")],
     worker: [...RETIRED, ...claudeThen("claude-sonnet-5-5")],
-    crew: [{ provider: "opencode-go", model: "gpt-6-luna" }, { provider: "claude", model: "default" }, { provider: "codex", model: "default" }, { provider: "openai", model: "gpt-6.1-sol" }, { provider: "cursor", model: "auto" }],
-    design: [{ provider: "opencode", model: "deepseek-v4-pro" }, { provider: "claude", model: "sonnet" }],
+    crew: [{ provider: "claude", model: "default" }, { provider: "cursor", model: "auto" }],
+    design: [{ provider: "claude", model: "sonnet" }],
   } });
 });
 
@@ -51,16 +51,17 @@ function health(name: string): WorkerHealth {
   return { name, executable: `/bin/${name}`, version: "1", healthy: true, capabilities: ["analysis", "implementation", "review", "testing"] };
 }
 
-describe("provider policy: Claude for text and code, ChatGPT/Codex only for images, never OpenCode or DeepSeek", () => {
-  it("keeps every text, code, review and chat path off OpenCode, DeepSeek and the ChatGPT allowance", () => {
-    // Model chains: Claude only, with no silent hop to a retired provider.
+describe("provider policy: OpenCode Go APIs, Claude Code crews, Codex only for images, no DeepSeek", () => {
+  it("keeps retired and image-only routes out while preserving the Claude Code subprocess runners", () => {
+    // The configured routes contain only banned models and Claude for these jobs.
     expect(chatModelChain()).toEqual(["anthropic:claude-sonnet-5-5"]);
     expect(quickModelChain()).toEqual(["anthropic:claude-haiku-5-5"]);
     expect(oneShotModelChain()).toEqual(["anthropic:claude-haiku-5-5"]);
     expect(defaultModel()).toBe("anthropic:claude-haiku-5-5");
-    for (const model of ["opencode-go/deepseek-v4.1-flash", "opencode-go:gpt-6-luna", "commandcode:deepseek/deepseek-v4-flash", "gpt-6-luna", "codex"]) {
+    for (const model of ["opencode-go/deepseek-v4.1-flash", "commandcode:deepseek/deepseek-v4-flash", "codex"]) {
       expect(() => resolveModelConnection(model), model).toThrow(/no longer uses|images only/);
     }
+    expect(resolveModelConnection("opencode-go:gpt-6-luna").baseURL).toBe("https://opencode.ai/inference/go/v1");
     // With Claude at its cap there is nothing left, and Flyd says so rather than falling back.
     vi.stubEnv("FLYD_CLAUDE", "0");
     expect(() => defaultModel()).toThrow("No model can do Flyd's background jobs");
@@ -73,7 +74,7 @@ describe("provider policy: Claude for text and code, ChatGPT/Codex only for imag
       expect(routeWorker({ requirements: [requirement], adapters: [...allowance, health("claude")], activeCounts: { claude: 9 }, excludedAdapters: [] }).name).toBe("claude");
       expect(() => routeWorker({ requirements: [requirement], adapters: allowance, activeCounts: {}, excludedAdapters: [] })).toThrow("No healthy worker satisfies");
     }
-    // The overlay, /manifest and `flyd code` worker lands on Claude Sonnet through Anthropic's OpenAI-compatible API.
+    // The explicit worker override remains on Claude for this test.
     expect(loadFlydWorkerConfigs({ envFileText: "" })).toEqual([{
       apiKey: "claude-key",
       model: "claude-sonnet-5-5",
@@ -92,7 +93,7 @@ describe("provider policy: Claude for text and code, ChatGPT/Codex only for imag
     expect(crewClaudeArgs(DEFAULT_CREW_MODEL, "brief")).not.toContain("--model");
     expect(crewClaudeArgs(DEFAULT_CREW_MODEL, "brief")).toEqual(expect.arrayContaining(["Bash(git push:*)", "Bash(rm -rf:*)"]));
     for (const model of ["opencode-go/gpt-6-luna", "openai/gpt-6.1-sol", "codex", "opencode-go/deepseek-v4-pro"]) {
-      expect(() => launchCrewmate({ model } as CrewTask, "brief"), model).toThrow(/no longer uses|images only/);
+      expect(() => launchCrewmate({ model } as CrewTask, "brief"), model).toThrow(/no longer uses|images only|no session adapter/);
     }
   });
 });
@@ -122,9 +123,12 @@ describe("the Claude coding worker counts against Flyd's monthly Claude cap", ()
 });
 
 describe("one model config", () => {
-  it("keeps today's behaviour by default: Claude for text and code, Codex only for images", () => {
-    setModelRouting(null);
-    expect(DEFAULT_MODEL_ROUTING.banned).toEqual(["opencode", "deepseek"]);
+  it("routes default text jobs to OpenCode Go and keeps Claude Code and Codex assignments", () => {
+    setModelRouting({});
+    expect(DEFAULT_MODEL_ROUTING.banned).toEqual(["deepseek"]);
+    expect(chatModelChain()).toEqual(["opencode-go:gpt-6-luna", "anthropic:claude-sonnet-5-5"]);
+    expect(quickModelChain()).toEqual(["opencode-go:gpt-6-luna", "anthropic:claude-haiku-5-5"]);
+    expect(oneShotModelChain()).toEqual(["opencode-go:gpt-6-luna", "anthropic:claude-haiku-5-5"]);
     expect(modelRoutes("images", DEFAULT_MODEL_ROUTING)).toEqual([{ provider: "codex", model: "default" }]);
     expect(modelRoutes("crew", DEFAULT_MODEL_ROUTING)).toEqual([{ provider: "claude", model: "default" }]);
     expect(modelRoutes("design", DEFAULT_MODEL_ROUTING)).toEqual([{ provider: "claude", model: "opus" }]);
@@ -145,10 +149,10 @@ describe("one model config", () => {
     vi.stubEnv("FLYD_MODELS_PATH", path);
     writeFileSync(path, JSON.stringify({ jobs: { quick: [{ provider: "anthropic", model: "claude-sonnet-5-5" }] } }));
     expect(quickModelChain()).toEqual(["anthropic:claude-sonnet-5-5"]);
-    expect(chatModelChain()).toEqual(["anthropic:claude-sonnet-5-5"]);
+    expect(chatModelChain()).toEqual(["opencode-go:gpt-6-luna", "anthropic:claude-sonnet-5-5"]);
     writeFileSync(path, "{ not json");
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(quickModelChain()).toEqual(["anthropic:claude-haiku-5-5"]);
+    expect(quickModelChain()).toEqual(["opencode-go:gpt-6-luna", "anthropic:claude-haiku-5-5"]);
     expect(error).toHaveBeenCalled();
     error.mockRestore();
   });

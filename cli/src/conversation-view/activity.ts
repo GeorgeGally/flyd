@@ -20,6 +20,7 @@ import { clip, inline, sentences } from "./summaries.js";
 import type { DayCount } from "./artefact.js";
 import { monitorObjectsFromSources, type SemanticObject } from "./semantic.js";
 import { providerTrouble, readScoutRun, type ProviderTrouble, type ScoutRun } from "../council/scout-run.js";
+import { readSourceHealth, type ScoutSourceHealth } from "../council/scout-metrics.js";
 
 // Flyd's left column: what Flyd itself is doing, as cards. Its own background
 // work (watching the news, reading back its answers, keeping memory, running
@@ -125,6 +126,7 @@ export interface NewsStatusInputs {
   morning: unknown;
   /** The news writer's last recorded run (scout/run-state.json). */
   run: ScoutRun | null;
+  health?: ScoutSourceHealth | null;
   /** The agenda log, oldest first: the launchd runner's record of each scout run. */
   log: string[];
 }
@@ -161,7 +163,11 @@ export function newsStatus(inputs: NewsStatusInputs, now: number): NewsStatus {
   const briefAt = typeof morning?.preparedAt === "string" ? Date.parse(morning.preparedAt) : Number.NaN;
   const briefToday = morning?.day === today && !Number.isNaN(briefAt);
 
-  const feeds = !inputs.enabled ? "News is switched off." : running ? `News feeds are running from ${active} ${active === 1 ? "source" : "sources"}.` : "News has no feeds running.";
+  const feeds = !inputs.enabled ? "News is switched off."
+    : !running ? "News has no feeds running."
+      : inputs.health && Number.isFinite(inputs.health.attempted) && inputs.health.attempted > 0
+        ? `News feeds answered from ${inputs.health.answered} of ${inputs.health.attempted} sources.`
+        : `News feeds are running from ${active} ${active === 1 ? "source" : "sources"}.`;
   const editionSaid = Number.isNaN(editionAt) ? "There's no news edition yet"
     : edition?.date === today ? `Today's edition came in at ${clockAt(editionAt)} with ${stories} ${stories === 1 ? "story" : "stories"}`
       : `The last edition was ${dayAt(editionAt)}`;
@@ -196,6 +202,12 @@ export function newsStatus(inputs: NewsStatusInputs, now: number): NewsStatus {
   }
   const warnings: string[] = [];
   if (inputs.enabled && trouble && failed > worked) warnings.push(TROUBLE_SAID[trouble]);
+  if (inputs.enabled && inputs.health && inputs.health.attempted >= 4
+    && inputs.health.attempted - inputs.health.answered >= inputs.health.attempted / 3) {
+    const silent = inputs.health.attempted - inputs.health.answered;
+    const limited = inputs.health.rateLimited ? ` (${inputs.health.rateLimited} rate-limited)` : "";
+    warnings.push(`${silent} of the ${inputs.health.attempted} news sources it read didn't answer last time${limited}, so some of your feeds are being missed.`);
+  }
   if (inputs.enabled && !briefToday && new Date(now).getHours() >= BRIEF_LATE_HOUR) warnings.push("This morning's brief hasn't run.");
   return { running, line, ...(warnings.length ? { warning: warnings.join(" ") } : {}) };
 }
@@ -793,6 +805,7 @@ export class ActivityReader {
       edition: editionFile,
       morning: oneJson(join(this.dir, "morning.json")),
       run: readScoutRun(scout),
+      health: readSourceHealth(scout),
       log: inputs.log,
     }, now);
     // A verified effect is eligible for one explicit usefulness review.

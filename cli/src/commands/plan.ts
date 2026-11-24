@@ -67,7 +67,7 @@ export async function runPlan(topic: string, model?: string): Promise<void> {
 
   console.log(`planning: "${topic}"\n`);
 
-  const result = await query(prompt, m);
+  const result = await query(prompt, m, undefined, undefined, undefined, { source: "commands/plan" });
 
   // Save to plans dir
   mkdirSync(PLANS_DIR, { recursive: true });

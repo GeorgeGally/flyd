@@ -454,6 +454,15 @@ describe("news status", () => {
     expect(newsStatus({ ...healthy, run: { at: iso(15, 0), ok: false, trouble: "usage_limit" } }, now).warning).toBe("The news writer has hit its model usage limit, so the news has stopped updating.");
   });
 
+  it("shows how many sources returned stories and warns when many did not", () => {
+    const health = { at: iso(12, 0), attempted: 39, answered: 22, empty: 1, failed: 4, rateLimited: 12, ingested: 402, active: 61 };
+    const status = newsStatus({ ...healthy, health }, now);
+    expect(status.line).toBe("News feeds answered from 22 of 39 sources. Today's edition came in at 12:19 with 3 stories, and your morning brief was ready at 07:02.");
+    expect(status.warning).toBe("17 of the 39 news sources it read didn't answer last time (12 rate-limited), so some of your feeds are being missed.");
+    expect(newsStatus({ ...healthy, health: { ...health, answered: 33, failed: 4, rateLimited: 1 } }, now).warning).toBeUndefined();
+    expect(newsStatus({ ...healthy, health, enabled: false }, now).warning).toBeUndefined();
+  });
+
   it("warns when this morning's brief has not run, and says when the last ones were", () => {
     const status = newsStatus({ ...healthy, morning: { day: "2026-11-10", preparedAt: iso(7, 5, 10) }, edition: { date: "2026-11-10", generatedAt: iso(6, 30, 10), items: [{}] } }, now);
     expect(status.line).toBe("News feeds are running from 2 sources. The last edition was Tuesday 10 November, and the last morning brief was Tuesday 10 November.");
@@ -473,10 +482,15 @@ describe("news status", () => {
       mkdirSync(join(dir, "scout"), { recursive: true });
       writeFileSync(join(dir, "scout", "sources.json"), JSON.stringify(sources));
       writeFileSync(join(dir, "scout", "edition-latest.json"), JSON.stringify(healthy.edition));
+      writeFileSync(join(dir, "scout", "source-health.json"), JSON.stringify({ at: iso(12, 0), attempted: 39, answered: 22, empty: 1, failed: 4, rateLimited: 12, ingested: 402, active: 61 }));
       writeFileSync(join(dir, "morning.json"), JSON.stringify(healthy.morning));
       writeFileSync(join(dir, "scout", "run-state.json"), JSON.stringify({ at: iso(15, 0), ok: false, trouble: "out_of_credit" }));
       const panel = new ActivityReader({ dir, now: () => now }).current();
-      expect(panel.news).toMatchObject({ running: true, warning: "The news writer's model account is out of credit, so the news has stopped updating." });
+      expect(panel.news).toMatchObject({
+        running: true,
+        line: "News feeds answered from 22 of 39 sources. Today's edition came in at 12:19 with 3 stories, and your morning brief was ready at 07:02.",
+        warning: "The news writer's model account is out of credit, so the news has stopped updating. 17 of the 39 news sources it read didn't answer last time (12 rate-limited), so some of your feeds are being missed.",
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

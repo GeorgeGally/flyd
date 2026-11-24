@@ -123,7 +123,7 @@ const PROMPT = [
 
 export type DigestAsk = (prompt: string) => Promise<string>;
 
-/** One cheap call. The quick-model chain (Haiku while it is under its cap). Tests pass `ask`. */
+/** One quick-model call. Tests pass `ask`. */
 export async function distill(source: DigestSource, ask: DigestAsk = defaultAsk, now = new Date()): Promise<JobDigest> {
   const prompt = `${PROMPT}\n\nTitle: ${source.title.slice(0, 200)}\n\n${source.text.slice(0, 4_000)}`;
   const model = "claude-haiku-5-5";

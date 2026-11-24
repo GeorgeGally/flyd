@@ -10,6 +10,10 @@ export interface ScoutMetrics {
   selected: number;
   editionItems: number;
   failedSources: number;
+  answeredSources?: number;
+  rateLimitedSources?: number;
+  duplicates?: number;
+  junkPicks?: number;
 }
 
 function metricsPath(dir: string): string { return join(dir, "metrics.json"); }
@@ -43,9 +47,47 @@ export function scoutMetricsSummary(dir: string): string {
     "Editorial mode: " + latest.mode,
     "Candidates: " + latest.fetched + " fetched, " + latest.grouped + " after grouping, " + latest.shortlisted + " shortlisted",
     "Selected: " + latest.selected + " stories (" + latest.editionItems + " total edition items)",
+    ...(latest.answeredSources === undefined ? [] : ["Sources: " + latest.answeredSources + " answered, " + (latest.rateLimitedSources ?? 0) + " rate-limited, " + latest.failedSources + " failed"]),
+    ...(latest.duplicates ? ["Dropped as repeats: " + latest.duplicates] : []),
+    ...(latest.junkPicks ? ["Dropped as junk: " + latest.junkPicks + " ranker picks"] : []),
     "Failed sources: " + latest.failedSources,
     "Runs recorded: " + runs.length,
   ].join("\n");
+}
+
+export interface ScoutSourceHealth {
+  at: string;
+  attempted: number;
+  answered: number;
+  empty: number;
+  failed: number;
+  rateLimited: number;
+  ingested: number;
+  active: number;
+}
+
+export type ScoutRunKind = "edition" | "watch";
+
+export function sourceHealthPath(dir: string, kind: ScoutRunKind = "edition"): string {
+  return join(dir, kind === "watch" ? "source-health-watch.json" : "source-health.json");
+}
+
+export function recordSourceHealth(dir: string, health: ScoutSourceHealth, kind: ScoutRunKind = "edition"): void {
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const path = sourceHealthPath(dir, kind);
+    const temp = path + "." + process.pid + ".tmp";
+    writeFileSync(temp, JSON.stringify(health, null, 2) + "\n", { mode: 0o600 });
+    renameSync(temp, path);
+  } catch {}
+}
+
+export function readSourceHealth(dir: string, kind: ScoutRunKind = "edition"): ScoutSourceHealth | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(sourceHealthPath(dir, kind), "utf8"));
+    return parsed && typeof (parsed as ScoutSourceHealth).at === "string" && typeof (parsed as ScoutSourceHealth).attempted === "number"
+      ? parsed as ScoutSourceHealth : null;
+  } catch { return null; }
 }
 
 

@@ -1,5 +1,6 @@
 /**
  * The Projects tab: each project's latest exchange as a contents page, newest first,
+ * with a project he has commented on below what he has not yet gone through,
  * under a box showing the newest project with a picture, with a mark on what he has not read, and its thread in the middle once picked. A thread is a session to
  * the stream ("project:dir"), so the conversation draws it as it draws any other.
  * What he has read is his browser's own. Borrows connect, explicit, current,
@@ -49,9 +50,9 @@ export const THREADS_SCRIPT = `
     var rows = (list.all ? [list.all] : []).concat(projects, list.other ? [list.other] : []);
     var open = rows.filter(function (thread) { return thread.id === explicit; })[0];
     if (open && open.replyAt && open.replyAt !== threadsSeen[open.id]) { threadsSeen[open.id] = open.replyAt; keepThreadsSeen(); }
-    // A box above the list shows the newest project with a picture, unless it is already open in the middle.
-    // The project it shows leaves the list, so each exchange is drawn once; the rest keep their order.
-    var lead = projects.filter(function (thread) { return thread.picture && thread.id !== explicit; })[0];
+    // A box above the list shows the newest project with a picture, unless it is already open in the middle
+    // or he has commented on it. The project it shows leaves the list, so each exchange is drawn once; the rest keep their order.
+    var lead = projects.filter(function (thread) { return thread.picture && !thread.commented && thread.id !== explicit; })[0];
     var listedProjects = projects.filter(function (thread) { return thread !== lead; });
     var more = (list.all ? threadLink(list.all, "All conversations") : "") + (list.other ? threadLink(list.other, "Other") : "");
     var html = projects.length

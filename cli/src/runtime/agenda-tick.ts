@@ -64,8 +64,8 @@ export async function runTickJobs(jobs: TickJob[], options: TickOptions = {}): P
 export async function defaultTickJobs(options: { now?: () => Date; backoffPath?: string } = {}): Promise<TickJob[]> {
   const [{ query }, { notifyMac, notifyMacOutcome }] = await Promise.all([import("../lib/llm.js"), import("./agenda.js")]);
   const guard = { ...(options.now ? { now: options.now } : {}), ...(options.backoffPath ? { path: options.backoffPath } : {}) };
-  const complete = guardModelCall((prompt: string) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), guard);
-  const prose = guardModelCall((prompt: string) => query(prompt), guard);
+  const complete = guardModelCall((prompt: string) => query(prompt, undefined, undefined, undefined, undefined, { json: true, source: "runtime/agenda-tick" }), guard);
+  const prose = guardModelCall((prompt: string) => query(prompt, undefined, undefined, undefined, undefined, { source: "runtime/agenda-tick" }), guard);
   return [
     {
       // A read-only Claude Code audit, once a week; it calls no Flyd model.

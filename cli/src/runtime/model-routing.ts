@@ -8,8 +8,8 @@ import { resolveFlydDir } from "../lib/flyd-dir.js";
  * any part of them. Swapping or dropping a provider is a one-line edit there; .env holds
  * keys only. Reference: docs/product/flyd-models.md.
  *
- * Providers: anthropic, openai, openrouter, commandcode (APIs, by key); claude (Claude
- * Code on George's subscription), cursor (cursor-agent), codex (the ChatGPT/Codex allowance).
+ * Providers: anthropic, openai, openrouter, commandcode, opencode, opencode-go (APIs, by key);
+ * claude (Claude Code on George's subscription), cursor (cursor-agent), codex (images).
  */
 
 export const MODEL_JOBS = ["chat", "quick", "background", "worker", "crew", "design", "images", "checker"] as const;
@@ -32,15 +32,15 @@ export interface ModelRouting {
 export const CLAUDE_CHAT_MODEL_ID = "claude-sonnet-5-5";
 export const CLAUDE_QUICK_MODEL_ID = "claude-haiku-5-5";
 
-/** George's rule (2026-11-15): Claude for text and code, Codex for images, OpenCode and DeepSeek never. */
+/** OpenCode Go handles text and code; Claude (Sonnet for chat, Haiku for the rest) backs up every text job; Codex is for images. */
 export const DEFAULT_MODEL_ROUTING: ModelRouting = {
-  banned: ["opencode", "deepseek"],
+  banned: ["deepseek"],
   imagesOnly: ["codex"],
   jobs: {
-    chat: [{ provider: "anthropic", model: CLAUDE_CHAT_MODEL_ID }],
-    quick: [{ provider: "anthropic", model: CLAUDE_QUICK_MODEL_ID }],
-    background: [{ provider: "anthropic", model: CLAUDE_QUICK_MODEL_ID }],
-    worker: [{ provider: "anthropic", model: CLAUDE_CHAT_MODEL_ID }],
+    chat: [{ provider: "opencode-go", model: "gpt-6-luna" }, { provider: "anthropic", model: CLAUDE_CHAT_MODEL_ID }],
+    quick: [{ provider: "opencode-go", model: "gpt-6-luna" }, { provider: "anthropic", model: CLAUDE_QUICK_MODEL_ID }],
+    background: [{ provider: "opencode-go", model: "gpt-6-luna" }, { provider: "anthropic", model: CLAUDE_QUICK_MODEL_ID }],
+    worker: [{ provider: "opencode-go", model: "gpt-6-luna" }, { provider: "anthropic", model: CLAUDE_QUICK_MODEL_ID }],
     crew: [{ provider: "claude", model: "default" }],
     design: [{ provider: "claude", model: "opus" }],
     images: [{ provider: "codex", model: "default" }],

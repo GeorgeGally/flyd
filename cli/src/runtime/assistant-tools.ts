@@ -236,6 +236,8 @@ export interface AssistantToolContext {
   background?: boolean;
   /** The conversation this turn belongs to, recorded on an objective handed off from it. */
   sessionId?: string;
+  turnId?: string;
+  answerTurn?: boolean;
 }
 
 function lines(text: unknown): string[] {
@@ -361,7 +363,7 @@ export async function runAssistantTool(
             ]);
             const feedback = String(input.feedback ?? "").trim();
             const result = await runSelfImprovement({
-              complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
+              complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true, source: "runtime/assistant-tools" }),
               notify: notifyMac,
               force: true,
               extraEvidence: feedback ? [{ id: `chat:${Date.now().toString(36)}`, kind: "pushback", at: new Date().toISOString(), text: `George said directly: "${feedback}"` }] : [],
@@ -400,7 +402,8 @@ export async function runAssistantTool(
         const project = handOffProject(context);
         const objective = openObjective({
           words, flydNotes: String(input.notes ?? "").trim(),
-          origin: { surface: "chat", ...(context.sessionId ? { sessionId: context.sessionId } : {}) },
+          origin: { surface: "chat", ...(context.sessionId ? { sessionId: context.sessionId } : {}), ...(context.turnId ? { turnId: context.turnId } : {}) },
+          ...(context.answerTurn && context.turnId && context.sessionId ? { answerTurn: true } : {}),
           ...(urgency ? { urgency } : {}), ...(project ? { project } : {}),
           ...(context.chatScope && !context.chatScope.project ? { general: true } : {}),
         });

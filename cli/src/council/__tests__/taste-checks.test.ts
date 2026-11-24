@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { gatherEvidence } from "../../crew/self-improve.js";
-import { armedTasteChecks, cssSpacingTrips, spacingTrips, tasteCheckPlan, type SpacingMetrics } from "../taste-checks.js";
+import { armedTasteChecks, cssSpacingTrips, spacingTrips, snappingTrips, tasteCheckPlan, type SpacingMetrics } from "../taste-checks.js";
 import { planTasteSkills, renderTasteSkill } from "../taste-skills.js";
 import { ruleId, writeTaste, type TasteProfile, type TasteRule } from "../taste.js";
 
@@ -96,5 +96,39 @@ describe("the spacing check", () => {
     expect(cssSpacingTrips(quiet)).toEqual([]);
     const loud = ["+++ b/a.css", "+  margin: 10rem auto 0;", "+  gap: 12rem 1rem;", "+  row-gap: 200px;"].join("\n");
     expect(cssSpacingTrips(loud)).toHaveLength(3);
+  });
+});
+
+
+describe("the snapping check", () => {
+  it("holds drawing tools to magnetic snapping with a modifier to disable it", () => {
+    const snapping = rule("Drawing tools should snap to grid points, guides and existing points with a modifier key to disable snapping", 3, { skill: "interface" });
+    expect(armedTasteChecks(profile([snapping])).map((item) => item.check)).toEqual(["snapping"]);
+    expect(snappingTrips(`const penTool = (event) => event.altKey ? point : snap(point, grid, guides, points);`)).toEqual([]);
+    expect(snappingTrips(`const penTool = (event) => points.push({ x: event.clientX, y: event.clientY });`)).toHaveLength(1);
+  });
+
+  it("is not satisfied by unrelated page content", () => {
+    const free = `const penTool = (e) => points.push({ x: e.clientX, y: e.clientY });`;
+    const page = `<style>main{display:grid;scroll-snap-type:y mandatory;pointer-events:auto}</style><img alt="logo"><div class="guide">Pen tool</div><script>${free}</script>`;
+    expect(snappingTrips(page)).toHaveLength(1);
+    expect(snappingTrips(`<script>const penTool = (e) => snap(p, grid, guides);</script>`)).toHaveLength(1);
+    expect(snappingTrips(`const penTool = (e) => { const p = e.shiftKey ? lock(a, b) : q; }\n${"x".repeat(400)}\nsnap(p, grid)`)).toHaveLength(1);
+  });
+
+  it("finds drawing tools by their code, not by prose", () => {
+    expect(snappingTrips(`<h1>A drawing tool for path mode</h1><!-- penTool --><script>// penTool\n</script>`)).toEqual([]);
+    for (const free of [
+      `const myPenTool = (e) => points.push(e);`,
+      `if (tool === 'pen') points.push(p);`,
+      `<button data-tool="pen">Pen</button>`,
+      `const onPenDown = (e) => points.push(e);`,
+      `canvas.addEventListener("pointerdown", (e) => { path.push({ x: e.x, y: e.y }); });`,
+    ]) expect(snappingTrips(free)).toHaveLength(1);
+  });
+
+  it("leaves a spacing rule armed as spacing even when it mentions snap and grid", () => {
+    const spacing = rule("Snap the spacing to the 8px grid with a guide for padding", 3, { skill: "spacing" });
+    expect(armedTasteChecks(profile([spacing])).map((item) => item.check)).toEqual(["spacing"]);
   });
 });

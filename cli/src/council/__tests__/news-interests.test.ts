@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { memoryPaths } from "../memory-store.js";
-import { newsInterestsPath, readNewsInterests } from "../news-interests.js";
+import { newsInterestsPath, newsProfile, newsTaste, readNewsInterests } from "../news-interests.js";
 import { runLibrarian } from "../librarian.js";
 import { evolveScout, planInitialTopics, readTaste } from "../scout.js";
 import { decideExecutiveStep } from "../../intelligence/executive/decision-step.js";
@@ -17,6 +17,7 @@ beforeEach(() => {
   writeFileSync(join(root, "MEMORY.md"), "# Flyd memory\n\n## Facts\n- PRIVATE_MEMORY_SENTINEL\n");
 });
 afterEach(() => {
+  rmSync(process.env.FLYD_USER_PROFILE!, { force: true });
   if (previous === undefined) delete process.env.FLYD_MEMORY_DIR; else process.env.FLYD_MEMORY_DIR = previous;
   rmSync(root, { recursive: true, force: true });
 });
@@ -34,9 +35,18 @@ it("falls back to the scout taste brief, then prefers the curated interests", ()
   expect(readNewsInterests(readTaste(dir), newsInterestsPath(memoryPaths(root).memory))).toContain("TASTE_FILE_SENTINEL");
 });
 
-it("planInitialTopics and evolveScout prompts use the brief, never profile or memory", async () => {
+const PROFILE = [
+  "# George", "",
+  "## About me", "- PROFILE_INTEREST_SENTINEL: makes generative on-chain audio pieces", "",
+  "## People", "- PRIVATE_PERSON_SENTINEL is his accountant", "",
+  "## Preferences", "- Hates generic headlines; wants niche, weird finds", "",
+  "## Constraints", "- PRIVATE_CONSTRAINT_SENTINEL", "",
+].join("\n");
+
+it("planInitialTopics and evolveScout prompts layer curated interests onto the taste and carry his preferences, never memory", async () => {
   const dir = scout();
-  writeFileSync(join(dir, "taste.md"), "TASTE_FILE_SENTINEL generative art and odd hardware, evolved from feedback, long enough to count as a profile.\n");
+  writeFileSync(join(dir, "taste.md"), "TASTE_FILE_SENTINEL generative art and odd hardware. Avoid: generic world news. Long enough to count as a profile.\n");
+  writeFileSync(process.env.FLYD_USER_PROFILE!, PROFILE);
   const prompts: string[] = [];
   const complete = async (prompt: string) => { prompts.push(prompt); return '{"topics":[],"add":[]}'; };
   await planInitialTopics(complete, new Date("2026-11-17T08:00:00Z"), dir);
@@ -44,14 +54,36 @@ it("planInitialTopics and evolveScout prompts use the brief, never profile or me
   expect(prompts.length).toBeGreaterThanOrEqual(2);
   for (const prompt of prompts) {
     expect(prompt).toContain("TASTE_FILE_SENTINEL");
+    expect(prompt).toContain("PROFILE_INTEREST_SENTINEL");
+    expect(prompt).toContain("Hates generic headlines");
     expect(prompt).not.toContain("PRIVATE_MEMORY_SENTINEL");
+    expect(prompt).not.toContain("PRIVATE_PERSON_SENTINEL");
+    expect(prompt).not.toContain("PRIVATE_CONSTRAINT_SENTINEL");
   }
+  // Regression: a curated interests brief used to replace the taste, dropping its favour/avoid rules.
   const curated = "Curated interests: protocol history, creative coding experiments and strange hardware.";
   writeFileSync(newsInterestsPath(memoryPaths(root).memory), `${curated}\n`);
   prompts.length = 0;
   await planInitialTopics(complete, new Date("2026-11-17T08:00:00Z"), dir);
   expect(prompts[0]).toContain(curated);
-  expect(prompts[0]).not.toContain("TASTE_FILE_SENTINEL");
+  expect(prompts[0]).toContain("TASTE_FILE_SENTINEL");
+  expect(prompts[0]).toContain("Avoid: generic world news");
+});
+
+it("newsTaste adds curated interests once and newsProfile keeps only preference sections", () => {
+  const path = newsInterestsPath(memoryPaths(root).memory);
+  expect(newsTaste("Taste only.", path)).toBe("Taste only.");
+  writeFileSync(path, "Curated: plotters and demoscene archaeology, odd hardware.\n");
+  expect(newsTaste("Taste only.", path)).toBe("Taste only.\n\nCurrent interests (curated from his conversations):\nCurated: plotters and demoscene archaeology, odd hardware.");
+  expect(newsTaste("Taste. Curated: plotters and demoscene archaeology, odd hardware.", path)).toBe("Taste. Curated: plotters and demoscene archaeology, odd hardware.");
+  const profile = newsProfile(PROFILE)!;
+  expect(profile).toContain("PROFILE_INTEREST_SENTINEL");
+  expect(profile).toContain("Hates generic headlines");
+  expect(profile).not.toContain("PRIVATE_PERSON_SENTINEL");
+  expect(profile).not.toContain("PRIVATE_CONSTRAINT_SENTINEL");
+  expect(newsProfile("Plain notes: loves internet archaeology and protocol history.")).toContain("internet archaeology");
+  expect(newsProfile("# George\n\n## People\n- someone")).toBeNull();
+  expect(newsProfile(null)).toBeNull();
 });
 
 it("evolve still revises taste.md from the model reply", async () => {
@@ -80,7 +112,7 @@ it("librarian stores valid news_interests, drops too short or too long ones, and
   expect(calls).toBe(before);
 });
 
-it("librarian curation prompt carries the profile but news prompts do not (profile only feeds curation)", async () => {
+it("librarian curation prompt carries the profile", async () => {
   let curation = "";
   await librarian(async (prompt) => { curation = prompt; return "{}"; });
   expect(curation).toContain("PRIVATE_PROFILE_SENTINEL");

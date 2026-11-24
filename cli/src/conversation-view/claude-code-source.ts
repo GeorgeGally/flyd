@@ -317,7 +317,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
         process.env.FLYD_ROUTING_FALLBACK_MODEL && !process.env.VITEST
           ? async (prompt) => {
             const { query } = await import("../lib/llm.js");
-            return query(prompt, process.env.FLYD_ROUTING_FALLBACK_MODEL);
+            return query(prompt, process.env.FLYD_ROUTING_FALLBACK_MODEL, undefined, undefined, undefined, { source: "conversation-view/claude-code-source" });
           }
           : this.desk.complete,
       ));

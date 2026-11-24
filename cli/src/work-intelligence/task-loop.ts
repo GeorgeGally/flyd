@@ -155,7 +155,7 @@ export async function planTask(params: {
     undefined,
     params.modelConfig.apiKey,
     params.modelConfig.baseURL,
-    { json: true }
+    { json: true, source: "work-intelligence/task-loop" }
   );
 
   const parsed = parseTaskPlan(raw);

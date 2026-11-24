@@ -64,7 +64,7 @@ function hisWords(request: DomainRun["request"]): string {
 export async function decideRun(
   run: DomainRun,
   send: typeof sendRunMessage,
-  complete: (prompt: string) => Promise<string> = async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }),
+  complete: (prompt: string) => Promise<string> = async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true, source: "command/scheduler" }),
 ): Promise<ExecutiveDecisionRecord> {
   const result = run.result;
   const detail = [result?.brief, ...(result?.unresolvedQuestions ?? []), ...(result?.risks ?? [])].filter(Boolean).join("\n").slice(0, 2_000);

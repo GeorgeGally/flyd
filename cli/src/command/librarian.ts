@@ -24,6 +24,8 @@ export interface KnowledgeDispatchInput {
   doneWhen: string[];
   contextRefs?: string[];
   parentRequestId?: string;
+  session?: string;
+  turnId?: string;
   background?: boolean;
   /** A stable id for this request: dispatching it again returns its run instead of starting the work twice. */
   requestId?: string;
@@ -59,6 +61,8 @@ export function dispatchKnowledgeDomain(input: KnowledgeDispatchInput): DomainRu
     doneWhen: input.doneWhen,
     createdAt: now.toISOString(),
     source: "chat",
+    ...(input.session ? { session: input.session } : {}),
+    ...(input.turnId ? { turnId: input.turnId } : {}),
     ...(input.contextRefs?.length ? { contextRefs: input.contextRefs } : {}),
     ...(input.parentRequestId ? { parentRequestId: input.parentRequestId } : {}),
     ...(input.background ? { background: true } : {}),
@@ -128,7 +132,7 @@ async function synthesize(run: DomainRun, specialistOutputs: SpecialistOutput[])
     ...specialistOutputs.map((item) => `--- ${item.specialist} ---\n${item.raw ?? item.outcome}`),
     "",
     'Return JSON only: {"status":"completed|needs_decision|failed","brief":"3-6 line short report","recommendation":{"action":"...","reasoning":"...","confidence":0.0},"detailed_report":"retain the important reasoning and detail","decisions_made":[],"unresolved_questions":[],"risks":[],"evidence":[],"artifacts":[],"specialist_outputs":[{"specialist":"...","outcome":"..."}],"information_loss_risk":"low|medium|high"}',
-  ].join("\n"), undefined, undefined, undefined, undefined, { json: true });
+  ].join("\n"), undefined, undefined, undefined, undefined, { json: true, source: "command/librarian" });
 
   const parsed = parseDomainResult(raw);
   // The boss-level parsed specialist summaries never replace the specialist raw

@@ -152,7 +152,7 @@ export async function generateIndex(): Promise<string> {
     let summary = "";
     try {
       const prompt = `Summarize this wiki page in one sentence (under 120 chars):\n\n${bodyExcerpt}`;
-      summary = await query(prompt, defaultModel());
+      summary = await query(prompt, defaultModel(), undefined, undefined, undefined, { source: "lib/wiki" });
       summary = summary.replace(/^["']|["']$/g, "").trim();
       if (summary.length > 150) summary = summary.slice(0, 147) + "...";
     } catch {

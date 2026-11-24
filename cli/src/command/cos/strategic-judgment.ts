@@ -45,7 +45,7 @@ export async function resolveStrategicQuestion(
     return { kind: "george", reason: "This choice involves effects outside the standing internal mandate." };
   }
   const complete = deps.complete ?? (async (prompt: string) =>
-    (await import("../../lib/llm.js")).quickQuery(prompt, { json: true }));
+    (await import("../../lib/llm.js")).quickQuery(prompt, { json: true, source: "command/cos/strategic-judgment" }));
   let candidate: Record<string, unknown>;
   try {
     candidate = JSON.parse(await complete(strategicPrompt(input, reason))) as Record<string, unknown>;

@@ -9,7 +9,7 @@ import { editorialEvaluationSummary, editorialShadowBrief, recordEditorialJudgme
 export async function runScoutCommand(action = "show", args: string[] = []): Promise<void> {
   const complete = async (prompt: string) => {
     const { query } = await import("../lib/llm.js");
-    return query(prompt, undefined, undefined, undefined, undefined, { json: true });
+    return query(prompt, undefined, undefined, undefined, undefined, { json: true, source: "commands/scout" });
   };
   switch (action) {
     case "show": {
