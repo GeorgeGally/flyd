@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { condense, fitsAtAGlance, georgeMarkdown, MAX_CHARS, outcomesOf, staffLine } from "../for-george.js";
-import { ABOUT_FIXES, THREE_FIXES, STAFF_BLOCKED, STAFF_DECISION, PHANTOM_NOTICES, STAFF_LANDED, STAFF_PROGRESS, WHERE_EVERYTHING_STANDS } from "./fixtures/replies.js";
+import { condense, fitsAtAGlance, georgeMarkdown, MAX_CHARS, staffLine } from "../for-george.js";
+import { ABOUT_FIXES, STAFF_BLOCKED, STAFF_DECISION, PHANTOM_NOTICES, STAFF_LANDED, STAFF_PROGRESS, WHERE_EVERYTHING_STANDS } from "./fixtures/replies.js";
 
 describe("staffLine", () => {
   it("absorbs a fifteen-line progress report: no message for George", () => {
@@ -130,31 +130,3 @@ describe("what is stuck on the staff's side", () => {
   });
 });
 
-describe("a reply about several pieces of work", () => {
-  it("reads as a card per piece: its name, where it stands in a line, and a state", () => {
-    expect(outcomesOf(THREE_FIXES)).toEqual({
-      lead: "Here's where the three Flyd fixes stand:",
-      items: [
-        { title: "Flyd decides itself", line: "Still stuck on its checks.", state: "stuck" },
-        { title: "Chief-of-staff voice", line: 'The phantom "your decision" island alerts are fixed.', state: "landed" },
-        { title: "Activity artefacts", line: "Final checks are running.", state: "underway" },
-      ],
-    });
-  });
-
-  it("takes a lead-in's state and puts each link on its card, not in its words", () => {
-    const cards = outcomesOf(WHERE_EVERYTHING_STANDS)!;
-    expect(cards.items[0]).toEqual({ title: "The Librarian curating taste", line: "", state: "landed", url: "https://github.com/GeorgeGally/flyd/pull/83" });
-    expect(cards.items.every((item) => !item.title.includes("http"))).toBe(true);
-    expect(cards.items.length).toBeLessThanOrEqual(6);
-  });
-
-  it("reads bold words that open a sentence as the sentence, not a name", () => {
-    const cards = outcomesOf("- **Flyd decides itself** and Flyd watches staff are still stuck on a check.\n- **Activity artefacts**: final checks are running.")!;
-    expect(cards.items[0]).toMatchObject({ title: "Flyd decides itself and Flyd watches staff are still stuck on a check", state: "stuck" });
-  });
-
-  it("is not a list of one", () => {
-    expect(outcomesOf("Done.\n\n- one thing")).toBeNull();
-  });
-});

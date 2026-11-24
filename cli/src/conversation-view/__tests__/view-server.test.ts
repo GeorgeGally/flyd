@@ -179,19 +179,43 @@ describe("SnapshotDiffer relays", () => {
     expect(answered.messages.find((message) => message.id === "t1")!.choice).toBeUndefined();
   });
 
-  it("tells him an answer as one compact card: its outcome, the line under it, the rest behind more", () => {
+  it("tells him an answer that carries no artefact as a message, not a card", () => {
     const answer = "Sir, the big dark data band on the vendor admin page is gone. In its place is one slim line above the board: a small Data button, then the counts. Click the button and the full figures open below it, as before.";
     const [, shown] = new SnapshotDiffer().next({ messages: [
       { id: "u1", role: "user", text: "That data column is like so prevalent, and it shouldn't be." },
       { id: "t1", role: "assistant", text: answer, aside: true },
     ], working: false }).messages;
-    expect(shown!.card).toEqual({
-      kind: "landed",
-      line: "The big dark data band on the vendor admin page is gone.",
-      sub: "In its place is one slim line above the board: a small Data button, then the counts.",
-    });
+    expect(shown!.card).toBeUndefined();
     expect(shown!.html).toContain("as before");
-    expect(shown!.summary).toBeDefined();
+  });
+
+  it("never makes a plain reply a card for its links, lists or headings: only an artefact it carries does", () => {
+    const words = "## Where it stands\n\n- The island fix is merged: https://github.com/GeorgeGally/flyd/pull/170\n- The voice fix is merged too: https://github.com/GeorgeGally/flyd/pull/171\n- Done: the junk is gone.";
+    const shown = new SnapshotDiffer().next({ messages: [
+      { id: "note:1", role: "user", text: "where are the fixes?" },
+      { id: "t1", role: "assistant", text: words, answers: "note:1" },
+      { id: "t2", role: "assistant", text: words, aside: true },
+      { id: "ask:1", role: "user", text: "and Flyd's own?" },
+      { id: "t3", role: "assistant", text: words, answers: "ask:1" },
+    ], working: false }).messages.filter((message) => message.role === "assistant");
+    expect(shown.map((message) => message.id)).toEqual(["t1", "t2", "t3"]);
+    for (const message of shown) expect(message.card, message.id).toBeUndefined();
+    // The same words with the picture of the finished work attached are a card: the artefact decides, not the words.
+    const [pictured] = new SnapshotDiffer().next({ messages: [
+      { id: "t4", role: "assistant", text: words, aside: true, shots: ["/tmp/flyd-shot.png"] },
+    ], working: false }).messages;
+    expect(pictured!.card).toMatchObject({ kind: "landed", url: "https://github.com/GeorgeGally/flyd/pull/170" });
+    expect(pictured!.shots).toHaveLength(1);
+  });
+
+  it("cards a relayed question with its answer buttons, and tells the same words as a message once he has answered", () => {
+    const asked = "The work is green. Shall I delete the old preview servers' data?";
+    const [shown] = new SnapshotDiffer().next({ messages: [{ id: "t1", role: "assistant", text: asked, aside: true }], working: false }).messages;
+    expect(shown!.choice).toMatchObject({ options: ["Yes", "No"] });
+    expect(shown!.card).toEqual({ kind: "decision", line: shown!.choice!.question });
+    const after = new SnapshotDiffer().next({ messages: [{ id: "t1", role: "assistant", text: asked, aside: true }, { id: "note:1", role: "user", text: "no, keep it" }], working: false }).messages.find((message) => message.id === "t1");
+    expect(after!.choice).toBeUndefined();
+    expect(after!.card).toBeUndefined();
   });
 
   it("never calls a reply that puts nothing to him his call, nor says a short one twice", () => {
@@ -200,10 +224,8 @@ describe("SnapshotDiffer relays", () => {
       { id: "u1", role: "user", text: "how is it going?" },
       { id: "t1", role: "assistant", text: status, aside: true },
     ], working: false }).messages;
-    expect(shown!.card?.kind).not.toBe("decision");
-    // The card is the glance; the reply as written waits behind it, not under it as well.
-    expect(shown!.card!.line).toContain("none is waiting on you");
-    expect(shown!.summary).toBeDefined();
+    expect(shown!.card).toBeUndefined();
+    expect(shown!.choice).toBeUndefined();
   });
 
   it("never shows the staff's own words naming how the work runs, even in reply to him: they are told plainly, the original one tap away", () => {
@@ -230,12 +252,12 @@ describe("SnapshotDiffer relays", () => {
     expect(shown!.html).toContain("fm/logan-codex-limit-msg");
   });
 
-  it("keeps the rules he has to paste one tap away under the card that leads a relayed answer, never opened by default", () => {
+  it("keeps the rules he has to paste one tap away under the line that leads a relayed answer, never opened by default", () => {
     const [, shown] = new SnapshotDiffer().next({ messages: [
       { id: "note:1", role: "user", text: "what are the kinsta rules again" },
       { id: "t1", role: "assistant", text: KINSTA_RULES, answers: "note:1" },
     ], working: false }).messages;
-    expect(shown!.card).toBeDefined();
+    expect(shown!.card).toBeUndefined();
     expect(shown!.expanded).toBeUndefined();
     expect(shown!.html).toContain("https://capfive.com/$1");
   });

@@ -45,7 +45,8 @@ import { jevHealthNotice } from "../cognition/system-one/health.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { answerLead, deliver, reportFromReply } from "../runtime/delivery.js";
-import { ASKS_HIM, condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
+import { condense, fitsAtAGlance, georgeMarkdown, staffLine, type GeorgeLine } from "./for-george.js";
+import { cardIntentOf } from "./card-intent.js";
 import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from "./show.js";
 import { editJob, jobRunFromDomain, jobsFrom, type Job, type JobReport } from "./jobs.js";
 import { readDigests, scheduleDigest } from "./job-digest.js";
@@ -152,13 +153,12 @@ export interface RenderedMessage {
   /** Routine chatter (an acknowledgement, a status ping): the page mutes it. */
   routine?: boolean;
   /**
-   * A relayed staff update as Flyd shows it: one line, what kind of news it is,
-   * and the link to what landed. The page draws it as a compact card; the staff's
-   * own words wait behind "more".
+   * An artefact the reply carries, drawn as a compact card (card-intent.ts): a
+   * relayed question with its answer buttons, or finished work with its picture
+   * or page. One line, what kind of news it is, its link; the words wait behind
+   * "more". A reply without an artefact has no card: it reads as a message.
    */
-  card?: { kind: "landed" | "decision" | "blocker" | "underway" | "note"; line: string; sub?: string; url?: string };
-  /** A reply that reports several pieces of work: its opening line and a card per piece. */
-  outcomes?: Outcomes;
+  card?: { kind: "landed" | "decision" | "blocker" | "note"; line: string; sub?: string; url?: string };
   timestamp?: string;
   waiting?: string;
   waitingFailed?: boolean;
@@ -544,29 +544,22 @@ export class SnapshotDiffer {
     return { body: message.text, summary, ...(actionable ? { expanded: true } : {}) };
   }
 
-  /** An answer to him, or a relayed update that answers him, as one compact card: Flyd's reading when it has one. */
-  private answerCard(message: ConversationMessage, asked?: string): RenderedMessage["card"] {
-    const reading = message.answers?.startsWith("note:") ? this.summaries?.interpreter?.cached(message.text) : undefined;
-    const staff = message.aside === true || message.answers?.startsWith("note:") === true;
-    const voiced = inFlydsVoice(reading ?? message.text);
-    const said = replyCard(staff ? plainSaid(voiced) : voiced);
-    if (!said) return undefined;
-    // Flyd's own answer leads with its delivered lead line, and what it asks him is always on the card; the rest waits behind "more".
-    const own = !staff && !reading ? answerLead(voiced)?.split("\n").map((line) => line.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").trim()).filter(Boolean) : undefined;
-    if (own?.length) {
-      said.line = own[0]!;
-      const ask = own.slice(1).find((line) => ASKS_HIM.test(line));
-      if (ask) said.sub = ask;
-      else delete said.sub;
+  /**
+   * The card for finished work the reply carries (its picture, the page it changed): the relay's own line
+   * when it has one, else the reply's first line as Flyd says it. Card-ness was settled by the artefact.
+   */
+  private resultCard(message: ConversationMessage, relay: GeorgeLine | undefined, staffWords: boolean, asked?: string): RenderedMessage["card"] {
+    if (relay && relay.kind !== "absorbed") {
+      const line = inFlydsVoice(relay.line).replace(/[:;,]$/, "");
+      // A question he has moved past is no longer his call: the work it shows is told plainly.
+      if (relay.kind === "landed") return { kind: "landed", line, ...(relay.url ? { url: relay.url } : {}) };
+      return { kind: relay.kind === "blocker" ? "blocker" : "note", line };
     }
-    // The card's words pass the same outgoing checks as any relay: a line that fails leaves no card, a sub that fails is dropped.
-    if (staff) {
-      if (this.heldRelay(said.line, asked)) return undefined;
-      if (said.sub && this.heldRelay(said.sub, asked)) delete said.sub;
-    }
-    const kinds: Record<OutcomeState, NonNullable<RenderedMessage["card"]>["kind"]> = { landed: "landed", needs: "decision", stuck: "blocker", underway: "underway", note: "note", handled: "note" };
-    const url = message.text.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/)?.[0];
-    return { kind: kinds[said.state], line: said.line, ...(said.sub ? { sub: said.sub } : {}), ...(url && said.state === "landed" ? { url } : {}) };
+    const voiced = inFlydsVoice(message.text);
+    const line = condense(staffWords ? plainSaid(voiced) : voiced, { maxChars: 240, keepAsk: false }).trim();
+    // The staff's line passes the same outgoing checks as any relay: a line that fails leaves no card.
+    if (!line || (staffWords && this.heldRelay(line, asked))) return undefined;
+    return { kind: "note", line };
   }
 
   /** A reply Flyd's model judged routine (nothing asked, nothing to act on), or one plainly routine. */
@@ -661,18 +654,18 @@ export class SnapshotDiffer {
       seen.add(message.id);
       // Only Flyd's own copies are shown; a relayed update's transcript ids are not.
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
-      const card: RenderedMessage["card"] = relay && relay.kind !== "absorbed"
-        ? { kind: relay.kind, line: inFlydsVoice(relay.line).replace(/[:;,]$/, ""), ...(relay.kind === "landed" && relay.url ? { url: relay.url } : {}) }
-        : message.role === "assistant" && !message.form && !routine && !parts.whole && !message.answers?.startsWith("ask:") && (message.aside || message.answers) ? this.answerCard(message, asked) : undefined;
-      // The card is his glance: the reply as written waits behind it, never shown twice.
       const staffWords = message.aside === true || message.answers?.startsWith("note:") === true;
-      if (card && !parts.summary) parts.summary = briefOf(staffWords ? plainSaid(message.text) : message.text);
+      // A card only for an artefact the reply carries, known before anything is drawn; never from its words.
+      // A question put by his staff is told as its card; Flyd's own words lead to their question, asked under them.
+      const intent = cardIntentOf({ role: message.role, ...(choice ? { choice } : {}), shots, ...(message.page ? { page: message.page } : {}), ...(message.form ? { form: message.form } : {}) });
+      const card: RenderedMessage["card"] = intent === "decision" ? (staffWords ? { kind: "decision", line: choice!.question.replace(/[:;,]$/, "") } : undefined)
+        : intent === "result" && !routine && !parts.whole ? this.resultCard(message, relay, staffWords, asked) : undefined;
+      // The card, or for his staff's words a plain line, is his glance: the reply as written waits behind it, never shown twice.
+      if ((card || (staffWords && message.role === "assistant" && !message.form)) && !parts.summary) parts.summary = briefOf(staffWords ? plainSaid(message.text) : message.text);
       // What he has to act on stays open under the card, never folded behind "as written".
       // The staff's own words are never opened by default: Flyd's line leads, the original one tap away.
       const expanded = !staffWords && (parts.expanded === true || (card !== undefined && !artifact && isActionable(message.text)));
-      // Several pieces of work read as a card each, not as paragraphs; Flyd's own answers stay as written.
-      const outcomes = message.role === "assistant" && !message.form && !routine && !parts.whole && !message.answers?.startsWith("ask:") ? outcomesOf(message.text, handled) ?? undefined : undefined;
-      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, artifact, routine, expanded, card, outcomes, message.waiting, message.waitingFailed, message.settled, message.doing, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, message.form, undone.has(message.id)]);
+      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, artifact, routine, expanded, card, message.waiting, message.waitingFailed, message.settled, message.doing, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, message.form, undone.has(message.id)]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -690,7 +683,6 @@ export class SnapshotDiffer {
         ...(expanded ? { expanded: true } : {}),
         ...(artifact ? { artifact } : {}),
         ...(card ? { card } : {}),
-        ...(outcomes ? { outcomes } : {}),
         ...(message.timestamp ? { timestamp: message.timestamp } : {}),
         ...(message.waiting ? { waiting: message.waiting } : {}),
         ...(message.waiting && message.waitingFailed ? { waitingFailed: true } : {}),

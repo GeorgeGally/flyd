@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { needsGeorge, readWork, withWorkState, workStateOfRun } from "../work-state.js";
 import { PLAY_STATE, playStateOf } from "../state-of-play.js";
 import { CARD_STATE, stateOf } from "../../conversation-view/executive.js";
-import { OUTCOME_STATE, stateOfItem } from "../../conversation-view/for-george.js";
 import { RAIL_STATE, railState } from "../../conversation-view/rail.js";
 import { jobRunFromDomain, jobsFrom } from "../../conversation-view/jobs.js";
 import type { DomainRun } from "../../command/types.js";
@@ -16,7 +15,6 @@ describe("the one work reader, against the golden table", () => {
       expect(readWork(row.sentence)).toBe(row.state);
       // Every surface shows the same reading in its own words.
       expect(stateOf(row.sentence)).toBe(row.state ? CARD_STATE[row.state] : null);
-      expect(stateOfItem(row.sentence)).toBe(row.state ? OUTCOME_STATE[row.state] : "note");
       expect(playStateOf(row.sentence)).toBe(row.state ? PLAY_STATE[row.state] : undefined);
       const rail = railState({ answer: answer(row.sentence) as never });
       // The rail reads "moving" from an answer's lead only; the golden rows that move say so in their lead.

@@ -2263,24 +2263,19 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(document.querySelector(".msg")!.classList.contains("open")).toBe(false);
   });
 
-  it("draws a reply about several pieces of work as a card each, never paragraphs", async () => {
+  it("draws a reply with no artefact as a message, whatever lists, links or headings it holds", async () => {
     load("");
     await settle();
     open("latest", [{
-      id: "t1", role: "assistant", html: "<ul><li>the staff's own words</li></ul>", aside: true,
-      outcomes: { lead: "Here's where the three Flyd fixes stand:", items: [
-        { title: "Flyd decides itself", line: "Still stuck on its checks.", state: "stuck" },
-        { title: "Chief-of-staff voice", line: "The phantom island alerts are fixed.", state: "landed", url: "https://github.com/GeorgeGally/flyd/pull/170" },
-        { title: "Activity artefacts", line: "Final checks are running.", state: "underway" },
-      ] },
+      id: "t1", role: "assistant", aside: true,
+      html: "<h2>Where it stands</h2><ul><li>The island fix is merged: <a href=\"https://github.com/GeorgeGally/flyd/pull/170\">#170</a></li><li>The voice fix is under way.</li></ul>",
+      summary: { html: "<p>The island fix is merged.</p>", source: "flyd" },
     } as never]);
     await settle();
-    const cards = [...document.querySelectorAll(".outcomes .card")];
-    // What needs him says so inside the sentence; the rest is the dot's colour.
-    expect(document.querySelector(".outcomes .card-meta")).toBeNull();
-    expect(cards.map((card) => card.querySelector(".card-line")!.textContent)).toEqual(["Stuck: Flyd decides itself", "Chief-of-staff voice", "Activity artefacts"]);
-    expect(cards[1]!.querySelector<HTMLAnchorElement>(".card-link")!.href).toBe("https://github.com/GeorgeGally/flyd/pull/170");
-    expect(document.querySelector(".outcomes-lead")!.textContent).toBe("Here's where the three Flyd fixes stand:");
+    const message = document.querySelector(".msg")!;
+    expect(message.querySelector(".card")).toBeNull();
+    expect(message.classList.contains("carded")).toBe(false);
+    expect(message.querySelector(".summary")!.textContent).toBe("The island fix is merged.");
   });
 
   it("renders the canonical needs list even when the legacy decision list disagrees", async () => {
