@@ -6,7 +6,7 @@
  * which): his question and Flyd's answer sit under that story, in the story's
  * own article conversation. Runs inside the page script's closure after the
  * front page's own script and borrows its helpers (el, clock, withToken, tokenFetch,
- * frontEsc, frontText, frontGlance, frontProject, frontRoot, frontSelect,
+ * frontEsc, frontText, frontProject, frontRoot, frontSelect,
  * renderFront, connect, input, composer, historyList).
  */
 export const TODAY_SCRIPT = `

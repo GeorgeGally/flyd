@@ -1,12 +1,13 @@
 /**
- * The front page's own places: the right column's tabs, the jobs list and the
+ * The front page's own places: the phone's one live line, the right column's tabs, the sidebar (Now) and the
  * project threads (the page's artefact column #rail is the third), the Machines screen,
  * his own to-dos (drawn into Needs you), the open job's heading and the open job, and
  * the News page with its weather column, and the Week: eight days, hour by hour. The conversation itself (#stream and the message
  * box) is the page's own and sits in the middle, on the paper.
  */
-export const FRONT_HTML = `<nav class="rtabs" id="rtabs" aria-label="Right column"><button type="button" class="rtab" data-rtab="jobs" aria-pressed="false">Jobs<span class="fdot" id="rtab-dot" hidden aria-label="something needs you"></span></button><button type="button" class="rtab" data-rtab="threads" aria-pressed="false">Projects<span class="thread-dot" id="rtab-threads-dot" hidden aria-label="something unread"></span></button><button type="button" class="rtab" data-rtab="arts" aria-pressed="false">Made</button></nav>
-<aside class="jobs" id="jobs" aria-label="Jobs"><div id="jobs-list"></div></aside>
+export const FRONT_HTML = `<nav class="rtabs" id="rtabs" aria-label="Right column"><button type="button" class="rtab" data-rtab="jobs" aria-pressed="false">Now<span class="fdot" id="rtab-dot" hidden aria-label="something needs you"></span></button><button type="button" class="rtab" data-rtab="threads" aria-pressed="false">Projects<span class="thread-dot" id="rtab-threads-dot" hidden aria-label="something unread"></span></button><button type="button" class="rtab" data-rtab="arts" aria-pressed="false">Made</button></nav>
+<button type="button" class="now-strip" id="now-strip" hidden><i class="ldot" id="now-strip-dot" aria-hidden="true"></i><span class="now-strip-text" id="now-strip-text"></span><span class="now-strip-more">Now and ideas</span></button>
+<aside class="jobs" id="jobs" aria-label="Now"><button type="button" class="sheet-close" id="sheet-close">Close</button><div id="jobs-list"></div></aside>
 <aside class="threads" id="threads" aria-label="Projects"></aside>
 <section class="machines" id="machines" aria-label="Machines"><div class="mach-fleet"><div id="machines-list"></div><button type="button" class="machine-open" id="machine-open" hidden>Add a machine</button><form class="machine-form" id="machine-form" hidden autocomplete="off"><label>Name<input name="name" maxlength="60" placeholder="Studio" required></label><label>SSH host alias<input name="alias" maxlength="120" placeholder="studio" spellcheck="false" autocapitalize="off" required></label><p class="machine-hint">The name from your SSH config. Flyd uses your existing keys and never stores a password.</p><p class="machine-error" id="machine-error" role="alert"></p><div class="machine-acts"><button type="submit" class="fbtn">Add</button><button type="button" class="fbtn" id="machine-cancel">Cancel</button></div></form></div><aside class="mach-tools" id="machines-side" hidden aria-label="Tools, models and usage"><div id="machines-tools"></div><div id="machines-setup"></div></aside></section>
 <div class="todos" id="todos" aria-label="Yours to do"><p class="todo-said" id="todo-said" role="status" hidden></p><div id="todo-lists"></div></div>

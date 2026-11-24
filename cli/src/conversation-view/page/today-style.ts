@@ -116,7 +116,7 @@ export const TODAY_STYLE = `
 :root[data-layout="front"] .job { padding: 0; border-radius: 12px; overflow: hidden; }
 .fhead { padding: 0 22px 20px; font: 400 14px/1.3 var(--sans); }
 .jfoot { display: flex; align-items: center; gap: 9px; padding: 0 22px 18px; font: 400 14px/1.3 var(--sans); color: var(--mute); }
-.jproject { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jproject { min-width: 0; overflow-wrap: anywhere; }
 .jfoot .w { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
 :root[data-layout="front"] .job .frame { height: 258px; margin: 22px 22px 0; padding: 0; border-radius: 0; background: none; aspect-ratio: auto; }
 :root[data-layout="front"] .job .frame img { object-position: left top; border-radius: 0; }

@@ -45,8 +45,17 @@ export const THREADS_SCRIPT = `
     var open = thread.id === explicit;
     return '<button type="button" data-thread="' + frontEsc(thread.id) + '"' + (open ? ' aria-current="true"' : "") + '>' + words + '</button>';
   }
+  // Each project as a shortcut for the message box: "/flyd" opens its thread, described by its live line in Now.
+  var threadShortcuts = [];
+  function projectShortcuts() {
+    return threadShortcuts.map(function (one) {
+      var lines = typeof frontJobs !== "undefined" ? Array.from(frontJobs.values()).filter(function (job) { return job.group !== "done" && sideSlug(job.project) === one.name; }) : [];
+      return { name: one.name, thread: one.thread, description: lines.length ? sideNowLine(frontLine(lines[0])) : "Open " + one.project };
+    });
+  }
   function drawThreads(list) {
     var projects = list.projects || [];
+    threadShortcuts = sideShortcuts(projects);
     var rows = (list.all ? [list.all] : []).concat(projects, list.other ? [list.other] : []);
     var open = rows.filter(function (thread) { return thread.id === explicit; })[0];
     if (open && open.replyAt && open.replyAt !== threadsSeen[open.id]) { threadsSeen[open.id] = open.replyAt; keepThreadsSeen(); }
