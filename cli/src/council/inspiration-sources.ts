@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { quickQuery } from "../lib/llm.js";
 import { fetchPublicUrl } from "../runtime/url-guard.js";
 import {
-  buildDigest, ensureQueryAnchor, expansionPrompt, focusTerm, ngramTerms, termsFromModel,
+  buildDigest, ensureQueryAnchor, expansionPrompt, focusTerm, FRESH_MS, ngramTerms, termsFromModel,
   type ContextDigest, type InspirationItem, type WorkFocus,
 } from "./inspiration.js";
 
@@ -221,7 +221,7 @@ export function mediaFromCommons(json: unknown): InspirationItem[] {
 
 export function threadsFromHn(json: unknown): InspirationItem[] {
   const hits = ((json as { hits?: unknown[] } | null)?.hits ?? []).flatMap((raw): Array<InspirationItem & { points: number }> => {
-    const hit = raw as { objectID?: unknown; title?: unknown; url?: unknown; points?: unknown };
+    const hit = raw as { objectID?: unknown; title?: unknown; url?: unknown; points?: unknown; created_at?: unknown };
     const id = String(hit.objectID ?? "");
     const title = typeof hit.title === "string" ? hit.title.replace(/\s+/g, " ").trim() : "";
     if (!id || !title) return [];
@@ -236,6 +236,8 @@ export function threadsFromHn(json: unknown): InspirationItem[] {
       sourceId: "hn:thread",
       summary: host ? `Thread about ${host}.` : "The thread itself.",
       media: "thread",
+      // The thread's own date, so the mix's freshness rule can tell a 2011 thread from today's.
+      ...(typeof hit.created_at === "string" && Number.isFinite(Date.parse(hit.created_at)) ? { published: hit.created_at } : {}),
       obscure: true,
       points,
     }];
@@ -774,8 +776,10 @@ async function fetchBaseline(fetchImpl: typeof fetch, dir: string, store: Store,
   const key = `${signature}|${terms.join("|")}`;
   const jobs: Array<{ name: string; ttl: number; load: () => Promise<InspirationItem[]> }> = [];
   const take = (name: string, ttl: number, load: () => Promise<InspirationItem[]>): void => { jobs.push({ name, ttl, load }); };
+  // Recent threads only: a keyword search across all of HN, quietest first, surfaced 2011 posts.
+  const since = Math.floor((now.getTime() - FRESH_MS) / 1000);
   take("hn", TTL.fresh, async () => {
-    const batches = await Promise.all(terms.slice(0, 3).map((one) => readJson(fetchImpl, `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(one)}&tags=story&hitsPerPage=8`).then(threadsFromHn)));
+    const batches = await Promise.all(terms.slice(0, 3).map((one) => readJson(fetchImpl, `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(one)}&tags=story&hitsPerPage=8&numericFilters=${encodeURIComponent(`created_at_i>${since}`)}`).then(threadsFromHn)));
     return batches.flat();
   });
   take("commons", TTL.images, async () => mediaFromCommons(await readJson(fetchImpl, `https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(term)}&gsrlimit=8&prop=imageinfo&iiprop=url|mime`)));

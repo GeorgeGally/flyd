@@ -85,15 +85,17 @@ export class RssAdapter implements CapabilityAdapter {
   }
 
   async read(request: EvidenceReadRequest): Promise<EvidenceItem[]> {
-    const xml = await fetchText(this.fetchFn, request.locator, {
+    const body = await fetchText(this.fetchFn, request.locator, {
       headers: {
         Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.1",
         "User-Agent": "flyd-evidence-engine",
       },
     });
-    if (Buffer.byteLength(xml, "utf8") > MAX_FEED_BYTES) {
-      throw new Error("RSS feed exceeds 2MB safety limit");
-    }
+    // Feeds that carry whole posts run past the cap. They list newest first, so only the
+    // leading MAX_FEED_BYTES are parsed; an entry cut off at the edge is simply not matched.
+    const xml = Buffer.byteLength(body, "utf8") > MAX_FEED_BYTES
+      ? Buffer.from(body, "utf8").subarray(0, MAX_FEED_BYTES).toString("utf8")
+      : body;
 
     const feedTitle = tagValue(xml, ["title"]);
     const blocks = parseFeedBlocks(xml).slice(0, 50);

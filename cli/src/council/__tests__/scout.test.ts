@@ -178,6 +178,40 @@ describe("edition, feedback, and watch", () => {
     expect(readSources(dir)[0]).toMatchObject({ status: "paused", failures: 5 });
   });
 
+  it("does not charge or pause healthy feeds for runs where the network itself was down", async () => {
+    // A Mac waking without network: every source fails at once. That says nothing about any one feed.
+    onlySources([
+      { kind: "rss", name: "Niche one", target: "https://one.test/feed" },
+      { kind: "rss", name: "Niche two", target: "https://two.test/feed" },
+      { kind: "rss", name: "Niche three", target: "https://three.test/feed", failures: 4, note: "retrying after pause 2026-09-20" },
+    ]);
+    const offline = (async () => { throw new TypeError("fetch failed"); }) as typeof fetch;
+    const complete = vi.fn(async () => '{"picks": []}');
+    for (let hour = 7; hour <= 19; hour += 3) {
+      await watchScout({ complete, fetchFn: offline, dir, redditSpacingMs: 0, now: () => at(`2026-09-27T${String(hour).padStart(2, "0")}:00:00Z`) });
+    }
+    const [one, two, three] = readSources(dir);
+    expect([one, two].map((source) => [source?.status, source?.failures])).toEqual([["active", 0], ["active", 0]]);
+    expect(three).toMatchObject({ status: "active", failures: 4 });
+    // A feed that fails while the others answer is still charged.
+    const partial = fakeFetch({ "one.test": rss([{ title: "Plotter drawing from a modem log", link: "https://one.test/a" }]), "two.test": rss([{ title: "A forgotten demoparty archive", link: "https://two.test/b" }]) });
+    await watchScout({ complete, fetchFn: partial, dir, redditSpacingMs: 0, now: () => at("2026-09-27T22:00:00Z") });
+    expect(readSources(dir)[2]).toMatchObject({ status: "paused", failures: 5 });
+  });
+
+  it("reads the newest entries of a feed larger than the reader's size cap instead of failing it", async () => {
+    const long = "x".repeat(120_000);
+    const entries = Array.from({ length: 24 }, (_, index) => `<entry><title>Restoring a terminal, part ${index}</title><link href="https://vcr.test/${index}"/><published>2026-09-26T10:00:00Z</published><content>${long}</content></entry>`);
+    const atom = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>Old terminals</title>${entries.join("")}</feed>`;
+    expect(Buffer.byteLength(atom)).toBeGreaterThan(2 * 1024 * 1024);
+    onlySources([{ kind: "rss", name: "Old terminals", target: "https://vcr.test/feed" }]);
+    const prompts: string[] = [];
+    const complete = vi.fn(async (prompt: string) => { prompts.push(prompt); return '{"picks": []}'; });
+    await watchScout({ complete, fetchFn: fakeFetch({ "vcr.test": atom }), dir, redditSpacingMs: 0, now: () => at("2026-09-27T09:00:00Z") });
+    expect(readSources(dir)[0]).toMatchObject({ status: "active", failures: 0 });
+    expect(prompts[0]).toContain("Restoring a terminal, part 0");
+  });
+
   it("watch stays silent unless something is must-know, and notifies within the daily cap", async () => {
     onlySources([{ kind: "rss", name: "TechCrunch", target: "https://techcrunch.test/feed" }]);
     const fetchFn = fakeFetch({ "techcrunch.test": rss([
