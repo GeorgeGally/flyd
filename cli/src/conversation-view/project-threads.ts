@@ -1,7 +1,7 @@
 import { plainNote, railImageSrc } from "./rail.js";
 import { inFlydsVoice } from "./flyd-voice.js";
-import type { ProjectAsker } from "./project-asker.js";
-import { aboutOnly, askLine, nameReader, tagTurns, turnsOf, type ThreadProject, type Turn } from "./project-tags.js";
+import type { ProjectTagger } from "./project-tagger.js";
+import { aboutOnly, askLine, nameReader, projectResolver, tagTurns, turnsOf, type ThreadProject, type Turn } from "./project-tags.js";
 import { inline, SALUTATION, sentences } from "./summaries.js";
 import type { ChatScope, ConversationFollower, ConversationMessage, ConversationSnapshot, ConversationSource, FileUpload, ImageData, ImageUpload, SentMessage, SessionSummary } from "./types.js";
 
@@ -90,6 +90,8 @@ interface SessionIndex {
   shown: Map<string, ConversationMessage>;
   named: string[][];
   unplaced: number[];
+  /** The project whose own conversation this session is (`window:project-<slug>`, where a thread's words go), when it is one. */
+  project?: string;
 }
 
 export function threadId(name: string): string {
@@ -175,13 +177,20 @@ export class ProjectThreads {
   private timer?: ReturnType<typeof setInterval>;
   private readonly listeners = new Set<() => void>();
   private readonly read: (text: string) => string[];
+  private readonly resolve: (hint: string | undefined) => string | undefined;
 
   constructor(private readonly options: {
     feeds: ThreadFeed[];
     projects: ThreadProject[];
-    asker?: ProjectAsker;
+    /** Flyd's cheap model, for the free lines nothing else places. */
+    tagger?: ProjectTagger;
+    /** What a message's own metadata says it is about (a run's project name or root), resolved against the catalogue with no model. */
+    metadata?: (message: ConversationMessage) => string | undefined;
+    /** The projects registry, so a code root in metadata finds its project. */
+    registered?: Array<{ id: string; name: string; repos?: string[] }>;
     now?: () => number;
   }) {
+    this.resolve = projectResolver(options.projects, options.registered);
     // The same words are read at every merge: once each is enough.
     const reader = nameReader(options.projects);
     const read = new Map<string, string[]>();
@@ -265,19 +274,20 @@ export class ProjectThreads {
     const shown = new Map(turns.flatMap((turn) => [...turn.asked, ...(turn.reply ? [turn.reply] : [])])
       .map((message) => [message.id, this.shown(message, feed, session.id)] as const));
     const active = snapshot.working || snapshot.messages.some((message) => message.role === "user" && Boolean(message.waiting) && !message.waitingFailed && !message.settled);
+    const project = this.ownProject(session.id);
     this.sessions.set(key, {
       stamp, fingerprint, active, turns, shown, named: [], unplaced: [],
+      ...(project ? { project } : {}),
       ...(snapshot.working ? { workingAt: Date.parse(session.updatedAt) || 0 } : {}),
     });
   }
 
   /** The conversations as one list, oldest first, each message with its projects. */
   private merge(): void {
-    const asker = this.options.asker;
     const seen = new Set<string>();
     const entries: Entry[] = [];
     for (const session of this.sessions.values()) {
-      const { tags, named, unplaced } = tagTurns(session.turns, this.read, asker ? (turn) => asker.known(turn.key) : undefined);
+      const { tags, named, unplaced } = tagTurns(session.turns, this.read, (turn) => this.placed(turn, session));
       session.named = named;
       session.unplaced = unplaced;
       const open = session.turns.at(-1);
@@ -313,23 +323,45 @@ export class ProjectThreads {
     };
   }
 
-  /** Firstmate is asked about the turns nothing here could place, newest first; its answers come back on a later pass. */
+  /** The project a session belongs to by its own id: a project's own conversation, which withProjectThreads names after the thread. */
+  private ownProject(sessionId: string): string | undefined {
+    const slug = /(?:^|:)window:project-([a-z0-9-]+)$/.exec(sessionId)?.[1];
+    if (!slug || slug === "all" || slug === "other") return undefined;
+    return this.options.projects.find((project) => threadId(project.name) === `${THREAD_PREFIX}${slug}`)?.name;
+  }
+
+  /**
+   * Where a turn whose words name nothing goes, with no model when its metadata
+   * knows: a message's own run, then the project whose own conversation it is in,
+   * then what the cheap model already said of it. Undefined leaves it to the talk around it.
+   */
+  private placed(turn: Turn, session: SessionIndex): string | null | undefined {
+    for (const message of [...turn.asked, ...(turn.reply ? [turn.reply] : [])]) {
+      const project = this.resolve(this.options.metadata?.(message));
+      if (project) return project;
+    }
+    return session.project ?? this.options.tagger?.known(turn.key);
+  }
+
+  /** The cheap model places the free lines nothing here could, newest first, one batch a sweep; its answers show on the next merge. */
   private async askUnplaced(): Promise<void> {
-    const asker = this.options.asker;
-    if (!asker || this.asking) return;
+    const tagger = this.options.tagger;
+    if (!tagger || this.asking) return;
     this.asking = true;
     try {
       const now = (this.options.now ?? Date.now)();
       const cases = [...this.sessions.values()].flatMap((session) => session.unplaced.map((index) => ({ session, index })))
         .filter(({ session, index }) => {
           const turn = session.turns[index]!;
+          // Only his own free lines: a report with nothing he said stays with the talk around it, or Other.
+          if (!turn.asked.length) return false;
           return turn.reply !== undefined || now - (Date.parse(turn.asked.at(-1)?.timestamp ?? "") || 0) > UNANSWERED_MS;
         })
         .sort((a, b) => this.turnAt(b.session.turns[b.index]!) - this.turnAt(a.session.turns[a.index]!))
         .map(({ session, index }) => ({ turn: session.turns[index]!.key, line: askLine(session.turns, index, session.named) }));
-      if (await asker.ask(cases)) this.merge();
+      if (await tagger.ask(cases)) this.merge();
     } catch (error) {
-      console.warn(`[view] could not ask firstmate about projects: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(`[view] could not tag projects: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       this.asking = false;
     }

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseRoom } from "../read-the-room.js";
-import { offCode, offRoute, planBrief, planBudget, planTurn, settleClarify, visibleTools, type TurnRoute } from "../turn-plan.js";
+import { isShortReply, LIGHT_BUDGET, offCode, offRoute, planBrief, planBudget, planTurn, settleClarify, visibleTools, type TurnRoute } from "../turn-plan.js";
 import { readRoomStage } from "../turn-stages.js";
 import { contractError } from "../tool-contracts.js";
 
@@ -164,3 +164,62 @@ describe("project talk isn't code", () => {
   });
 });
 
+describe("short replies take the light path", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const header = '[Captain is replying from Flyd to ask:1795451753594-23670eac — his note: "repeats"; your answer began: "Do you mean the repeated CapFive cards?". His reply follows.]\n\n';
+  const fmHeader = '[Captain is replying from Flyd to reply:fm#42 — your question: "Ship the hero fix or wait for review?"; your reply began: "Two options". His answer follows.]\n\n';
+
+  it("knows a yes, a no, a choice pick and an acknowledgement, including his reply to a pending question", () => {
+    for (const text of ["Yes", "yes please", "ok go ahead", "Nope.", "not now", "2", "option 2", "the second one", "B", "both", "thanks!", "got it, thanks", "👍", "Sounds good"]) {
+      expect(isShortReply(text), text).toBe(true);
+    }
+    expect(isShortReply(`${header}Yes`)).toBe(true);
+    expect(isShortReply(`${fmHeader}the first one`)).toBe(true);
+    for (const text of ["no, make it blue", "yes but change the header first", "what's on my calendar?", "Fix the guido extension", `${header}not those, the ones on the phone page`, ""]) {
+      expect(isShortReply(text), text).toBe(false);
+    }
+  });
+
+  it("keeps a yes to work Flyd just offered on the full loop, and the light path for every other short reply", () => {
+    const offer = "I've found the thread. Want me to check your calendar and draft the reply?";
+    for (const text of ["go ahead", "do it", "yes please", "ship it", "Yes", "sure, thanks", "👍"]) {
+      expect(isShortReply(text, offer), text).toBe(false);
+    }
+    for (const text of ["no", "not now", "thanks", "got it", "option 2", "the second one"]) {
+      expect(isShortReply(text, offer), text).toBe(true);
+    }
+    // A yes/no answer to a question, a pick between choices and an acknowledgement of news stay light.
+    expect(isShortReply("yes", "Do you mean the repeated CapFive cards?")).toBe(true);
+    expect(isShortReply("the first one", "Two options: ship the hero fix now, or wait for review?")).toBe(true);
+    expect(isShortReply("thanks", "The hero fix landed on main.")).toBe(true);
+    expect(isShortReply("go ahead", "I can't reach your calendar right now.")).toBe(true);
+    expect(isShortReply("go ahead", "I can’t reach your calendar right now.")).toBe(true);
+  });
+
+  it("keeps the route and its hand-off, so the reply reaches the same destination, on a tight budget", () => {
+    const withPassOn = [...tools, { name: "pass_on_question" }];
+    const delegate = planTurn(jev("delegate", "coding"), [], { shortReply: true });
+    const full = planTurn(jev("delegate", "coding"));
+    expect(delegate).toMatchObject({ route: "delegate", light: true, budget: { iterations: 2, toolCalls: 1 } });
+    expect(names(delegate)).toEqual(names(full));
+    expect(offRoute(delegate, "start_coding_task", { repo: "/x", outcome: "ship it" })).toBeNull();
+
+    const answer = planTurn(jev("answer"), [], { shortReply: true });
+    expect(answer).toMatchObject({ route: "answer", light: true, budget: LIGHT_BUDGET });
+    expect(visibleTools(withPassOn, answer).map((tool) => tool.name)).toContain("pass_on_question");
+    expect(offRoute(answer, "pass_on_question", { question: "ship it?", about: "code" })).toBeNull();
+    expect(planBudget({ iterations: 8, toolCalls: 12, answerMs: 1 }, answer)).toEqual({ iterations: 2, toolCalls: 1, answerMs: 1 });
+    expect(planBrief(answer!)).toMatch(/short reply/);
+
+    // With the Chief of Staff on, his answer to work under way still goes on with tell_work.
+    vi.stubEnv("FLYD_COS", "1");
+    const cos = planTurn(jev("act"), [], { shortReply: true });
+    expect(cos).toMatchObject({ light: true, budget: LIGHT_BUDGET });
+    expect(offRoute(cos, "tell_work", { kind: "decision", body: "yes" })).toBeNull();
+    expect(planTurn(jev("act"))?.light).toBeUndefined();
+  });
+
+  it("never applies to unattended runs, which have no plan", () => {
+    expect(planTurn(jev("answer"), [], { unattended: true, shortReply: true })).toBeNull();
+  });
+});

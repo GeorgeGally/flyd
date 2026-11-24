@@ -1,7 +1,8 @@
-import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { FLYD_DIR, getKey } from "./config.js";
+import { anthropicTokens, openAITokens, recordTokenUsage } from "./token-usage.js";
 
 /**
  * Flyd's own Claude spend: every direct Anthropic API call is priced from its
@@ -177,15 +178,24 @@ export function compatibleClaudeHeaders(baseURL: string | undefined): Record<str
   return anthropicCompatible(baseURL) ? claudeHeaders() : {};
 }
 
-/** Count an OpenAI-shaped completion's usage against the Claude cap when it went to Anthropic. */
+/**
+ * An OpenAI-shaped completion's usage: counted against the Claude cap when it
+ * went to Anthropic, else recorded as tokens per source per day (OpenCode Go,
+ * OpenAI, OpenRouter, CommandCode), with no price.
+ */
 export function recordCompatibleClaudeUsage(
   model: string,
   baseURL: string | undefined,
-  usage: { prompt_tokens?: number | null; completion_tokens?: number | null } | null | undefined,
+  usage: Parameters<typeof openAITokens>[0],
   source: string,
 ): number {
-  if (!anthropicCompatible(baseURL) || !usage) return 0;
-  return recordClaudeUsage(model.replace(/^anthropic:/i, ""), { input_tokens: usage.prompt_tokens ?? 0, output_tokens: usage.completion_tokens ?? 0 }, source);
+  if (!usage) return 0;
+  if (!anthropicCompatible(baseURL)) {
+    recordTokenUsage({ source, model, tokens: openAITokens(usage) });
+    return 0;
+  }
+  const tokens = openAITokens(usage);
+  return recordClaudeUsage(model.replace(/^anthropic:/i, ""), { input_tokens: tokens?.input ?? 0, output_tokens: tokens?.output ?? 0 }, source);
 }
 
 /** Price one response's usage and add it to this month's total. Returns its cost in USD. */
@@ -206,11 +216,8 @@ export function recordClaudeUsage(model: string, usage: ClaudeUsage | null | und
   else if (cap > 0 && before < cap * WARN_FRACTION && ledger.usd >= cap * WARN_FRACTION && ledger.warned.near !== ledger.month) crossed = "near";
   if (crossed) ledger.warned[crossed] = ledger.month;
   writeSpendLedger(ledger, path);
-  // Opt-in per-call trail (FLYD_CLAUDE_USAGE_LOG=<file>) for measuring cache hits and cost.
-  const trail = env("FLYD_CLAUDE_USAGE_LOG");
-  if (trail) {
-    try { appendFileSync(trail, `${JSON.stringify({ at: now.toISOString(), model, source, usage, usd: cost })}\n`, { mode: 0o600 }); } catch { /* optional */ }
-  }
+  // Tokens per source per day, and the per-call trail (on by default; token-usage.ts).
+  recordTokenUsage({ source, model, tokens: anthropicTokens(usage), usage, usd: cost, now });
   if (crossed) {
     const message = spendWarning({ month: ledger.month, usd: ledger.usd, cap, fraction: ledger.usd / cap, capped: crossed === "capped", calls: ledger.calls, bySource: ledger.bySource });
     if (message) {

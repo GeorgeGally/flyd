@@ -14,7 +14,8 @@ Reference for George's learned design/code taste. Product authority: [personal-i
 
 ## Learning
 
-- Source: each correction/rejection/approval in George's own Claude Code turns (`~/.claude/projects`). Crewmate/worktree sessions and agent briefs are skipped; never tool output, pasted code or assistant words.
+- Source: each correction/rejection/approval in George's own Claude Code turns (`~/.claude/projects`), read only from sessions under his own code roots: the projects registry's repos. Crewmate/worktree sessions, automated tools' sessions (claude-memory-compiler), sessions an agent started and agent briefs are skipped; never tool output, pasted code or assistant words.
+- Each learning call carries only the existing rules related to its messages (George-wide and its projects' rules that share words with them, at most 40), not the whole profile.
 - Each becomes a rule with its quote, project and date. A rule is only learned when it is a reusable preference (a one-off like "make this button blue" is not).
 - Repeats strengthen; a project rule seen in a second project moves to Everywhere; a rule seen once is kept but not told to agents until repeated.
 - Learned on the Core tick (7-day backfill, 3 model calls/tick). `FLYD_TASTE_LEARNING=0` turns it off.

@@ -1,4 +1,5 @@
 import { usesOpenAITransport, defaultModel, getKey, quickModelChain } from "./config.js";
+import { openAITokens, recordTokenUsage } from "./token-usage.js";
 
 export interface ExpandedQuery {
   type: "lex" | "vec" | "hyde";
@@ -28,6 +29,7 @@ async function queryOpenAI(prompt: string, model: string): Promise<string> {
     max_tokens: 400,
     messages: [{ role: "user", content: prompt }],
   });
+  try { recordTokenUsage({ source: "query-expansion", model, tokens: openAITokens(res.usage) }); } catch { /* bookkeeping never breaks a call */ }
   if (!res.choices.length) throw new Error("OpenAI returned empty choices");
   return res.choices[0].message.content ?? "";
 }

@@ -343,6 +343,14 @@ function tidySummary(raw: unknown): string {
   return text;
 }
 
+/** Tokens per source per day; loaded on use, like the Claude ledger below. Never breaks a summary. */
+async function recordSummaryTokens(model: string, usage: { prompt_tokens?: number; completion_tokens?: number } | undefined): Promise<void> {
+  try {
+    const { openAITokens, recordTokenUsage } = await import("../lib/token-usage.js");
+    recordTokenUsage({ source: "summaries", model, tokens: openAITokens(usage) });
+  } catch { /* bookkeeping never breaks a call */ }
+}
+
 export function xaiProvider(apiKey: string, model: string, fetchFn: FetchFn = fetch): SummaryProvider {
   return {
     name: `xai:${model}`,
@@ -359,7 +367,8 @@ export function xaiProvider(apiKey: string, model: string, fetchFn: FetchFn = fe
         }),
       });
       if (!response.ok) throw new Error(`xAI ${response.status}`);
-      const body = (await response.json()) as { choices?: Array<{ message?: { content?: unknown } }> };
+      const body = (await response.json()) as { choices?: Array<{ message?: { content?: unknown } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+      await recordSummaryTokens(`xai:${model}`, body.usage);
       return tidySummary(body.choices?.[0]?.message?.content);
     },
   };
@@ -405,7 +414,8 @@ export function opencodeProvider(apiKey: string, model: string, fetchFn: FetchFn
         }),
       });
       if (!response.ok) throw new Error(`OpenCode Go ${response.status}`);
-      const body = (await response.json()) as { choices?: Array<{ message?: { content?: unknown } }> };
+      const body = (await response.json()) as { choices?: Array<{ message?: { content?: unknown } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+      await recordSummaryTokens(`opencode-go:${model}`, body.usage);
       return tidySummary(body.choices?.[0]?.message?.content);
     },
   };

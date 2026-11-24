@@ -60,12 +60,18 @@ export async function runTickJobs(jobs: TickJob[], options: TickOptions = {}): P
   return results;
 }
 
+/** The spend/usage source a tick job's model calls are recorded under, one per job. */
+export function agendaTickSource(job: string): string {
+  return `runtime/agenda-tick:${job}`;
+}
+
 /** The real tick's jobs, in order. */
 export async function defaultTickJobs(options: { now?: () => Date; backoffPath?: string } = {}): Promise<TickJob[]> {
   const [{ query }, { notifyMac, notifyMacOutcome }] = await Promise.all([import("../lib/llm.js"), import("./agenda.js")]);
   const guard = { ...(options.now ? { now: options.now } : {}), ...(options.backoffPath ? { path: options.backoffPath } : {}) };
-  const complete = guardModelCall((prompt: string) => query(prompt, undefined, undefined, undefined, undefined, { json: true, source: "runtime/agenda-tick" }), guard);
-  const prose = guardModelCall((prompt: string) => query(prompt, undefined, undefined, undefined, undefined, { source: "runtime/agenda-tick" }), guard);
+  // Each job's calls carry its own source, so its usage can be told apart from the others'.
+  const completeFor = (job: string) => guardModelCall((prompt: string) => query(prompt, undefined, undefined, undefined, undefined, { json: true, source: agendaTickSource(job) }), guard);
+  const proseFor = (job: string) => guardModelCall((prompt: string) => query(prompt, undefined, undefined, undefined, undefined, { source: agendaTickSource(job) }), guard);
   return [
     {
       // A read-only Claude Code audit, once a week; it calls no Flyd model.
@@ -102,7 +108,7 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       run: async () => {
         if (process.env.FLYD_COUNCIL === "0") return;
         const { runCouncilPass } = await import("../council/council.js");
-        const council = await runCouncilPass({ complete, notify: notifyMacOutcome });
+        const council = await runCouncilPass({ complete: completeFor("council"), notify: notifyMacOutcome });
         if (council.skipped) return;
         return `${council.librarian?.turns ?? 0} turns, ${council.librarian?.captures ?? 0} captures, ${council.advisories.length} advisories`;
       },
@@ -130,7 +136,7 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       name: "taste", usesModel: true,
       run: async () => {
         const { learnTaste } = await import("../council/taste.js");
-        await learnTaste({ complete });
+        await learnTaste({ complete: completeFor("taste") });
       },
     },
     {
@@ -146,7 +152,7 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       run: async () => {
         const [{ investigate }, { runPersonalTool }] = await Promise.all([import("../council/investigator.js"), import("./personal-tools.js")]);
         const learned = await investigate({
-          complete,
+          complete: completeFor("investigator"),
           calendar: (from, days) => runPersonalTool("calendar_events", { from, days }, { background: true }),
           reminders: () => runPersonalTool("reminders", { action: "list" }, { background: true }),
           recall: (text) => runPersonalTool("recall", { query: text }),
@@ -164,7 +170,7 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       name: "backfill", usesModel: true,
       run: async () => {
         const { backfillArchive } = await import("../council/investigator.js");
-        await backfillArchive({ complete });
+        await backfillArchive({ complete: completeFor("backfill") });
       },
     },
     {
@@ -188,7 +194,7 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       name: "self-improve", usesModel: true,
       run: async () => {
         const { runSelfImprovement } = await import("../crew/self-improve.js");
-        const improved = await runSelfImprovement({ complete, notify: notifyMac });
+        const improved = await runSelfImprovement({ complete: completeFor("self-improve"), notify: notifyMac });
         return improved.status === "not_due" ? undefined : improved.status;
       },
     },
@@ -198,7 +204,7 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
         const [{ scoutTick, editionActivityRecord }, { recordActivity }] = await Promise.all([
           import("../council/scout.js"), import("../conversation-view/activity.js"),
         ]);
-        const log = await scoutTick({ complete, notify: notifyMac, record: (edition) => recordActivity(editionActivityRecord(edition)) });
+        const log = await scoutTick({ complete: completeFor("scout"), notify: notifyMac, record: (edition) => recordActivity(editionActivityRecord(edition)) });
         return log.join("; ");
       },
     },
@@ -280,7 +286,7 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
         ]);
         await prepareMorning({
           briefing: (now) => composeMorning({ now: () => now, peek: true, background: true }),
-          compose: (briefing, now) => museGreeting({ briefing, now, profile: (() => { try { return readUserProfile(); } catch { return null; } })() }, prose),
+          compose: (briefing, now) => museGreeting({ briefing, now, profile: (() => { try { return readUserProfile(); } catch { return null; } })() }, proseFor("morning")),
           newsReady: (now) => scout.latestEdition()?.date === localDay(now),
         });
       },

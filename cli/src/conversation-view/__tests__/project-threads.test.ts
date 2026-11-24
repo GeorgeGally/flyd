@@ -1,11 +1,12 @@
-import { appendFileSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readLinesFrom } from "../line-follower.js";
 import { plainNote } from "../rail.js";
-import { ProjectAsker } from "../project-asker.js";
+import { ProjectTagger } from "../project-tagger.js";
 import { threadCatalogue } from "../project-tags.js";
+import { taskRepoReader } from "../task-ids.js";
 import { ALL_THREAD, OTHER_THREAD, ProjectThreads, threadId, THREAD_MESSAGES, withProjectThreads, type ThreadFeed } from "../project-threads.js";
 import type { ChatScope, ConversationMessage, ConversationSnapshot, ConversationSource, SessionSummary } from "../types.js";
 
@@ -259,7 +260,7 @@ describe("ProjectThreads", () => {
   });
 });
 
-describe("firstmate placing what Flyd cannot", () => {
+describe("placing what the words cannot", () => {
   const quiet = { s: { updatedAt: "2026-11-06T10:00:00Z", messages: [
     user("a", "the logan rotate wheel", "2026-11-06T09:00:00Z"), said("b", "Done.", "2026-11-06T09:01:00Z"),
     user("c", "the DIR ident", "2026-11-06T09:02:00Z"), said("d", "Done.", "2026-11-06T09:03:00Z"),
@@ -268,114 +269,117 @@ describe("firstmate placing what Flyd cannot", () => {
   const names = projects.map((project) => project.name);
   const pass = async (threads: ProjectThreads) => { await threads.refresh(); await new Promise((resolve) => setTimeout(resolve, 5)); };
 
-  function firstmate(answer?: (note: string) => string) {
-    const notes: Array<{ body: string; requestId: string }> = [];
+  function model(answer?: (prompt: string) => string | Promise<string>) {
+    const prompts: string[] = [];
     return {
-      notes,
-      send: vi.fn(async (body: string, requestId: string) => { notes.push({ body, requestId }); return true; }),
-      reply: (requestId: string) => (answer && notes.some((note) => note.requestId === requestId) ? answer(notes.find((note) => note.requestId === requestId)!.body) : undefined),
+      prompts,
+      classify: vi.fn(async (prompt: string) => { prompts.push(prompt); if (!answer) throw new Error("model down"); return answer(prompt); }),
     };
   }
-  const idIn = (note: string): string => /^([0-9a-f]{8}) \|/m.exec(note)![1]!;
+  const idsIn = (prompt: string): string[] => [...prompt.matchAll(/^([0-9a-f]{8}) \|/gm)].map((match) => match[1]!);
 
-  it("asks firstmate about a turn nothing places, and files it where firstmate says", async () => {
-    const staff = firstmate((note) => `Here you go:\n${idIn(note)}: Logan`);
-    const threads = new ProjectThreads({ feeds: [feed(quiet)], projects, asker: new ProjectAsker({ ...staff, names }) });
+  it("places a turn by its run's project, from the projects registry, with no model call", async () => {
+    const lm = model(() => "{}");
+    const registered = [{ id: "koko", name: "Koko", repos: ["/Users/george/Documents/koko"] }];
+    const catalogue = threadCatalogue("", registered);
+    const runs: Record<string, string> = { "run-1": "/Users/george/Documents/koko/web", "run-2": "Logan" };
+    const sessions = { s: { updatedAt: "2026-11-06T10:00:00Z", messages: [
+      { ...user("a", "make the hero calmer", "2026-11-06T09:00:00Z"), run: "run-1" }, said("b", "Done.", "2026-11-06T09:01:00Z"),
+      { ...user("c", "and the gradients", "2026-11-06T12:00:00Z"), run: "run-2" }, said("d", "Done.", "2026-11-06T12:01:00Z"),
+    ] } };
+    const threads = new ProjectThreads({
+      feeds: [feed(sessions)], projects: catalogue, registered,
+      metadata: (message) => (message.run ? runs[message.run] : undefined),
+      tagger: new ProjectTagger({ ...lm, names: catalogue.map((project) => project.name) }),
+    });
     await pass(threads);
-    expect(staff.notes).toHaveLength(1);
-    expect(staff.notes[0]!.body).toContain("smaller squares");
-    expect(staff.notes[0]!.body).toContain("around: Logan, DIR");
-    expect(threads.snapshot(OTHER_THREAD).messages.map((message) => message.id)).toContain("e");
+    expect(threads.snapshot(threadId("Koko")).messages.map((message) => message.id)).toEqual(["a", "b"]);
+    expect(threads.snapshot(threadId("Logan")).messages.map((message) => message.id)).toEqual(["c", "d"]);
+    expect(lm.classify).not.toHaveBeenCalled();
+  });
+
+  it("places a project's own conversation by its session, and a known firstmate task id by its repo, never a slug-prefixed word", async () => {
+    const lm = model(() => "{}");
+    const catalogue = threadCatalogue("- posttraction [ship] - PostTraction: growth tool.\n- site [ship] - Sitewise: site builder.\n", []);
+    const source = feed({
+      "window:project-logan": { updatedAt: "2026-11-06T10:00:00Z", messages: [user("a", "smaller squares", "2026-11-06T09:00:00Z"), said("b", "Done.", "2026-11-06T09:01:00Z")] },
+      task: { updatedAt: "2026-11-06T11:00:00Z", messages: [user("c", "how is posttraction-login-fix going?", "2026-11-06T11:00:00Z"), said("d", "Landed.", "2026-11-06T11:01:00Z")] },
+      // A registry slug ("site") at the start of a hyphenated word, or a task firstmate never had, is not a task id.
+      wide: { updatedAt: "2026-11-06T13:00:00Z", messages: [user("g", "site-wide spacing feels off", "2026-11-06T13:00:00Z"), said("h", "Noted.", "2026-11-06T13:01:00Z")] },
+      unknown: { updatedAt: "2026-11-06T14:00:00Z", messages: [user("i", "status of site-login-fix?", "2026-11-06T14:00:00Z"), said("j", "No such task.", "2026-11-06T14:01:00Z")] },
+      // A session's history label (its folder, or its newest turn's project) is not its project: it places nothing.
+      labelled: { updatedAt: "2026-11-06T12:00:00Z", messages: [user("e", "rounder corners", "2026-11-06T12:00:00Z"), said("f", "Done.", "2026-11-06T12:01:00Z")] },
+    });
+    const listed = source.sessions;
+    source.sessions = async () => (await listed()).map((session) => (session.id === "labelled" ? { ...session, project: "Logan" } : session));
+    const home = mkdtempSync(join(tmpdir(), "flyd-fm-"));
+    mkdirSync(join(home, "state"));
+    writeFileSync(join(home, "state", "posttraction-login-fix.meta"), "project=/Users/george/Documents/posttraction\nbranch=fm/login-fix\n");
+    const taskRepo = taskRepoReader(home);
+    const metadata = (message: ConversationMessage) => taskRepo(message.text);
+    const registered = [{ id: "posttraction", name: "PostTraction", repos: ["/Users/george/Documents/posttraction"] }, { id: "site", name: "Sitewise", repos: ["/Users/george/Documents/sitewise"] }];
+    const threads = new ProjectThreads({ feeds: [source], projects: catalogue, registered, metadata, tagger: new ProjectTagger({ ...lm, names: catalogue.map((project) => project.name) }) });
+    await pass(threads);
+    expect(threads.snapshot(threadId("Logan")).messages.map((message) => message.id)).toEqual(["a", "b"]);
+    expect(threads.snapshot(threadId("PostTraction")).messages.map((message) => message.id)).toEqual(["c", "d"]);
+    expect(threads.snapshot(threadId("Sitewise")).messages.map((message) => message.id)).not.toContain("g");
+    expect(threads.snapshot(threadId("Sitewise")).messages.map((message) => message.id)).not.toContain("i");
+    expect(threads.snapshot(threadId("Logan")).messages.map((message) => message.id)).not.toContain("e");
+  });
+
+  it("asks the cheap model once, in one batch, about a free line nothing else places, and files it where it says", async () => {
+    const lm = model((prompt) => JSON.stringify(Object.fromEntries(idsIn(prompt).map((id) => [id, "Logan"]))));
+    const threads = new ProjectThreads({ feeds: [feed(quiet)], projects, tagger: new ProjectTagger({ ...lm, names }) });
+    await pass(threads);
+    expect(lm.classify).toHaveBeenCalledTimes(1);
+    expect(lm.prompts[0]).toContain("smaller squares");
+    expect(lm.prompts[0]).toContain("around: Logan, DIR");
+    expect(idsIn(lm.prompts[0]!)).toHaveLength(1);
     await pass(threads);
     expect(threads.snapshot(threadId("Logan")).messages.map((message) => message.id)).toContain("e");
     expect(threads.snapshot(OTHER_THREAD).messages.map((message) => message.id)).not.toContain("e");
+    expect(lm.classify).toHaveBeenCalledTimes(1);
   });
 
-  it("files what firstmate cannot place under Other, and does not ask again", async () => {
-    const staff = firstmate((note) => `${idIn(note)}: Other`);
-    const threads = new ProjectThreads({ feeds: [feed(quiet)], projects, asker: new ProjectAsker({ ...staff, names }) });
-    await pass(threads);
-    await pass(threads);
-    await pass(threads);
-    expect(staff.notes).toHaveLength(1);
-    expect(threads.list().other).toMatchObject({ id: OTHER_THREAD, question: "smaller squares" });
-  });
-
-  it("takes a project firstmate made up as no project", async () => {
-    const staff = firstmate((note) => `${idIn(note)}: Nonsense`);
-    const asker = new ProjectAsker({ ...staff, names });
-    const threads = new ProjectThreads({ feeds: [feed(quiet)], projects, asker });
-    await pass(threads);
-    await pass(threads);
-    expect(threads.snapshot(OTHER_THREAD).messages.map((message) => message.id)).toContain("e");
-  });
-
-  it("keeps firstmate's answers by hash, its open note across a restart, and no words on disk", async () => {
+  it("never re-asks a failed batch, even after the gap and a restart: those lines stay under Other", async () => {
+    let now = 1_000_000_000_000;
     const file = join(mkdtempSync(join(tmpdir(), "flyd-tags-")), "tags.json");
-    const staff = firstmate((note) => `${idIn(note)}: Logan`);
-    await pass(new ProjectThreads({ feeds: [feed(quiet)], projects, asker: new ProjectAsker({ ...staff, names, file }) }));
+    const lm = model();
+    const cases = ["a", "b", "c"].map((turn) => ({ turn, line: turn }));
+    const tagger = new ProjectTagger({ ...lm, names, file, now: () => now });
+    expect(await tagger.ask(cases)).toBe(true);
+    expect(tagger.known("a")).toBeNull();
+    now += 16 * 60_000;
+    expect(await tagger.ask(cases)).toBe(false);
+    const later = new ProjectTagger({ ...lm, names, file, now: () => now + 60 * 60_000 });
+    expect(await later.ask(cases)).toBe(false);
+    expect(later.known("c")).toBeNull();
+    expect(lm.classify).toHaveBeenCalledTimes(1);
+    // An unreadable or partial answer settles the batch too: what it skipped or made up is Other, never asked again.
+    const sloppy = model((prompt) => `{"${idsIn(prompt)[0]}": "Logan", "${idsIn(prompt)[1]}": "Nonsense"}`);
+    const once = new ProjectTagger({ ...sloppy, names, now: () => now });
+    await once.ask(cases);
+    expect(cases.map((item) => once.known(item.turn))).toEqual(["Logan", null, null]);
+    now += 16 * 60_000;
+    expect(await once.ask(cases)).toBe(false);
+    expect(sloppy.classify).toHaveBeenCalledTimes(1);
+    expect(readFileSync(file, "utf8")).not.toMatch(/"a"|"b"/);
     expect(statSync(file).mode & 0o777).toBe(0o600);
-    const later = new ProjectThreads({ feeds: [feed(quiet)], projects, asker: new ProjectAsker({ ...staff, names, file }) });
-    await pass(later);
-    expect(staff.notes).toHaveLength(1);
-    await pass(later);
-    expect(later.snapshot(threadId("Logan")).messages.map((message) => message.id)).toContain("e");
-    expect(readFileSync(file, "utf8")).not.toContain("smaller");
   });
 
-  it("holds one note at a time, spaced out, and asks nothing while firstmate is not taking notes", async () => {
+  it("reads at most 25 lines a call and spaces calls out", async () => {
     let now = 1_000_000_000_000;
     const asked = Array.from({ length: 30 }, (_, index) => ({ turn: `t${index}`, line: `line ${index}` }));
-    const staff = firstmate((note) => note.split("\n").filter((line) => / \| /.test(line)).map((line) => `${line.slice(0, 8)}: Other`).join("\n"));
-    const asker = new ProjectAsker({ ...staff, names, now: () => now });
-    expect(await asker.ask(asked)).toBe(false);
-    expect(staff.notes[0]!.body.split("\n").filter((line) => / \| /.test(line))).toHaveLength(25);
-    expect(await asker.ask(asked)).toBe(true);
-    expect(await asker.ask(asked)).toBe(false);
-    expect(staff.notes).toHaveLength(1);
+    const lm = model(() => "{}");
+    const tagger = new ProjectTagger({ ...lm, names, now: () => now });
+    await tagger.ask(asked);
+    expect(idsIn(lm.prompts[0]!)).toHaveLength(25);
+    expect(await tagger.ask(asked)).toBe(false);
     now += 16 * 60_000;
-    await asker.ask(asked);
-    expect(staff.notes).toHaveLength(2);
-
-    const away = new ProjectAsker({ send: async () => false, reply: () => undefined, names });
-    expect(await away.ask(asked)).toBe(false);
-    expect(away.known("t0")).toBeUndefined();
-  });
-
-  it("keeps retrying missing and unknown answers across restarts", async () => {
-    let now = 1_000_000_000_000;
-    const file = join(mkdtempSync(join(tmpdir(), "flyd-retry-")), "tags.json");
-    const staff = firstmate((note) => {
-      const ids = [...note.matchAll(/^([0-9a-f]{8}) \|/gm)].map((match) => match[1]);
-      return staff.notes.length === 1 ? `${ids[0]}: Logan\n${ids[1]}: Unknown` : `${ids[0]}: Unknown`;
-    });
-    const cases = ["a", "b", "c"].map((turn) => ({ turn, line: turn }));
-    let asker = new ProjectAsker({ ...staff, names, file, now: () => now });
-    await asker.ask(cases);
-    await asker.ask(cases);
-    expect(asker.known("a")).toBe("Logan");
-    expect(asker.known("b")).toBeUndefined();
-    expect(asker.known("c")).toBeUndefined();
-    asker = new ProjectAsker({ ...staff, names, file, now: () => now });
-    now += 16 * 60_000;
-    await asker.ask(cases);
-    await asker.ask(cases);
-    expect(asker.known("b")).toBeUndefined();
-    expect(asker.known("c")).toBeUndefined();
-    now += 16 * 60_000;
-    await asker.ask(cases);
-    expect(staff.notes).toHaveLength(3);
-  });
-
-  it("gives up on a note never answered, so the next can go", async () => {
-    let now = 1_000_000_000_000;
-    const staff = firstmate();
-    const asker = new ProjectAsker({ ...staff, names, now: () => now });
-    await asker.ask([{ turn: "t", line: "line" }]);
-    now += 7 * 60 * 60_000;
-    await asker.ask([{ turn: "t", line: "line" }]);
-    expect(staff.notes).toHaveLength(2);
-    expect(new Set(staff.notes.map((note) => note.requestId)).size).toBe(2);
+    await tagger.ask(asked);
+    expect(idsIn(lm.prompts[1]!)).toHaveLength(5);
+    expect(await tagger.ask(asked)).toBe(false);
+    expect(lm.classify).toHaveBeenCalledTimes(2);
   });
 });
 

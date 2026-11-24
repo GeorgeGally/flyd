@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { apiModelId, FLYD_DIR, getKey, quickModelChain, resolveModelConnection } from "../lib/config.js";
 import { qualifiedModelProvider } from "../runtime/flyd-worker-config.js";
 import { opencodeHeaders } from "../runtime/opencode-headers.js";
-import { claudeHeaders, recordClaudeUsage, type ClaudeUsage } from "../lib/claude-spend.js";
+import { claudeHeaders, recordClaudeUsage, recordCompatibleClaudeUsage, type ClaudeUsage } from "../lib/claude-spend.js";
 import { EgressPolicyGateway } from "../intelligence/egress-policy-gateway.js";
 import type { ConversationMessage } from "./types.js";
 
@@ -128,6 +128,7 @@ export async function completePrediction(prompt: string, model: string, signal: 
   });
   if (!response.ok) throw new Error(`Prediction provider HTTP ${response.status}`);
   const body = await response.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number } };
+  try { recordCompatibleClaudeUsage(model, connection.baseURL, body.usage, "prediction"); } catch { /* bookkeeping never breaks a call */ }
   const { suffix, confidence } = parseSuggestion(body.choices?.[0]?.message?.content);
   return { text: suffix, ...(confidence !== undefined ? { confidence } : {}), inputTokens: body.usage?.prompt_tokens, outputTokens: body.usage?.completion_tokens, cost: body.usage?.cost };
 }

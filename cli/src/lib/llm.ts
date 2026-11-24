@@ -4,6 +4,7 @@ import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
 import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
 import { usesOpenAITransport, apiModelId, defaultModel, oneShotModelChain, quickModelChain, resolveModelConnection, type ModelConnection } from "./config.js";
 import { claudeHeaders, compatibleClaudeHeaders, recordClaudeUsage, recordCompatibleClaudeUsage, type ClaudeUsage } from "./claude-spend.js";
+import { anthropicTokens, recordTokenUsage } from "./token-usage.js";
 import { opencodeHeaders } from "../runtime/opencode-headers.js";
 
 interface FixtureRule {
@@ -151,8 +152,16 @@ function throwOnRefusal(stopReason: string | null | undefined, model: string): v
   if (stopReason === "refusal") throw new Error(`${apiModelId(model)} declined this request`);
 }
 
+/** An Anthropic-shaped response's usage: priced against the Claude cap on Flyd's own account, else tokens per source per day. */
 function recordUsage(model: string, connection: ModelConnection, usage: ClaudeUsage | undefined, source: string): void {
   if (directAnthropic(connection)) recordClaudeUsage(apiModelId(model), usage, source);
+  else try { recordTokenUsage({ source, model, tokens: anthropicTokens(usage) }); } catch { /* bookkeeping never breaks a call */ }
+}
+
+/** An OpenAI-shaped response's usage (OpenCode Go, OpenAI, OpenRouter, CommandCode, Anthropic's compatible endpoint). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function recordOpenAIUsage(model: string, connection: Pick<ModelConnection, "baseURL">, usage: any, source: string): void {
+  try { recordCompatibleClaudeUsage(apiModelId(model), connection.baseURL, usage, source); } catch { /* bookkeeping never breaks a call */ }
 }
 
 /** System prompt as blocks: the stable prefix cached, the per-turn rest after it. */
@@ -316,6 +325,8 @@ export interface AgentLoopOptions {
   onContextManaged?(stats: ToolHistoryStats): void;
   /** Calls that may run concurrently with their siblings (read-only lookups). */
   parallelSafe?(name: string, input: Record<string, unknown>): boolean;
+  /** Which job the loop's usage is recorded under; default "chat". */
+  source?: string;
 }
 
 interface PendingToolCall {
@@ -537,6 +548,7 @@ export async function boundedQuery(input: BoundedQueryInput): Promise<string> {
       ...openAICompletionLimit(input.maxTokens),
       messages: [{ role: "user", content: input.prompt }],
     }, { signal: input.signal });
+    recordOpenAIUsage(input.model, connection, result.usage, "preparation");
     const choice = result.choices[0];
     if (!choice?.message.content?.trim() || choice.finish_reason !== "stop") throw new Error("Preparation response incomplete");
     return choice.message.content;
@@ -725,7 +737,7 @@ async function agentLoopAnthropic(
       messages: cache ? withRollingCache(history) : history,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any, { signal: options.signal, headers: shape.headers }) as import("@anthropic-ai/sdk").default.Message;
-    recordUsage(model, connection, res.usage, "chat");
+    recordUsage(model, connection, res.usage, options.source ?? "chat");
     throwOnRefusal(res.stop_reason, model);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -802,6 +814,7 @@ async function agentLoopOpenAI(
       ...(lastCall ? { tool_choice: "none" as const } : {}),
       messages: elideToolHistory(messages, { ...(options.contextPolicy || {}), overhead: JSON.stringify(oaiTools) }, options.contextPolicy !== false, options.onContextManaged).messages,
     }, { signal: options.signal });
+    recordOpenAIUsage(model, connection, res.usage, options.source ?? "chat");
 
     const choice = res.choices[0];
     messages.push(choice.message);
@@ -875,6 +888,7 @@ async function agentLoopOpenAIResponses(
       ...(lastCall ? {} : { tools: responseTools }),
       max_output_tokens: AGENT_OUTPUT_TOKENS,
     }, { signal: options.signal });
+    recordOpenAIUsage(model, connection, response.usage, options.source ?? "chat");
     if (response.error) throw new Error(`OpenAI Responses API: ${response.error.message}`);
     input.push(...response.output);
     const calls = response.output.filter((item) => item.type === "function_call");
