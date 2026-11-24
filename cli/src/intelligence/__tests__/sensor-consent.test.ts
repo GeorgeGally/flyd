@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { IntelligenceEventStore } from "../event-store.js";
 import { ProjectionEngine, type Projector } from "../projections.js";
 import {
-  CALENDAR_METADATA_CONTRACT,
+  CALENDAR_METADATA_CONTRACT, INITIATIVE_PUBLIC_RESEARCH_CONTRACT,
   SourceContractRegistry,
 } from "../sensors/source-contracts.js";
 import { SensorGate } from "../sensors/sensor-gate.js";
@@ -88,6 +88,35 @@ describe("LEARN source governance", () => {
     // queued analysis re-checks through the same lookup before processing
     expect(registry.status("calendar.metadata")).toBe("revoked");
     expect(() => registry.setStatus("calendar.metadata", "enabled")).toThrow(/revoked/);
+  });
+
+
+  it("revocation in a separate process stops an existing reader and survives stale registrations", () => {
+    const path = join(dir, `shared-${randomUUID()}.json`);
+    const core = new SourceContractRegistry({ path });
+    const cli = new SourceContractRegistry({ path });
+    core.register(INITIATIVE_PUBLIC_RESEARCH_CONTRACT);
+    cli.register(INITIATIVE_PUBLIC_RESEARCH_CONTRACT);
+    cli.setStatus("initiative.public-research", "enabled");
+    expect(core.status("initiative.public-research")).toBe("enabled");
+    cli.setStatus("initiative.public-research", "revoked");
+    expect(core.status("initiative.public-research")).toBe("revoked");
+    core.register(INITIATIVE_PUBLIC_RESEARCH_CONTRACT);
+    expect(cli.status("initiative.public-research")).toBe("revoked");
+    expect(() => core.setStatus("initiative.public-research", "enabled")).toThrow(/revoked/);
+    cli.renew("initiative.public-research");
+    expect(core.status("initiative.public-research")).toBe("disabled");
+  });
+
+  it("malformed on-disk consent fails closed instead of restoring default-on permissions", () => {
+    const path = join(dir, `damaged-${randomUUID()}.json`);
+    const core = new SourceContractRegistry({ path });
+    core.register(CALENDAR_METADATA_CONTRACT);
+    core.setStatus("calendar.metadata", "enabled");
+    writeFileSync(path, "{ broken json", { mode: 0o600 });
+    expect(core.status("calendar.metadata")).toBeUndefined();
+    core.register({ ...CALENDAR_METADATA_CONTRACT, enabledByDefault: true });
+    expect(core.status("calendar.metadata")).toBe("disabled");
   });
 
   it("incognito sessions and excluded apps create no event", () => {

@@ -173,6 +173,24 @@ describe("v10 independently checked public research", () => {
     } finally { db.close(); }
   });
 
+
+  it("observes a revocation by another registry while public retrieval is in flight", async () => {
+    const { db, registry, dir } = fixture();
+    try {
+      const otherProcess = new SourceContractRegistry({ path: join(dir, "source-consents.json") });
+      const engine = vi.fn(async () => {
+        otherProcess.setStatus(INITIATIVE_PUBLIC_RESEARCH_CONTRACT.sourceId, "revoked");
+        return bundle(2);
+      });
+      const result = await researchInitiative(candidate(), edition, {
+        registry, now: () => now, engine: { research: engine } as never,
+      });
+      expect(engine).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe("not_permitted");
+      expect(result.citedEvidence).toEqual([]);
+    } finally { db.close(); }
+  });
+
   it("returns inconclusive rather than fabricated verification for one source", async () => {
     const { db, registry } = fixture();
     try {
