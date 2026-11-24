@@ -1,4 +1,4 @@
-import { appendFileSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,7 @@ import { readLinesFrom } from "../line-follower.js";
 import { plainNote } from "../rail.js";
 import { ProjectTagger } from "../project-tagger.js";
 import { threadCatalogue } from "../project-tags.js";
+import { taskRepoReader } from "../task-ids.js";
 import { ALL_THREAD, OTHER_THREAD, ProjectThreads, threadId, THREAD_MESSAGES, withProjectThreads, type ThreadFeed } from "../project-threads.js";
 import type { ChatScope, ConversationMessage, ConversationSnapshot, ConversationSource, SessionSummary } from "../types.js";
 
@@ -297,26 +298,32 @@ describe("placing what the words cannot", () => {
     expect(lm.classify).not.toHaveBeenCalled();
   });
 
-  it("places a project's own conversation by its session, and a firstmate task by its run's project, never a slug-prefixed word", async () => {
+  it("places a project's own conversation by its session, and a known firstmate task id by its repo, never a slug-prefixed word", async () => {
     const lm = model(() => "{}");
     const catalogue = threadCatalogue("- posttraction [ship] - PostTraction: growth tool.\n- site [ship] - Sitewise: site builder.\n", []);
     const source = feed({
       "window:project-logan": { updatedAt: "2026-11-06T10:00:00Z", messages: [user("a", "smaller squares", "2026-11-06T09:00:00Z"), said("b", "Done.", "2026-11-06T09:01:00Z")] },
-      task: { updatedAt: "2026-11-06T11:00:00Z", messages: [{ ...user("c", "how is it going?", "2026-11-06T11:00:00Z"), run: "posttraction-login-fix" }, said("d", "Landed.", "2026-11-06T11:01:00Z")] },
-      // A registry slug ("site") at the start of a hyphenated word is not a task id.
+      task: { updatedAt: "2026-11-06T11:00:00Z", messages: [user("c", "how is posttraction-login-fix going?", "2026-11-06T11:00:00Z"), said("d", "Landed.", "2026-11-06T11:01:00Z")] },
+      // A registry slug ("site") at the start of a hyphenated word, or a task firstmate never had, is not a task id.
       wide: { updatedAt: "2026-11-06T13:00:00Z", messages: [user("g", "site-wide spacing feels off", "2026-11-06T13:00:00Z"), said("h", "Noted.", "2026-11-06T13:01:00Z")] },
+      unknown: { updatedAt: "2026-11-06T14:00:00Z", messages: [user("i", "status of site-login-fix?", "2026-11-06T14:00:00Z"), said("j", "No such task.", "2026-11-06T14:01:00Z")] },
       // A session's history label (its folder, or its newest turn's project) is not its project: it places nothing.
       labelled: { updatedAt: "2026-11-06T12:00:00Z", messages: [user("e", "rounder corners", "2026-11-06T12:00:00Z"), said("f", "Done.", "2026-11-06T12:01:00Z")] },
     });
     const listed = source.sessions;
     source.sessions = async () => (await listed()).map((session) => (session.id === "labelled" ? { ...session, project: "Logan" } : session));
-    const metadata = (message: ConversationMessage) => (message.run === "posttraction-login-fix" ? "posttraction" : undefined);
-    const registered = [{ id: "posttraction", name: "PostTraction" }, { id: "site", name: "Sitewise" }];
+    const home = mkdtempSync(join(tmpdir(), "flyd-fm-"));
+    mkdirSync(join(home, "state"));
+    writeFileSync(join(home, "state", "posttraction-login-fix.meta"), "project=/Users/george/Documents/posttraction\nbranch=fm/login-fix\n");
+    const taskRepo = taskRepoReader(home);
+    const metadata = (message: ConversationMessage) => taskRepo(message.text);
+    const registered = [{ id: "posttraction", name: "PostTraction", repos: ["/Users/george/Documents/posttraction"] }, { id: "site", name: "Sitewise", repos: ["/Users/george/Documents/sitewise"] }];
     const threads = new ProjectThreads({ feeds: [source], projects: catalogue, registered, metadata, tagger: new ProjectTagger({ ...lm, names: catalogue.map((project) => project.name) }) });
     await pass(threads);
     expect(threads.snapshot(threadId("Logan")).messages.map((message) => message.id)).toEqual(["a", "b"]);
     expect(threads.snapshot(threadId("PostTraction")).messages.map((message) => message.id)).toEqual(["c", "d"]);
     expect(threads.snapshot(threadId("Sitewise")).messages.map((message) => message.id)).not.toContain("g");
+    expect(threads.snapshot(threadId("Sitewise")).messages.map((message) => message.id)).not.toContain("i");
     expect(threads.snapshot(threadId("Logan")).messages.map((message) => message.id)).not.toContain("e");
   });
 

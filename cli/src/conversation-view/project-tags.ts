@@ -7,8 +7,9 @@ import type { ConversationMessage } from "./types.js";
 // the unit of meaning here: what he said, and what came back. Names in the words
 // themselves are the strong signal; a turn that names nothing carries on the
 // talk around it. Where the words say nothing, the turn's metadata (a run's
-// project, its session's project, a task id) places it (projectResolver); only
-// what is left goes to Flyd's cheap model (project-tagger.ts).
+// project, a known firstmate task id's repo (task-ids.ts), its session's
+// project) places it (projectResolver); only what is left goes to Flyd's
+// cheap model (project-tagger.ts).
 // Nothing here leaves the machine.
 
 export interface ThreadProject {

@@ -193,6 +193,7 @@ describe("short replies take the light path", () => {
     expect(isShortReply("the first one", "Two options: ship the hero fix now, or wait for review?")).toBe(true);
     expect(isShortReply("thanks", "The hero fix landed on main.")).toBe(true);
     expect(isShortReply("go ahead", "I can't reach your calendar right now.")).toBe(true);
+    expect(isShortReply("go ahead", "I can’t reach your calendar right now.")).toBe(true);
   });
 
   it("keeps the route and its hand-off, so the reply reaches the same destination, on a tight budget", () => {

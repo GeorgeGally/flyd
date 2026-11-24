@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { PA_VOICE } from "../lib/pa-voice.js";
 import { answerWithCommunication } from "../conversation-view/communication.js";
 import { ArtefactFeed } from "../conversation-view/artefact.js";
+import { taskRepoReader } from "../conversation-view/task-ids.js";
 import { artefactJudgeFromEnv } from "../conversation-view/artefact-judge.js";
 import { semanticJudgeFromEnv } from "../conversation-view/semantic-judge.js";
 import { importanceJudgeFromEnv } from "../conversation-view/importance-judge.js";
@@ -238,7 +239,10 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, t
     file: defaultProjectTagFile(),
     classify: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true, source: "conversation-view/project-tags" }),
   });
-  const threads = new ProjectThreads({ feeds, projects, registered, metadata: runProject, ...(tagger ? { tagger } : {}) });
+  // A known firstmate task id in the words places the line by the repo that task runs in.
+  const taskRepo = taskRepoReader();
+  const metadata = (message: ConversationMessage): string | undefined => runProject(message) ?? taskRepo(message.text);
+  const threads = new ProjectThreads({ feeds, projects, registered, metadata, ...(tagger ? { tagger } : {}) });
   threads.start();
   return withProjectThreads(source, threads);
 }

@@ -70,7 +70,7 @@ export function originOf(task: string, entries: Map<string, BacklogEntry>): stri
 }
 
 /** A task's `key=value` meta file in the staff's state dir. Never throws. */
-function readMeta(home: string, task: string): Record<string, string> {
+export function readMeta(home: string, task: string): Record<string, string> {
   try {
     return Object.fromEntries(readFileSync(join(home, "state", `${task}.meta`), "utf8").split("\n")
       .map((line) => /^([\w-]+)=(.*)$/.exec(line.trim()))

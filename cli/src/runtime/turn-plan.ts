@@ -133,7 +133,7 @@ const pair = (first: string[]): RegExp => new RegExp(`^(?:${first.join("|")})(?:
 const SHORT_REPLY = pair(SHORT_REPLY_PARTS);
 const APPROVAL = pair(YES_PARTS);
 // Flyd offering to do something ("Want me to check your calendar and draft the reply?").
-const OFFERS_WORK = /\b(?:(?:do you |would you )?want me to|would you like me to|shall i|should i|i can(?!'|not)|i could|happy to|let me know if you(?:'d)? (?:like|want) me to)\b/i;
+const OFFERS_WORK = /\b(?:(?:do you |would you )?want me to|would you like me to|shall i|should i|i can(?!['’]|not)|i could|happy to|let me know if you(?:'d)? (?:like|want) me to)\b/i;
 
 /** His own words in a message, without the window's reply header. */
 export function replyWords(message: string): string {
