@@ -3858,27 +3858,86 @@ describe("the front page", () => {
     expect(document.getElementById("now-strip-text")!.textContent).toBe("Logan: Sliders now sit under the swatches.");
   });
 
-  it("follows the chat with what the page already holds, showing a picture only when the item means it to be seen", async () => {
+  it("follows the chat once it settles: says what it looks for over shimmer, then Scout's stories and the Evidence Engine's finds arrive, and Find more looks again", async () => {
+    const asked: string[] = [];
+    let answer: (response: Response) => void = () => {};
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => {
+      // An earlier test's page may still look up its own talk; only this page's is counted.
+      if (String(url).startsWith("/api/inspirations?q=Logan")) { asked.push(String(url)); return new Promise<Response>((resolve) => { answer = resolve; }); }
+      return json({ assistantLabel: "firstmate", sessions: SESSIONS });
+    });
     load("");
     await settle();
     const stream = open("latest", [{ id: "u1", role: "user", html: "<p>Where are we with the Logan swatches?</p>" }]);
     const story = (title: string, media: string, gist = "Colour in practice.") => ({ title, url: "https://example.com/" + media, source: "Design weekly", gist, image: "/api/story-image?u=" + media, media });
-    stream.emit("update", {
+    const board = () => stream.emit("update", {
       order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true,
       rail: { conversations: [], artefacts: [{ id: "a1", title: "Logan swatches screenshot", line: "Colour panel", image: "/api/rail-image?f=1", at: "2026-10-24T09:00:00.000Z" }] },
       leftColumn: { now: [], semantic: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Today's news", at: "2026-10-24T06:00:00.000Z",
         stories: [story("Swatches that teach colour", "image"), story("Why Logan swatches beat pickers", "text"), story("Unrelated market news", "image", "Rates held steady.")] }] },
     });
-    const section = document.querySelector<HTMLElement>("#jobs-list .fchat")!;
-    expect(section.querySelector(".fhead span")!.textContent).toBe("For this chat");
-    expect(section.querySelector(".fterms")!.textContent).toBe("From Logan, swatches");
-    const cards = Array.from(section.querySelectorAll<HTMLElement>(".ccard"));
-    const titled = (title: string) => cards.find((card) => card.querySelector(".ctitle")!.textContent === title)!;
-    expect(cards.map((card) => card.querySelector(".ctitle")!.textContent)).not.toContain("Unrelated market news");
+    board();
+    await settle();
+    const section = () => document.querySelector<HTMLElement>("#jobs-list .fchat")!;
+    const titles = () => Array.from(section().querySelectorAll(".ccard .ctitle"), (title) => title.textContent);
+    expect(section().querySelector(".fhead span")!.textContent).toBe("For this chat");
+    expect(section().querySelector(".fterms")!.textContent).toBe("Looking for Logan, swatches…");
+    expect(section().querySelectorAll(".ccard.shimmer")).toHaveLength(1);
+    expect(section().querySelector("[data-chat-more]")).toBeNull();
+    expect(asked).toHaveLength(1);
+    expect(new URL(asked[0]!, "http://view").searchParams.get("q")).toBe("Logan,swatches");
+    expect(titles()).not.toContain("Unrelated market news");
+    answer(json({ terms: ["Logan", "swatches"], items: [{ kind: "Video", title: "Swatch pickers compared", text: "Ten pickers side by side.", by: "youtube.com", at: "", url: "https://www.youtube.com/watch?v=1" }] }));
+    await settle();
+    expect(section().querySelector(".fterms")!.textContent).toBe("From Logan, swatches");
+    expect(section().querySelectorAll(".ccard.shimmer")).toHaveLength(0);
+    const found = Array.from(section().querySelectorAll<HTMLElement>(".ccard")).find((card) => card.querySelector(".ctitle")!.textContent === "Swatch pickers compared")!;
+    expect(found.getAttribute("href")).toBe("https://www.youtube.com/watch?v=1");
+    expect(found.querySelector(".cby")!.textContent).toBe("Video · youtube.com");
+    const titled = (title: string) => Array.from(section().querySelectorAll<HTMLElement>(".ccard")).find((card) => card.querySelector(".ctitle")!.textContent === title)!;
     // A story whose picture is the story shows it; one that only has a picture, and Flyd's own screenshot, are words.
     expect(titled("Swatches that teach colour").querySelector("img")).not.toBeNull();
     expect(titled("Why Logan swatches beat pickers").querySelector("img")).toBeNull();
     expect(titled("Logan swatches screenshot").querySelector("img")).toBeNull();
+    // The same talk drawn again looks nothing up; Find more does.
+    board();
+    await settle();
+    expect(asked).toHaveLength(1);
+    section().querySelector<HTMLElement>("[data-chat-more]")!.click();
+    await settle();
+    expect(asked).toHaveLength(2);
+    expect(section().querySelector(".fterms")!.textContent).toBe("Looking for Logan, swatches…");
+  });
+
+  it("keeps the phone's live line, and so the sheet, within reach when nothing is under way", async () => {
+    const stream = await opened();
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true });
+    const strip = document.getElementById("now-strip")!;
+    expect(strip.hidden).toBe(false);
+    expect(document.getElementById("now-strip-text")!.textContent).toBe("Nothing is under way right now.");
+    strip.click();
+    expect(document.documentElement.hasAttribute("data-sheet")).toBe(true);
+  });
+
+  it("draws the sidebar's lines and headings whole, with no eyebrow and no side accent line", async () => {
+    document.head.innerHTML = /<style>([\s\S]*?)<\/style>/.exec(renderPage({ assistantLabel: "firstmate", sendToken: "a".repeat(48) }))![0];
+    document.documentElement.setAttribute("data-layout", "front");
+    const stream = await opened();
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobsFleetKnown: true, jobs: [
+      { id: "logan", group: "moving", state: "Working", title: "Logan swatches", project: "Logan", next: "Sliders now sit under the swatches.", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, at: new Date().toISOString() },
+    ] });
+    const line = document.querySelector<HTMLElement>('#jobs-list .job.line[data-job="logan"]')!;
+    // The stylesheet is in force: the dot is the small fixed size it is drawn at.
+    expect(getComputedStyle(line.querySelector(".ldot")!).width).toBe("6px");
+    for (const shown of [line.querySelector(".jproject")!, line.querySelector(".next")!, line, document.querySelector("#jobs-list .fhead")!]) {
+      const style = getComputedStyle(shown);
+      expect(style.textOverflow).not.toBe("ellipsis");
+      expect(style.textTransform).not.toBe("uppercase");
+      const accent = parseFloat(style.borderLeftWidth || "0") > 0 && !["", "none", "hidden", "initial"].includes(style.borderLeftStyle);
+      expect(accent, shown.className).toBe(false);
+    }
+    document.head.innerHTML = "";
+    document.documentElement.removeAttribute("data-layout");
   });
 
   it("opens a project's thread from the message box with its shortcut, /flyd, instead of sending it", async () => {

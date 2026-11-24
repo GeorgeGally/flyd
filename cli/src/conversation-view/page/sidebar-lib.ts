@@ -25,6 +25,7 @@ export const SIDEBAR_LIB = String.raw`
     if (line !== flat) {
       var whole = /^(.{12,})(?:[.!?:;—–]\s|\s[—–]\s)/.exec(line);
       if (whole) line = whole[1];
+      else while (/\s(?:the|a|an|as|of|in|on|to|and|or|for|with|by|at)$/i.test(line)) line = line.replace(/[\s,;:–—-]*\s(?:the|a|an|as|of|in|on|to|and|or|for|with|by|at)$/i, "");
     }
     line = line.replace(/[\s,;:–—-]+$/, "");
     if (line.length <= room) return line;

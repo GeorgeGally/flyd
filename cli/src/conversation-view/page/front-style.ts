@@ -120,6 +120,16 @@ a.ccard:hover { background: var(--sheet); }
 .ccard .ctitle { font: 500 16px/1.35 var(--sans); letter-spacing: -0.01em; overflow-wrap: anywhere; text-wrap: pretty; }
 .ccard .ctext { margin: 6px 0 0; font: 400 14px/1.45 var(--sans); color: var(--ink2); overflow-wrap: anywhere; }
 .ccard .cby { margin: 16px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
+/* While Flyd looks: plain shimmering bars where cards will be; the cards then arrive one after another. */
+.ccard.shimmer { gap: 10px; }
+.ccard.shimmer span { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg, var(--sheet) 25%, var(--paper) 50%, var(--sheet) 75%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+.ccard.shimmer span:first-child { width: 70%; height: 16px; }
+.ccard.shimmer span:last-child { width: 40%; }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.ccard.arrive { animation: card-in .36s ease-out both; animation-delay: calc(var(--i, 0) * 140ms); }
+@keyframes card-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.fchat .fmore { margin-top: 12px; }
+@media (prefers-reduced-motion: reduce) { .ccard.shimmer span, .ccard.arrive { animation: none; } }
 
 /* The phone's one live line and the sheet's close: a phone's alone. */
 .now-strip, .sheet-close { display: none; }

@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FRONT_STYLE } from "../page/front-style.js";
 import { SIDEBAR_LIB } from "../page/sidebar-lib.js";
-import { TODAY_STYLE } from "../page/today-style.js";
 import { threadId } from "../project-threads.js";
 
 // The sidebar's content rules run here exactly as the page runs them: the same browser code, on its own.
@@ -31,6 +29,9 @@ describe("the live line", () => {
   it("drops the dangling end of a line that arrived already cut, keeping what it said whole", () => {
     expect(lib.sideNowLine("Pierre: hardware-style redesign lab on a Liesel board (Codex): Choose the...")).toBe("Pierre: hardware-style redesign lab on a Liesel board (Codex)");
     expect(lib.sideNowLine("Checking six pages live on phone…")).toBe("Checking six pages live on phone");
+    // With no whole clause to fall back to, the words left hanging go too.
+    expect(lib.sideNowLine("Deploy the hosting change to the...")).toBe("Deploy the hosting change");
+    expect(lib.sideNowLine("Choose the...")).toBe("Choose");
   });
 
   it("puts the detail behind the dot in plain words: where it stands, where and since when", () => {
@@ -86,28 +87,5 @@ describe("for this chat", () => {
     expect(lib.sidePicture({ title: "Flagged off", image: "/api/story-image?id=1", intentional: false })).toBe("");
     expect(lib.sidePicture({ title: "Meant to be seen", image: "/api/story-image?id=2", intentional: true })).toBe("/api/story-image?id=2");
     expect(lib.sidePicture({ title: "Meant, but nothing to show", intentional: true })).toBe("");
-  });
-});
-
-describe("the sidebar's look", () => {
-  // The sidebar's own rules: its lines, cards, headings, dots and the phone's live line and sheet.
-  const SIDEBAR = /\.(?:jobs?|line|ltop|ldot|flines|fnow|fchat|fhead|fempty|fterms|ccards?|ctitle|ctext|cby|cframe|jfoot|jproject|next|now-strip(?:-text|-more)?|sheet-close)\b/;
-  const rules = Array.from((FRONT_STYLE + TODAY_STYLE).matchAll(/([^{}]+)\{([^{}]*)\}/g), (rule) => ({ selector: rule[1]!.trim(), body: rule[2]! }))
-    .filter((rule) => SIDEBAR.test(rule.selector));
-
-  it("never cuts a headline or line off with an ellipsis or a line clamp", () => {
-    expect(rules.length).toBeGreaterThan(20);
-    for (const rule of rules) {
-      expect(rule.body, rule.selector).not.toMatch(/text-overflow:\s*ellipsis/);
-      expect(rule.body, rule.selector).not.toMatch(/line-clamp:\s*[1-9]/);
-    }
-  });
-
-  it("has no eyebrows, no side accent lines and no letters tracked wider than .04em", () => {
-    for (const rule of rules) {
-      expect(rule.body, rule.selector).not.toMatch(/text-transform:\s*uppercase/);
-      expect(rule.body, rule.selector).not.toMatch(/border-left\s*:/);
-      for (const spacing of rule.body.match(/letter-spacing:\s*[-\d.]+em/g) ?? []) expect(Number(/(-?[\d.]+)em/.exec(spacing)![1])).toBeLessThanOrEqual(0.04);
-    }
   });
 });

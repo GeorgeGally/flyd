@@ -84,6 +84,7 @@ import { stripCommitIds } from "../runtime/honesty-check.js";
 import { expandScrawl, fileScrawl } from "./scrawl-capture.js";
 import { NoticeBoard, noticeLine, noticeOf, type NoticeInput } from "./notices.js";
 import { CardNotes } from "./card-notes.js";
+import { findInspirations, inspirationTerms, type Inspiration } from "./inspirations.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
 // completion; predictions cannot invoke the source's send or dispatch work.
@@ -881,6 +882,8 @@ export class ConversationViewServer {
   private readonly cardNotes = new CardNotes();
   /** Opens a card's Liesel board, starting Liesel first when it is down. Tests replace it. */
   lieselBoards = new LieselLauncher();
+  /** "For this chat": one Evidence Engine lookup for the chat's terms; nothing under tests unless one sets it. */
+  inspirations: (terms: string[]) => Promise<Inspiration[]> = process.env.VITEST ? async () => [] : (terms) => findInspirations(terms);
 
   constructor(
     private readonly source: ConversationSource,
@@ -1055,6 +1058,15 @@ export class ConversationViewServer {
         sendJson(res, 403, { error: "missing or wrong token" }); return;
       }
       sendJson(res, 200, { weather: this.weather?.current() ?? null });
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/inspirations") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" }); return;
+      }
+      const terms = inspirationTerms(url.searchParams.get("q"));
+      const items = await this.inspirations(terms).catch(() => null);
+      sendJson(res, items ? 200 : 502, items ? { terms, items } : { error: "Flyd couldn't look that up." });
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/week") {

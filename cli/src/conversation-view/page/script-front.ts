@@ -275,15 +275,69 @@ export const FRONT_SCRIPT = `
       ? '<a class="ccard" href="' + frontEsc(item.url) + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>'
       : '<div class="ccard">' + inner + '</div>';
   }
-  function frontForChat() {
+  // What he is talking about is looked up once the chat settles (a pause after his newest words), or when he asks for more;
+  // never on every change. Scout's stories already on the page match at once; the Evidence Engine's arrive after.
+  var CHAT_SETTLE_MS = 2000;
+  var frontChat = { key: "", terms: [], looking: false, found: [], fresh: false, waiting: "", timer: 0, ask: 0 };
+  function frontChatSettle() {
     var terms = sideTerms(frontChatWords());
+    var key = terms.join(",");
+    if (frontChat.waiting && key === frontChat.waiting) return;
+    clearTimeout(frontChat.timer);
+    frontChat.waiting = "";
+    if (key === frontChat.key) return;
+    if (!terms.length) { frontChat.ask++; frontChat.key = ""; frontChat.terms = []; frontChat.found = []; frontChat.looking = false; return; }
+    frontChat.waiting = key;
+    frontChat.timer = setTimeout(function () { frontChat.waiting = ""; frontChatLook(terms); }, frontChat.key ? CHAT_SETTLE_MS : 0);
+  }
+  function frontChatLook(terms) {
+    var ask = ++frontChat.ask;
+    frontChat.key = terms.join(",");
+    frontChat.terms = terms;
+    frontChat.found = [];
+    frontChat.looking = !!VIEW_TOKEN;
+    frontChatRedraw();
+    if (!VIEW_TOKEN) return;
+    var done = function (items) {
+      if (ask !== frontChat.ask) return;
+      frontChat.looking = false;
+      frontChat.found = Array.isArray(items) ? items.filter(function (item) { return item && item.title; }).map(function (item) {
+        return { kind: item.kind || "Fact", title: item.title, text: item.text || "", by: item.by || "", at: item.at || "", url: frontHttp(item.url) };
+      }) : [];
+      frontChat.fresh = true;
+      frontChatRedraw();
+    };
+    fetch(withToken("/api/inspirations?q=" + encodeURIComponent(frontChat.key)))
+      .then(function (response) { return response.ok ? response.json() : {}; })
+      .then(function (data) { done(data && data.items); }, function () { done([]); });
+  }
+  function frontChatRedraw() {
+    frontDrawn.jobs = "";
+    if (frontUpdate) frontDrawJobs(Array.from(frontJobs.values()));
+  }
+  function frontForChat() {
+    var terms = frontChat.terms;
     if (!terms.length) return "";
-    var found = sideMatches(frontChatItems(), terms, 4);
-    // Nothing that matches takes no room at all.
-    if (!found.length) return "";
+    var seen = {};
+    var found = sideMatches(frontChatItems(), terms, 4).concat(frontChat.found).filter(function (item) {
+      var key = item.url || item.title;
+      if (seen[key]) return false;
+      seen[key] = true;
+      return true;
+    }).slice(0, 8);
+    // Nothing that matches, and nothing still being looked for, takes no room at all.
+    if (!found.length && !frontChat.looking) return "";
+    var arrive = frontChat.fresh;
+    frontChat.fresh = false;
+    var cards = found.map(function (item, at) {
+      var card = frontChatCard(item);
+      return arrive ? card.replace('class="ccard"', 'class="ccard arrive" style="--i:' + at + '"') : card;
+    }).join("");
+    var shimmer = frontChat.looking ? '<div class="ccard shimmer" aria-hidden="true"><span></span><span></span><span></span></div>'.repeat(found.length ? 1 : 3) : "";
     return '<section class="fgroup fchat"><h2 class="fhead"><span>For this chat</span><span></span></h2>'
-      + '<p class="fterms">From ' + frontEsc(terms.join(", ")) + '</p>'
-      + '<div class="ccards">' + found.map(frontChatCard).join("") + '</div></section>';
+      + '<p class="fterms" role="status">' + (frontChat.looking ? "Looking for " + frontEsc(terms.join(", ")) + "…" : "From " + frontEsc(terms.join(", "))) + '</p>'
+      + '<div class="ccards">' + cards + shimmer + '</div>'
+      + (frontChat.looking ? "" : '<button type="button" class="fmore" data-chat-more>Find more</button>') + '</section>';
   }
   // On a phone the sidebar folds into one live line under the top line: what needs him first, else what is moving.
   var nowStrip = document.getElementById("now-strip");
@@ -292,11 +346,10 @@ export const FRONT_SCRIPT = `
   function frontStrip(needs, lines) {
     if (!nowStrip) return;
     var lead = needs[0] || lines[0];
-    nowStrip.hidden = !lead;
-    if (!lead) return;
-    var said = (lead.project ? lead.project + ": " : "") + sideNowLine(frontLine(lead));
-    nowStripDot.dataset.tone = lead.group === "needs" ? "needs" : lead.group === "done" ? "done" : "moving";
-    nowStripDot.title = sideDotDetail(lead, frontWhen(lead.at));
+    nowStrip.hidden = false;
+    var said = lead ? (lead.project ? lead.project + ": " : "") + sideNowLine(frontLine(lead)) : "Nothing is under way right now.";
+    nowStripDot.dataset.tone = !lead ? "idle" : lead.group === "needs" ? "needs" : lead.group === "done" ? "done" : "moving";
+    nowStripDot.title = lead ? sideDotDetail(lead, frontWhen(lead.at)) : "";
     if (nowStripText.textContent !== said) {
       nowStripText.textContent = said;
       nowStripText.classList.remove("swap-in");
@@ -328,6 +381,7 @@ export const FRONT_SCRIPT = `
     frontLinesSaid = said;
     rtabDot.hidden = !needs.length;
     if (listed) frontStrip(needs, lines);
+    frontChatSettle();
     var html = !listed ? '<p class="fempty">Checking…</p>'
       : frontSection("needs", PLACE_WORDS.needs, needs, "No decision is waiting.", Infinity)
         + frontNow(lines)
@@ -753,6 +807,7 @@ export const FRONT_SCRIPT = `
   }
 
   jobsEl.addEventListener("click", function (event) {
+    if (event.target.closest("[data-chat-more]")) { clearTimeout(frontChat.timer); frontChat.waiting = ""; frontChatLook(frontChat.terms); return; }
     var more = event.target.closest(".fmore");
     if (more) { frontOpen[more.dataset.more] = !frontOpen[more.dataset.more]; renderFront(); return; }
     var pick = event.target.closest(".jpick");
