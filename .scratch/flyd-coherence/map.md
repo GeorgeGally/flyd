@@ -25,6 +25,8 @@ One buildable spec for the next Flyd: George works with one brilliant, proactive
 - [What a firstmate-shaped team is](tickets/02-team-shape.md): reuse secondmate homes + brief/status/result files; relays fail on a strict reply regex and per-note firstmate launches; Research desk first, Operations last.
 - [Which models make which decisions](tickets/08-model-strategy.md): Jev routes and picks the tier; reasoning tier for hard chat, planning, taste and news; Opus (+Gemini trial) for creative review; ~$3-4/day extra.
 - [How George stays ambiently aware](tickets/03-ambient-awareness.md): interrupt only for clients, money, live breakage, blocked reviews; one live line per job; proof shown presentation-style; ambient surface TBD (restrained 3D, dynamic-island rollover or sidebar; project shortcut like /flyd for an overview).
+- [What Flyd does without asking](tickets/06-proactivity-policy.md): reversible work in his taste starts and ships unasked; big things arrive as reports that do not need him; money, public, irreversible, held deploys and security wait; Flyd may inspire any time; every decision gets a one-line why.
+- [Flyd, Chief of Staff and teams](tickets/07-cos-contract.md): Flyd owns George and taste and walks the studio; the CoS plans and runs teams (firstmate included); work moves through shared records, not relayed messages.
 
 ## Not yet specified
 
