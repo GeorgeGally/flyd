@@ -76,6 +76,12 @@ export interface TurnPlan {
   handoffs: Set<string>;
   budget: TurnBudget | null;
   instruction: string;
+  /**
+   * A short reply ("yes", a choice pick, "thanks"): the light path. The route
+   * and its hand-offs stay as they are, so the reply reaches the same place;
+   * the turn gets at most one tool call and two rounds, and no repo context.
+   */
+  light?: boolean;
 }
 
 // Looking things up is always fine. Tools that can only change things are
@@ -104,12 +110,68 @@ export const TEAMS = {
   life: "other one-off work outside his repos: generate, draft, build or evaluate something",
 } as const;
 
+// A short reply is his answer to what was just said or asked: a yes or no, a
+// pick from the options offered, or an acknowledgement. The window's reply
+// header ("[Captain is replying from Flyd to … His reply follows.]") is
+// plumbing; only his words after it count.
+const REPLY_HEADER = /^\s*\[(?:Captain is replying from Flyd|Flyd is answering for the captain)\b[^\]\n]*\]\s*/;
+const SHORT_REPLY_PARTS = [
+  // yes
+  "y(?:es|eah|ep|up|a)?", "sure", "ok(?:ay)?", "k+", "fine", "correct", "right", "exactly", "absolutely", "definitely", "please",
+  "go(?: ahead| for it)?", "do it", "do that", "sounds good", "looks good", "lgtm", "perfect", "great", "cool", "nice", "good", "agreed", "approved?", "ship it", "that one", "this one",
+  // no
+  "no", "nope", "nah", "not now", "not yet", "later", "skip(?: it)?", "leave it", "never ?mind", "cancel(?: it)?", "don'?t",
+  // acknowledgements
+  "thanks", "thank you", "thx", "ty", "cheers", "got it", "noted", "understood", "will do", "ack", "all good", "fair enough", "makes sense",
+  // choice picks
+  "(?:option|choice|number|no\\.?|#) ?\\d{1,2}", "\\d{1,2}", "[a-d]", "(?:the )?(?:first|second|third|fourth|last|other|former|latter)(?: one| option)?",
+  "both", "neither", "either", "all(?: of them)?", "none(?: of them)?",
+];
+const SHORT_REPLY = new RegExp(`^(?:${SHORT_REPLY_PARTS.join("|")})(?:[\\s,.!]+(?:${SHORT_REPLY_PARTS.join("|")}))?$`, "i");
+
+/** His own words in a message, without the window's reply header. */
+export function replyWords(message: string): string {
+  return message.replace(REPLY_HEADER, "").trim();
+}
+
+/**
+ * True for a short reply that takes the light path: a yes/no, a choice pick
+ * or an acknowledgement, alone or with one more ("yes, thanks"), including his
+ * reply to a question Flyd or FirstMate put to him. Anything with more to say
+ * ("no, make it blue") is not one.
+ */
+export function isShortReply(message: string): boolean {
+  const said = replyWords(message);
+  const words = said.replace(/[\p{Extended_Pictographic}\uFE0F]+/gu, " ").replace(/[.!?…]+$/u, "").replace(/\s+/g, " ").trim();
+  // A thumbs-up on its own is a yes.
+  if (!words) return said.length > 0 && said.length <= 8;
+  return words.length <= 40 && SHORT_REPLY.test(words);
+}
+
+/** The light path's ceiling: a tool call to carry the reply where it goes, then the line back to him. */
+export const LIGHT_BUDGET: TurnBudget = { iterations: 2, toolCalls: 1 };
+
+function lightPlan(plan: TurnPlan): TurnPlan {
+  return {
+    ...plan,
+    light: true,
+    budget: plan.budget
+      ? { iterations: Math.min(plan.budget.iterations, LIGHT_BUDGET.iterations), toolCalls: Math.min(plan.budget.toolCalls, LIGHT_BUDGET.toolCalls) }
+      : LIGHT_BUDGET,
+    instruction: `${plan.instruction} His message is a short reply to what was just said or asked: take it as that answer. If it settles something that goes elsewhere, pass it on in one step; then reply in a line. Don't research or reopen the question.`,
+  };
+}
+
 /**
  * The plan for a turn. `unattended` runs (background jobs, the agenda) are the
- * work itself, so they always act.
+ * work itself, so they always act. A `shortReply` takes the light path.
  */
-export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domain"> | null, cover: string[] = [], options: { unattended?: boolean } = {}): TurnPlan | null {
-  const plan = basePlan(reading, cover, options);
+export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domain"> | null, cover: string[] = [], options: { unattended?: boolean; shortReply?: boolean } = {}): TurnPlan | null {
+  const plan = cosPlan(basePlan(reading, cover, options));
+  return plan && options.shortReply ? lightPlan(plan) : plan;
+}
+
+function cosPlan(plan: TurnPlan | null): TurnPlan | null {
   if (!plan || process.env.FLYD_COS !== "1") return plan;
   // With the Chief of Staff on, every route hands work over with hand_off, never managing it itself.
   return {

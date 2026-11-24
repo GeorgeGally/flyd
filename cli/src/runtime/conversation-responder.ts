@@ -37,7 +37,7 @@ import { runJobShell } from "./background-jobs.js";
 import { morningPromptBlock } from "../council/morning.js";
 import { projectNamed, projectsPromptBlock } from "../council/projects.js";
 import type { Skill } from "./skills.js";
-import { CODE_TOOLS, offCode, offRoute, planBudget, planTurn, visibleTools, type TurnPlan } from "./turn-plan.js";
+import { CODE_TOOLS, isShortReply, offCode, offRoute, planBudget, planTurn, visibleTools, type TurnPlan } from "./turn-plan.js";
 import { deliveredPromptBlock } from "./delivery.js";
 import { defaultRouteTurn, finishInFlydsVoice, gatherTurnKnowledge, groundingProblems, hedgeUngroundedAnswer, readRoomStage, turnBriefParts, turnExtras, ungroundedSpans, type FastRouteReading, type ReadRoom, type RouteTurn } from "./turn-stages.js";
 import { contractError } from "./tool-contracts.js";
@@ -1169,7 +1169,7 @@ export async function respondToConversation(
       ...(understanding ? { understanding } : {}),
       ...(grounding ? { grounding } : {}),
       ...(error ? { error } : {}),
-      plan: { ...(turnPlan ? { route: turnPlan.route, source: turnPlan.source, cover: turnPlan.cover } : { route: "unplanned", cover: [] }), ...(turnSkill ? { skill: turnSkill } : {}) },
+      plan: { ...(turnPlan ? { route: turnPlan.route, source: turnPlan.source, cover: turnPlan.cover, ...(turnPlan.light ? { light: true as const } : {}) } : { route: "unplanned", cover: [] }), ...(turnSkill ? { skill: turnSkill } : {}) },
     }).catch((persistError: unknown) => {
       console.warn("[turn-receipt] persist failed:", persistError instanceof Error ? persistError.message : persistError);
     });
@@ -1288,7 +1288,7 @@ export async function respondToConversation(
   }
   const answerReading = preparationNote && reading ? { ...reading, route: "answer" as const } : reading;
   const availableReading = mobile && answerReading?.route === "delegate" ? { ...answerReading, route: "answer" as const } : answerReading;
-  const plan = planTurn(availableReading, room?.cover ?? [], { unattended });
+  const plan = planTurn(availableReading, room?.cover ?? [], { unattended, shortReply: !unattended && isShortReply(input.message) });
   turnPlan = plan;
   // Stage: the one skill that fits this turn (its know-how rides in this turn
   // only) and, on the fast path, the one backstage note Jev found relevant.
@@ -1296,7 +1296,8 @@ export async function respondToConversation(
   turnSkill = skill?.name ?? null;
   // Naming a project is not a code turn: the room reading decides, then Jev
   // when sure, then the keyword heuristic.
-  const projectTurn = input.article ? false : mobile ? false : room ? room.mode === "operator"
+  // A short reply is the light path: it carries no repo context (turn-plan.ts).
+  const projectTurn = input.article || plan?.light ? false : mobile ? false : room ? room.mode === "operator"
     : fast?.needsCode ?? (isCurrentWorkQuestion(input.message) || needsProjectContext(input.message, input.history));
   if (presenceEnabled() && !unattended) {
     understanding = understandTurn({

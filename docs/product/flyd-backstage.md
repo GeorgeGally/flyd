@@ -12,6 +12,7 @@ Reference for the processes behind Flyd's one voice. Product authority: [persona
 - The same ~0.3s Jev call also picks at most one eligible how-to skill (`cli/src/runtime/skills.ts`; SKILL.md files in `~/.flyd/skills`, seeded from `cli/agent/flyd-skills`; `flyd skills import <name>` brings in his Claude/OpenCode ones), whose know-how rides in that turn only. For the design-only skill, see the design team section below.
 - The answer sees who George is plus only that selection; backstage findings arrive as private notes it may weave in.
 - On a turn that isn't about code the harness keeps code tools and repo shell access out of reach (`offCode` in `turn-plan.ts`).
+- A short reply (yes/no, a choice pick, an acknowledgement, including his answer to a pending Flyd or FirstMate question) takes the light path (`isShortReply`/`planTurn` in `turn-plan.ts`): same route and hand-offs, so it reaches the same place, but at most one tool call in two rounds and no repo context.
 - In the TUI, a message sent while Flyd is working moves that work to the background; it answers when done.
 
 ## Investigator

@@ -32,7 +32,7 @@ export interface TurnReceipt {
   status: "succeeded" | "failed";
   error?: string;
   /** The turn's plan (turn-plan.ts), or "unplanned" when no room reading came back in time. */
-  plan?: { route: string; source?: "jev" | "llm"; cover: string[]; skill?: string };
+  plan?: { route: string; source?: "jev" | "llm"; cover: string[]; skill?: string; /** A short reply that took the light path. */ light?: true };
   routing?: RoutingTrace;
   /** Judgment policy supplied, not a claim that the model followed it. */
   decisionPolicy?: string;
