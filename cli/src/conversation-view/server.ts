@@ -555,7 +555,7 @@ export class SnapshotDiffer {
       return { kind: "blocker", line };
     }
     const voiced = inFlydsVoice(message.text);
-    const line = condense(staffWords ? plainSaid(voiced) : voiced, { maxChars: 240, keepAsk: false }).replace(/(?:^|\s+)[^.!?\n]*\?["”')\]]*$/, "").trim();
+    const line = condense(staffWords ? plainSaid(voiced) : voiced, { maxChars: 240, keepAsk: false, dropAsk: true }).trim();
     // The staff's line passes the same outgoing checks as any relay: a line that fails leaves no card.
     if (!line || (staffWords && this.heldRelay(line, asked))) return undefined;
     return { kind: "note", line };

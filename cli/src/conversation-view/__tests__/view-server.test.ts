@@ -246,6 +246,20 @@ describe("SnapshotDiffer relays", () => {
     expect(shown!.card!.line).not.toContain("push it");
   });
 
+  it("leaves every question off a result card, wherever it stands and whatever dots it carries", () => {
+    for (const text of [
+      "Updated the hero on index.html. Ship it to staging.example.com?",
+      "Shall I push it? I changed the hero on index.html.",
+      "Updated the hero on index.html. Want a darker shade? Shall I push it?",
+    ]) {
+      const [shown] = new SnapshotDiffer().next({ messages: [
+        { id: "t1", role: "assistant", text, aside: true, page: { url: "http://127.0.0.1:4000/", label: "127.0.0.1:4000" } },
+      ], working: false }).messages;
+      expect(shown!.card!.line, text).toContain("hero on index.html");
+      expect(shown!.card!.line, text).not.toContain("?");
+    }
+  });
+
   it("never calls a reply that puts nothing to him his call, nor says a short one twice", () => {
     const status = "Work is moving: three jobs are open and none is waiting on you right now.";
     const [, shown] = new SnapshotDiffer().next({ messages: [

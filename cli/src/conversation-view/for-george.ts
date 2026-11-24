@@ -194,15 +194,18 @@ export function georgeMarkdown(said: Exclude<GeorgeLine, { kind: "absorbed" }>):
  * Any text Flyd shows him, held to MAX_LINES short lines: lists and headings
  * flattened to prose, sentences kept whole from the top until the next would
  * pass the budget. A sentence that waits on him is always kept, unless a card
- * already asks it (`keepAsk: false`). Links in what is kept stay; a pull
+ * already asks it (`keepAsk: false`); with `dropAsk` every such sentence is
+ * left out, for a card whose question is asked under it. Links in what is kept stay; a pull
  * request named only in what was cut is kept at the end. The full text waits
  * behind "more". Pure.
  */
-export function condense(text: string, options: { maxChars?: number; keepAsk?: boolean } = {}): string {
+export function condense(text: string, options: { maxChars?: number; keepAsk?: boolean; dropAsk?: boolean } = {}): string {
   const maxChars = options.maxChars ?? MAX_CHARS;
   const trimmed = text.trim();
   if (!trimmed) return "";
-  const said = proseSentences(trimmed);
+  const prose = proseSentences(trimmed);
+  const said = options.dropAsk ? prose.filter((sentence) => !ASKS_HIM.test(sentence)) : prose;
+  if (options.dropAsk && said.length === 0) return "";
   // "You're right." only acknowledges; what he needs starts after it.
   while (said.length > 1 && isAcknowledgement(said[0]!)) said.shift();
   if (said.length === 0) return clip(inline(trimmed), maxChars);
