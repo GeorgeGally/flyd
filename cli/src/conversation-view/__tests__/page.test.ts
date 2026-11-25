@@ -3828,7 +3828,7 @@ describe("the front page", () => {
       job({ id: "held", group: "moving", state: "Blocked", title: "Held up" }),
       job({ id: "bare", group: "done", state: "Done", title: "Finished", next: "This is done.", bare: true }),
     ] });
-    expect(groups()).toEqual([["Needs you", "No decision is waiting."], ["Now", 1], ["Next", 2]]);
+    expect(groups()).toEqual([["Needs you", "No decision is waiting."], ["Now", 1], ["Made", "Nothing made yet."], ["Next", 2]]);
     const next = document.querySelector<HTMLDetailsElement>("#jobs-list details.fnext")!;
     expect(next.open).toBe(false);
     expect(document.querySelector('#stream > .msg.work[data-job="bare"]')).toBeNull();
@@ -3909,6 +3909,111 @@ describe("the front page", () => {
     expect(section().querySelector(".fterms")!.textContent).toBe("Looking for Logan, swatches…");
   });
 
+  it("keeps his newest Made artefacts on the home column as the Made tab draws them, whatever order they arrive in", async () => {
+    const stream = await opened();
+    const art = (n: number, over: Record<string, unknown> = {}) => ({ id: `a${n}`, title: `Take ${n}`, line: `Line ${n}`, image: `/api/rail-image?f=${n}`, url: `https://example.com/${n}`, at: new Date(Date.now() - n * 60_000).toISOString(), ...over });
+    const artefacts = [
+      art(9, { at: undefined }), art(6), art(3, { image: undefined, url: undefined, steps: ["one"] }), art(4, { down: true }),
+      art(1), art(2, { image: undefined, preview: "http://127.0.0.1:8097/", at: new Date(Date.now() - 2 * 60_000).toISOString() }),
+      art(7, { id: "landed:pr", image: undefined }),
+    ];
+    const update = (next: string) => stream.emit("update", {
+      order: ["u1"], messages: [], working: false, show: SHOW, jobsFleetKnown: true,
+      jobs: [{ id: "run", group: "moving", state: "Working", title: "Under way", project: "Logan", next, owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, at: new Date().toISOString() }],
+      rail: { conversations: [], artefacts },
+    });
+    update("Wiring it");
+    expect(document.documentElement.getAttribute("data-rtab")).toBe("jobs");
+    expect(groups().map(([name]) => name)).toEqual(["Needs you", "Now", "Made"]);
+    const made = document.querySelector<HTMLElement>("#jobs-list .fmade")!;
+    expect(made.querySelector(".fhead span:last-child")!.textContent).toBe("5");
+    const cards = Array.from(made.querySelectorAll<HTMLElement>(".art-card"));
+    expect(cards.map((card) => card.querySelector(".art-title")!.textContent)).toEqual(["Take 1", "Take 2", "Take 6"]);
+    expect(cards[0]!.querySelector("a.art-pic")!.getAttribute("href")).toBe("https://example.com/1");
+    expect(cards[0]!.querySelector(".art-pic img")).not.toBeNull();
+    const frame = cards[1]!.querySelector<HTMLIFrameElement>("iframe")!;
+    expect(frame.getAttribute("src")).toBe("http://127.0.0.1:8097/");
+    update("Testing it");
+    expect(document.querySelector("#jobs-list .job.line .next")!.textContent).toBe("Testing it");
+    expect(document.querySelector("#jobs-list .fmade iframe")).toBe(frame);
+    const all = made.querySelector<HTMLElement>("[data-made-all]")!;
+    expect(all.textContent).toBe("See all");
+    all.click();
+    expect(document.documentElement.getAttribute("data-rtab")).toBe("arts");
+    expect(document.querySelectorAll("#artefacts .art-card")).toHaveLength(6);
+  });
+
+  it("brings the whole Made list into view from the phone sheet's See all, and leaves the desktop's scroll alone", async () => {
+    let phone = true;
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: phone && query.includes("760px"), media: query, addEventListener() {}, removeEventListener() {} }));
+    const shown: string[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) { shown.push(this.id); };
+    try {
+      const stream = await opened();
+      stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true, rail: { conversations: [], artefacts: [1, 2, 3, 4].map((n) => ({ id: `a${n}`, title: `Take ${n}` })) } });
+      const seeAll = () => document.querySelector<HTMLElement>("[data-made-all]")!.click();
+      document.getElementById("now-strip")!.click();
+      seeAll();
+      expect(document.documentElement.hasAttribute("data-sheet")).toBe(false);
+      expect(document.documentElement.getAttribute("data-rtab")).toBe("arts");
+      expect(shown).toEqual(["artefacts"]);
+      phone = false;
+      seeAll();
+      expect(shown).toEqual(["artefacts"]);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("puts undated artefacts after dated ones in Made, and says nothing was made only when nothing was", async () => {
+    const stream = await opened();
+    const update = (artefacts: unknown[]) => stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true, rail: { conversations: [], artefacts } });
+    const madeGroup = () => groups().find(([name]) => name === "Made")!;
+    update([]);
+    expect(madeGroup()[1]).toBe("Nothing made yet.");
+    update([{ id: "board", title: "Board" }, { id: "old", title: "Old", at: "2026-01-01T00:00:00.000Z" }]);
+    expect(madeGroup()[1]).not.toBe("Nothing made yet.");
+    expect([...document.querySelectorAll("#jobs-list .fmade .art-title")].map((title) => title.textContent)).toEqual(["Old", "Board"]);
+  });
+
+  it("shows only finished artefacts in Made, and a worker's status change never redraws it", async () => {
+    const stream = await opened();
+    const at = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+    const running = (line: string, minutes: number) => [1, 2, 3].map((n) => ({ id: `live:live-job-${n}`, title: `Running ${n}`, line, image: "/api/rail-image?f=9", at: at(minutes) }));
+    const unfinished = [
+      { id: "waiting:held-a", title: "Held", at: at(0) }, { id: "next:next-gate", title: "Queued", at: at(0) },
+      { id: "live:http://127.0.0.1:1/", title: "Down", url: "http://127.0.0.1:1/", down: true, at: at(0) },
+      { id: "live:http://127.0.0.1:2/", title: "Checking", url: "http://127.0.0.1:2/", checking: true, at: at(0) },
+      { id: "live:http://127.0.0.1:3/", title: "Blocked", url: "http://127.0.0.1:3/", blocked: true, at: at(0) },
+    ];
+    const made = [
+      { id: "reply:words", title: "Words", steps: ["one"], at: at(5) },
+      { id: "page", title: "Page", image: "/api/rail-image?f=1", at: at(30) },
+      { id: "live:http://127.0.0.1:8097/", title: "Board", preview: "http://127.0.0.1:8097/", at: at(20) },
+      { id: "landed:landed-pr", title: "Shot", image: "/api/rail-image?f=2", at: at(10) },
+    ];
+    const update = (artefacts: unknown[]) => stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true, rail: { conversations: [], artefacts } });
+    const titles = () => [...document.querySelectorAll("#jobs-list .fmade .art-title")].map((title) => title.textContent);
+    update([...running("Wiring", 1), ...unfinished, ...made]);
+    expect(titles()).toEqual(["Shot", "Board", "Page"]);
+    expect(document.querySelector("#jobs-list .fmade .fhead span:last-child")!.textContent).toBe("4");
+    expect(document.querySelector("[data-made-all]")!.textContent).toBe("See all");
+    const drawn = [...document.querySelectorAll("#jobs-list .fmade, #jobs-list .fmade .art-card, #jobs-list .fmade iframe")];
+    expect(drawn).toHaveLength(5);
+    update([...running("Testing", 0), ...unfinished, ...made]);
+    expect([...document.querySelectorAll("#jobs-list .fmade, #jobs-list .fmade .art-card, #jobs-list .fmade iframe")].every((node, n) => node === drawn[n])).toBe(true);
+    // The Made tab still lists everything.
+    expect([...document.querySelectorAll("#artefacts .art-title")].map((title) => title.textContent)).toContain("Running 1");
+    // A finished artefact with no picture fills a place the pictures leave.
+    update([...made.slice(0, 2), ...unfinished]);
+    expect(titles()).toEqual(["Page", "Words"]);
+    expect(document.querySelector("#jobs-list .fmade .art-steps")!.textContent).toBe("one");
+    update([...running("Wiring", 0), ...unfinished]);
+    expect(groups().find(([name]) => name === "Made")![1]).toBe("Nothing made yet.");
+  });
+
   it("keeps the phone's live line, and so the sheet, within reach when nothing is under way", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true });
@@ -3967,7 +4072,7 @@ describe("the front page", () => {
     expect(document.querySelector("#jobs-list")!.textContent).toBe("Checking…");
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: BOARD });
     // What finished reads as a line in Now, under what is under way.
-    expect(groups()).toEqual([["Needs you", 1], ["Now", 1]]);
+    expect(groups()).toEqual([["Needs you", 1], ["Now", 1], ["Made", "Nothing made yet."]]);
     const needs = document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!;
     expect(needs.querySelector(".frame img")).not.toBeNull();
     // Under "Needs you" the dot says it; the card names the project.
@@ -4247,6 +4352,7 @@ describe("the front page", () => {
     expect(groups()).toEqual([
       ["Needs you", "No decision is waiting."],
       ["Now", "Nothing is under way right now."],
+      ["Made", "Nothing made yet."],
     ]);
     stream.emit("update", {
       order: ["u1"], messages: [], working: false, jobsFleetKnown: true,

@@ -1,7 +1,7 @@
 /**
  * The front page: the one open job (or the conversation) in the middle; the
- * right column is two tabs, the jobs as cards and the page's own artefact
- * column (#rail: artefacts, notices, news), restyled as cards by front-style.ts.
+ * right column is the home sidebar (Now), Projects and the page's own artefact
+ * column (Made; #rail: artefacts, notices, news), restyled as cards by front-style.ts.
  * When the stream sends update.jobs, those are the cards: a project George is
  * moving, with the digest already stored on it. The page never asks for a new
  * reading while drawing. Core places every card (placement.ts); the page never re-sorts them.
@@ -19,6 +19,9 @@ export const FRONT_SCRIPT = `
   var frontRoot = document.documentElement;
   var jobsEl = document.getElementById("jobs");
   var jobsList = document.getElementById("jobs-list");
+  var jobsTop = document.getElementById("jobs-top");
+  var jobsMade = document.getElementById("jobs-made");
+  var jobsRest = document.getElementById("jobs-rest");
   var todosEl = document.getElementById("todos");
   var jobView = document.getElementById("job-view");
   var stageHead = document.getElementById("stage-head");
@@ -245,6 +248,28 @@ export const FRONT_SCRIPT = `
       + '<div class="flines">' + shown.map(frontNowLine).join("") + '</div>'
       + (lines.length > few.length ? '<button type="button" class="fmore" data-more="now">' + (frontOpen.now ? "Show fewer" : "Show all " + lines.length) + '</button>' : "") + '</section>';
   }
+  // Made: his newest finished artefacts, pictures first, drawn as the Made tab draws them, always on the home column; that tab keeps all of them.
+  // In its own container, redrawn only when its own cards change, so a framed page never reloads with the rest.
+  var MADE_FEW_FRONT = 3;
+  // Finished only: not work under way (Now has it; a framed page is live:<url>), held up or queued, nor a page that cannot be shown.
+  function frontFinished(card) { return !/^(live:live-|waiting:|next:)/.test(card.id) && !card.down && !card.checking && !card.blocked; }
+  var frontMadeDrawn = "";
+  function frontDrawMade(listed) {
+    var cards = listed ? artefactCards(lastArtefacts).filter(frontFinished) : [];
+    var few = cards.slice().sort(function (a, b) { return pictured(b) - pictured(a) || (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0); }).slice(0, MADE_FEW_FRONT);
+    var key = JSON.stringify([listed, cards.length, few]);
+    if (key === frontMadeDrawn) return;
+    frontMadeDrawn = key;
+    if (fitFrames) jobsMade.querySelectorAll(".art-frame").forEach(function (box) { fitFrames.unobserve(box); });
+    if (!cards.length) {
+      jobsMade.innerHTML = listed ? frontGroup("Made", 0, "", '<p class="fempty">Nothing made yet.</p>') : "";
+      return;
+    }
+    jobsMade.innerHTML = '<section class="fgroup fmade"><h2 class="fhead"><span>Made</span><span>' + cards.length + '</span></h2><ul class="ccards"></ul>'
+      + (cards.length > MADE_FEW_FRONT ? '<button type="button" class="fmore" data-made-all>See all</button>' : "") + '</section>';
+    var list = jobsMade.querySelector(".ccards");
+    few.forEach(function (card) { list.appendChild(artefactItem(card)); });
+  }
   // For this chat: what the page already holds that matches what he is talking about. A picture only when the item means it to be seen.
   function frontChatWords() {
     return Array.prototype.slice.call(document.querySelectorAll("#stream .msg.user .body")).slice(-3).map(function (body) { return body.textContent || ""; });
@@ -362,7 +387,7 @@ export const FRONT_SCRIPT = `
   if (nowStrip) {
     nowStrip.addEventListener("click", function () { frontRoot.toggleAttribute("data-sheet"); });
     jobsEl.addEventListener("click", function (event) {
-      if (event.target.closest(".job, .ccard, .sheet-close")) frontRoot.removeAttribute("data-sheet");
+      if (event.target.closest(".job, .ccard, .art-card, .sheet-close")) frontRoot.removeAttribute("data-sheet");
     });
   }
   // His move first, as Core placed it; then one line a job for what is moving and what finished; what waits folds under Next.
@@ -384,15 +409,16 @@ export const FRONT_SCRIPT = `
     rtabDot.hidden = !needs.length;
     if (listed) frontStrip(needs, lines);
     frontChatSettle();
-    var html = !listed ? '<p class="fempty">Checking…</p>'
-      : frontSection("needs", PLACE_WORDS.needs, needs, "No decision is waiting.", Infinity)
-        + frontNow(moving, done)
-        + frontNext(next)
-        + frontForChat();
+    frontDrawMade(listed);
+    var top = !listed ? '<p class="fempty">Checking…</p>'
+      : frontSection("needs", PLACE_WORDS.needs, needs, "No decision is waiting.", Infinity) + frontNow(moving, done);
+    var rest = !listed ? "" : frontNext(next) + frontForChat();
+    var html = top + rest;
     if (html === frontDrawn.jobs) return;
     frontDrawn.jobs = html;
     if (todosEl) jobsEl.insertAdjacentElement("afterend", todosEl);
-    jobsList.innerHTML = html;
+    jobsTop.innerHTML = top;
+    jobsRest.innerHTML = rest;
     var needsGroup = listed && jobsList.querySelector(".fgroup");
     if (todosEl && needsGroup) needsGroup.insertBefore(todosEl, needsGroup.querySelector(".fstrip").nextSibling);
     frontNeedsCount();
@@ -808,8 +834,15 @@ export const FRONT_SCRIPT = `
     frontStage();
   }
 
+  // On a phone the Made list sits above the conversation in the same scroll: bring it to him, and stop following the latest message.
+  function frontShowMade() {
+    if (!(window.matchMedia && window.matchMedia("(max-width: 760px)").matches)) return;
+    pinned = false;
+    artefactsEl.scrollIntoView({ block: "start" });
+  }
   jobsEl.addEventListener("click", function (event) {
     if (event.target.closest("[data-chat-more]")) { clearTimeout(frontChat.timer); frontChat.waiting = ""; frontChatLook(frontChat.terms); return; }
+    if (event.target.closest("[data-made-all]")) { frontRoot.removeAttribute("data-sheet"); frontTab("arts"); frontShowMade(); return; }
     var more = event.target.closest(".fmore");
     if (more) { frontOpen[more.dataset.more] = !frontOpen[more.dataset.more]; renderFront(); return; }
     var pick = event.target.closest(".jpick");
