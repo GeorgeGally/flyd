@@ -1,7 +1,7 @@
 /**
  * The front page: the one open job (or the conversation) in the middle; the
- * right column is two tabs, the jobs as cards and the page's own artefact
- * column (#rail: artefacts, notices, news), restyled as cards by front-style.ts.
+ * right column is the home sidebar (Now), Projects and the page's own artefact
+ * column (Made; #rail: artefacts, notices, news), restyled as cards by front-style.ts.
  * When the stream sends update.jobs, those are the cards: a project George is
  * moving, with the digest already stored on it. The page never asks for a new
  * reading while drawing. Core places every card (placement.ts); the page never re-sorts them.
