@@ -3926,19 +3926,18 @@ describe("the front page", () => {
     expect(document.documentElement.getAttribute("data-rtab")).toBe("jobs");
     expect(groups().map(([name]) => name)).toEqual(["Needs you", "Now", "Made"]);
     const made = document.querySelector<HTMLElement>("#jobs-list .fmade")!;
-    expect(made.querySelector(".fhead span:last-child")!.textContent).toBe("6");
+    expect(made.querySelector(".fhead span:last-child")!.textContent).toBe("5");
     const cards = Array.from(made.querySelectorAll<HTMLElement>(".art-card"));
-    expect(cards.map((card) => card.querySelector(".art-title")!.textContent)).toEqual(["Take 1", "Take 2", "Take 3"]);
+    expect(cards.map((card) => card.querySelector(".art-title")!.textContent)).toEqual(["Take 1", "Take 2", "Take 6"]);
     expect(cards[0]!.querySelector("a.art-pic")!.getAttribute("href")).toBe("https://example.com/1");
     expect(cards[0]!.querySelector(".art-pic img")).not.toBeNull();
     const frame = cards[1]!.querySelector<HTMLIFrameElement>("iframe")!;
     expect(frame.getAttribute("src")).toBe("http://127.0.0.1:8097/");
-    expect(cards[2]!.querySelector(".art-steps")!.textContent).toBe("one");
     update("Testing it");
     expect(document.querySelector("#jobs-list .job.line .next")!.textContent).toBe("Testing it");
     expect(document.querySelector("#jobs-list .fmade iframe")).toBe(frame);
     const all = made.querySelector<HTMLElement>("[data-made-all]")!;
-    expect(all.textContent).toBe("See all 6");
+    expect(all.textContent).toBe("See all");
     all.click();
     expect(document.documentElement.getAttribute("data-rtab")).toBe("arts");
     expect(document.querySelectorAll("#artefacts .art-card")).toHaveLength(6);
@@ -3979,24 +3978,40 @@ describe("the front page", () => {
     expect([...document.querySelectorAll("#jobs-list .fmade .art-title")].map((title) => title.textContent)).toEqual(["Old", "Board"]);
   });
 
-  it("never lets work under way, held up or queued push made artefacts out of Made", async () => {
+  it("shows only finished artefacts in Made, and a worker's status change never redraws it", async () => {
     const stream = await opened();
     const at = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
-    const running = [1, 2, 3].map((n) => ({ id: `live:live-job-${n}`, title: `Running ${n}`, at: at(0) }));
-    const unstarted = [{ id: "waiting:waiting-held", title: "Held", at: at(0) }, { id: "next:next-gate", title: "Queued", at: at(0) }];
+    const running = (line: string, minutes: number) => [1, 2, 3].map((n) => ({ id: `live:live-job-${n}`, title: `Running ${n}`, line, image: "/api/rail-image?f=9", at: at(minutes) }));
+    const unfinished = [
+      { id: "waiting:held-a", title: "Held", at: at(0) }, { id: "next:next-gate", title: "Queued", at: at(0) },
+      { id: "live:http://127.0.0.1:1/", title: "Down", url: "http://127.0.0.1:1/", down: true, at: at(0) },
+      { id: "live:http://127.0.0.1:2/", title: "Checking", url: "http://127.0.0.1:2/", checking: true, at: at(0) },
+      { id: "live:http://127.0.0.1:3/", title: "Blocked", url: "http://127.0.0.1:3/", blocked: true, at: at(0) },
+    ];
     const made = [
+      { id: "reply:words", title: "Words", steps: ["one"], at: at(5) },
       { id: "page", title: "Page", image: "/api/rail-image?f=1", at: at(30) },
       { id: "live:http://127.0.0.1:8097/", title: "Board", preview: "http://127.0.0.1:8097/", at: at(20) },
       { id: "landed:landed-pr", title: "Shot", image: "/api/rail-image?f=2", at: at(10) },
     ];
     const update = (artefacts: unknown[]) => stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true, rail: { conversations: [], artefacts } });
     const titles = () => [...document.querySelectorAll("#jobs-list .fmade .art-title")].map((title) => title.textContent);
-    update([...running, ...unstarted, ...made]);
+    update([...running("Wiring", 1), ...unfinished, ...made]);
     expect(titles()).toEqual(["Shot", "Board", "Page"]);
-    expect(document.querySelectorAll("#jobs-list .fmade .art-pictured")).toHaveLength(3);
-    expect(document.querySelector("[data-made-all]")!.textContent).toBe("See all 8");
-    update([running[0], made[0]]);
-    expect(titles()).toEqual(["Page", "Running 1"]);
+    expect(document.querySelector("#jobs-list .fmade .fhead span:last-child")!.textContent).toBe("4");
+    expect(document.querySelector("[data-made-all]")!.textContent).toBe("See all");
+    const drawn = [...document.querySelectorAll("#jobs-list .fmade, #jobs-list .fmade .art-card, #jobs-list .fmade iframe")];
+    expect(drawn).toHaveLength(5);
+    update([...running("Testing", 0), ...unfinished, ...made]);
+    expect([...document.querySelectorAll("#jobs-list .fmade, #jobs-list .fmade .art-card, #jobs-list .fmade iframe")].every((node, n) => node === drawn[n])).toBe(true);
+    // The Made tab still lists everything.
+    expect([...document.querySelectorAll("#artefacts .art-title")].map((title) => title.textContent)).toContain("Running 1");
+    // A finished artefact with no picture fills a place the pictures leave.
+    update([...made.slice(0, 2), ...unfinished]);
+    expect(titles()).toEqual(["Page", "Words"]);
+    expect(document.querySelector("#jobs-list .fmade .art-steps")!.textContent).toBe("one");
+    update([...running("Wiring", 0), ...unfinished]);
+    expect(groups().find(([name]) => name === "Made")![1]).toBe("Nothing made yet.");
   });
 
   it("keeps the phone's live line, and so the sheet, within reach when nothing is under way", async () => {

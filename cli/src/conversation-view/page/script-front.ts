@@ -248,15 +248,15 @@ export const FRONT_SCRIPT = `
       + '<div class="flines">' + shown.map(frontNowLine).join("") + '</div>'
       + (lines.length > few.length ? '<button type="button" class="fmore" data-more="now">' + (frontOpen.now ? "Show fewer" : "Show all " + lines.length) + '</button>' : "") + '</section>';
   }
-  // Made: his newest artefacts, drawn as the Made tab draws them, always on the home column; that tab keeps all of them.
+  // Made: his newest finished artefacts, pictures first, drawn as the Made tab draws them, always on the home column; that tab keeps all of them.
   // In its own container, redrawn only when its own cards change, so a framed page never reloads with the rest.
   var MADE_FEW_FRONT = 3;
-  // Work under way, held up or queued is not made yet: with nothing to see, it only fills places made artefacts leave.
-  function frontUnmade(card) { return /^(live:live-|waiting:|next:)/.test(card.id) && !pictured(card); }
+  // Finished only: not work under way (Now has it; a framed page is live:<url>), held up or queued, nor a page that cannot be shown.
+  function frontFinished(card) { return !/^(live:live-|waiting:|next:)/.test(card.id) && !card.down && !card.checking && !card.blocked; }
   var frontMadeDrawn = "";
   function frontDrawMade(listed) {
-    var cards = listed ? artefactCards(lastArtefacts) : [];
-    var few = cards.slice().sort(function (a, b) { return frontUnmade(a) - frontUnmade(b) || (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0); }).slice(0, MADE_FEW_FRONT);
+    var cards = listed ? artefactCards(lastArtefacts).filter(frontFinished) : [];
+    var few = cards.slice().sort(function (a, b) { return pictured(b) - pictured(a) || (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0); }).slice(0, MADE_FEW_FRONT);
     var key = JSON.stringify([listed, cards.length, few]);
     if (key === frontMadeDrawn) return;
     frontMadeDrawn = key;
@@ -266,7 +266,7 @@ export const FRONT_SCRIPT = `
       return;
     }
     jobsMade.innerHTML = '<section class="fgroup fmade"><h2 class="fhead"><span>Made</span><span>' + cards.length + '</span></h2><ul class="ccards"></ul>'
-      + (cards.length > MADE_FEW_FRONT ? '<button type="button" class="fmore" data-made-all>See all ' + cards.length + '</button>' : "") + '</section>';
+      + (cards.length > MADE_FEW_FRONT ? '<button type="button" class="fmore" data-made-all>See all</button>' : "") + '</section>';
     var list = jobsMade.querySelector(".ccards");
     few.forEach(function (card) { list.appendChild(artefactItem(card)); });
   }
