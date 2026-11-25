@@ -245,6 +245,32 @@ export const FRONT_SCRIPT = `
       + '<div class="flines">' + shown.map(frontNowLine).join("") + '</div>'
       + (lines.length > few.length ? '<button type="button" class="fmore" data-more="now">' + (frontOpen.now ? "Show fewer" : "Show all " + lines.length) + '</button>' : "") + '</section>';
   }
+  // Made: his newest artefacts as picture cards, always on the home column; the Made tab keeps all of them.
+  var MADE_FEW_FRONT = 3;
+  function frontMadeKey(card) { return card.id || card.title; }
+  function frontMadeCards() {
+    var all = typeof lastArtefacts !== "undefined" ? lastArtefacts : [];
+    return all.filter(function (card) { return card && card.title && !card.down && (card.image || card.preview) && !(/^landed:/.test(card.id) && !card.image); })
+      .sort(function (a, b) { return (b.image ? 1 : 0) - (a.image ? 1 : 0); });
+  }
+  function frontMadeCard(card) {
+    var line = sideFlat(card.line);
+    var by = (line && line !== sideFlat(card.title) ? sideNowLine(line, 60) + (card.at ? " · " : "") : "") + (card.at ? ago(card.at) : "");
+    var href = card.url ? (/^\\/api\\//.test(card.url) ? withToken(card.url) : card.url) : "";
+    var inner = (card.image ? '<span class="cframe"><img src="' + frontEsc(/^\\/api\\//.test(card.image) ? withToken(card.image) : card.image) + '" alt="" loading="lazy"></span>' : "")
+      + '<span class="ctitle">' + frontEsc(sideFlat(card.title)) + '</span>'
+      + (by ? '<span class="cby">' + frontEsc(by) + '</span>' : "");
+    return href
+      ? '<a class="ccard" href="' + frontEsc(href) + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>'
+      : '<div class="ccard">' + inner + '</div>';
+  }
+  function frontMade() {
+    var cards = frontMadeCards();
+    if (!cards.length) return frontGroup("Made", 0, "", '<p class="fempty">Nothing made yet.</p>');
+    return '<section class="fgroup fmade"><h2 class="fhead"><span>Made</span><span>' + cards.length + '</span></h2>'
+      + '<div class="ccards">' + cards.slice(0, MADE_FEW_FRONT).map(frontMadeCard).join("") + '</div>'
+      + (cards.length > MADE_FEW_FRONT ? '<button type="button" class="fmore" data-made-all>See all ' + cards.length + '</button>' : "") + '</section>';
+  }
   // For this chat: what the page already holds that matches what he is talking about. A picture only when the item means it to be seen.
   function frontChatWords() {
     return Array.prototype.slice.call(document.querySelectorAll("#stream .msg.user .body")).slice(-3).map(function (body) { return body.textContent || ""; });
@@ -387,6 +413,7 @@ export const FRONT_SCRIPT = `
     var html = !listed ? '<p class="fempty">Checking…</p>'
       : frontSection("needs", PLACE_WORDS.needs, needs, "No decision is waiting.", Infinity)
         + frontNow(moving, done)
+        + frontMade()
         + frontNext(next)
         + frontForChat();
     if (html === frontDrawn.jobs) return;
@@ -810,6 +837,7 @@ export const FRONT_SCRIPT = `
 
   jobsEl.addEventListener("click", function (event) {
     if (event.target.closest("[data-chat-more]")) { clearTimeout(frontChat.timer); frontChat.waiting = ""; frontChatLook(frontChat.terms); return; }
+    if (event.target.closest("[data-made-all]")) { frontRoot.removeAttribute("data-sheet"); frontTab("arts"); return; }
     var more = event.target.closest(".fmore");
     if (more) { frontOpen[more.dataset.more] = !frontOpen[more.dataset.more]; renderFront(); return; }
     var pick = event.target.closest(".jpick");

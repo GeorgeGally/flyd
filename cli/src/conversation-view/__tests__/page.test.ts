@@ -3828,7 +3828,7 @@ describe("the front page", () => {
       job({ id: "held", group: "moving", state: "Blocked", title: "Held up" }),
       job({ id: "bare", group: "done", state: "Done", title: "Finished", next: "This is done.", bare: true }),
     ] });
-    expect(groups()).toEqual([["Needs you", "No decision is waiting."], ["Now", 1], ["Next", 2]]);
+    expect(groups()).toEqual([["Needs you", "No decision is waiting."], ["Now", 1], ["Made", "Nothing made yet."], ["Next", 2]]);
     const next = document.querySelector<HTMLDetailsElement>("#jobs-list details.fnext")!;
     expect(next.open).toBe(false);
     expect(document.querySelector('#stream > .msg.work[data-job="bare"]')).toBeNull();
@@ -3909,6 +3909,33 @@ describe("the front page", () => {
     expect(section().querySelector(".fterms")!.textContent).toBe("Looking for Logan, swatches…");
   });
 
+  it("keeps his newest Made artefacts on the home column as picture cards, beside Needs you and Now, with the Made tab holding all of them", async () => {
+    const stream = await opened();
+    const art = (n: number, over: Record<string, unknown> = {}) => ({ id: `a${n}`, title: `Take ${n}`, line: `Line ${n}`, image: `/api/rail-image?f=${n}`, url: `https://example.com/${n}`, at: new Date(Date.now() - n * 60_000).toISOString(), ...over });
+    stream.emit("update", {
+      order: ["u1"], messages: [], working: false, show: SHOW, jobsFleetKnown: true,
+      jobs: [{ id: "run", group: "moving", state: "Working", title: "Under way", project: "Logan", next: "Wiring it", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, at: new Date().toISOString() }],
+      rail: { conversations: [], artefacts: [art(1), art(2, { image: undefined, steps: ["one"] }), art(3), art(4, { down: true, preview: "http://127.0.0.1:1/" }), art(5), art(6)] },
+    });
+    // On the default tab: Now stays, Made follows it, and the group names how many he has.
+    expect(document.documentElement.getAttribute("data-rtab")).toBe("jobs");
+    expect(groups().map(([name]) => name)).toEqual(["Needs you", "Now", "Made"]);
+    const made = document.querySelector<HTMLElement>("#jobs-list .fmade")!;
+    expect(made.querySelector(".fhead span:last-child")!.textContent).toBe("4");
+    // Pictured work only (a plain reply and a page that is down are not cards here), newest few, each with its picture and its link.
+    const cards = Array.from(made.querySelectorAll<HTMLElement>(".ccard"));
+    expect(cards.map((card) => card.querySelector(".ctitle")!.textContent)).toEqual(["Take 1", "Take 3", "Take 5"]);
+    expect(cards[0]!.querySelector("img")).not.toBeNull();
+    expect(cards[0]!.getAttribute("href")).toBe("https://example.com/1");
+    expect(cards[0]!.querySelector(".cby")!.textContent).toContain("Line 1");
+    // The rest is one tap away, on the Made tab.
+    const all = made.querySelector<HTMLElement>("[data-made-all]")!;
+    expect(all.textContent).toBe("See all 4");
+    all.click();
+    expect(document.documentElement.getAttribute("data-rtab")).toBe("arts");
+    expect(document.querySelectorAll("#artefacts .art-card").length).toBeGreaterThan(3);
+  });
+
   it("keeps the phone's live line, and so the sheet, within reach when nothing is under way", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true });
@@ -3967,7 +3994,7 @@ describe("the front page", () => {
     expect(document.querySelector("#jobs-list")!.textContent).toBe("Checking…");
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: BOARD });
     // What finished reads as a line in Now, under what is under way.
-    expect(groups()).toEqual([["Needs you", 1], ["Now", 1]]);
+    expect(groups()).toEqual([["Needs you", 1], ["Now", 1], ["Made", "Nothing made yet."]]);
     const needs = document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!;
     expect(needs.querySelector(".frame img")).not.toBeNull();
     // Under "Needs you" the dot says it; the card names the project.
@@ -4247,6 +4274,7 @@ describe("the front page", () => {
     expect(groups()).toEqual([
       ["Needs you", "No decision is waiting."],
       ["Now", "Nothing is under way right now."],
+      ["Made", "Nothing made yet."],
     ]);
     stream.emit("update", {
       order: ["u1"], messages: [], working: false, jobsFleetKnown: true,
