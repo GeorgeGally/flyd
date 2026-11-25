@@ -495,6 +495,7 @@ button.jv-thread { cursor: pointer; }
   :root[data-layout="front"] .rail .news .card-stories > li > .story-stat { height: 188px; }
   :root[data-layout="front"] .rail .news .story-image .story-pic { height: 240px; }
   :root[data-layout="front"] .rail[hidden] { display: none; }
+  :root[data-layout="front"] .rail .artefacts { scroll-margin-top: calc(var(--head-h) + 12px); }
   /* The artefacts run as a strip of cards, like the jobs. */
   :root[data-layout="front"] .rail .brief-list .art-grid { display: flex; gap: 10px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }
   :root[data-layout="front"] .rail .art-grid::-webkit-scrollbar { display: none; }

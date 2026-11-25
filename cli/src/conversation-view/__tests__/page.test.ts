@@ -3944,6 +3944,30 @@ describe("the front page", () => {
     expect(document.querySelectorAll("#artefacts .art-card")).toHaveLength(6);
   });
 
+  it("brings the whole Made list into view from the phone sheet's See all, and leaves the desktop's scroll alone", async () => {
+    let phone = true;
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: phone && query.includes("760px"), media: query, addEventListener() {}, removeEventListener() {} }));
+    const shown: string[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) { shown.push(this.id); };
+    try {
+      const stream = await opened();
+      stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true, rail: { conversations: [], artefacts: [1, 2, 3, 4].map((n) => ({ id: `a${n}`, title: `Take ${n}` })) } });
+      const seeAll = () => document.querySelector<HTMLElement>("[data-made-all]")!.click();
+      document.getElementById("now-strip")!.click();
+      seeAll();
+      expect(document.documentElement.hasAttribute("data-sheet")).toBe(false);
+      expect(document.documentElement.getAttribute("data-rtab")).toBe("arts");
+      expect(shown).toEqual(["artefacts"]);
+      phone = false;
+      seeAll();
+      expect(shown).toEqual(["artefacts"]);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("puts undated artefacts after dated ones in Made, and says nothing was made only when nothing was", async () => {
     const stream = await opened();
     const update = (artefacts: unknown[]) => stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true, rail: { conversations: [], artefacts } });

@@ -832,9 +832,15 @@ export const FRONT_SCRIPT = `
     frontStage();
   }
 
+  // On a phone the Made list sits above the conversation in the same scroll: bring it to him, and stop following the latest message.
+  function frontShowMade() {
+    if (!(window.matchMedia && window.matchMedia("(max-width: 760px)").matches)) return;
+    pinned = false;
+    artefactsEl.scrollIntoView({ block: "start" });
+  }
   jobsEl.addEventListener("click", function (event) {
     if (event.target.closest("[data-chat-more]")) { clearTimeout(frontChat.timer); frontChat.waiting = ""; frontChatLook(frontChat.terms); return; }
-    if (event.target.closest("[data-made-all]")) { frontRoot.removeAttribute("data-sheet"); frontTab("arts"); return; }
+    if (event.target.closest("[data-made-all]")) { frontRoot.removeAttribute("data-sheet"); frontTab("arts"); frontShowMade(); return; }
     var more = event.target.closest(".fmore");
     if (more) { frontOpen[more.dataset.more] = !frontOpen[more.dataset.more]; renderFront(); return; }
     var pick = event.target.closest(".jpick");
