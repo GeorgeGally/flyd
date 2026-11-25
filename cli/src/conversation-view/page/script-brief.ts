@@ -718,10 +718,11 @@ export const BRIEF_SCRIPT = `
     if (foot.firstChild) li.appendChild(foot);
     return li;
   }
+  // A merged change with no picture is already in Done, with its time: it is not drawn twice.
+  function artefactCards(all) { return all.filter(function (card) { return !(/^landed:/.test(card.id) && !pictured(card)); }); }
   function renderArtefacts(all) {
     lastArtefacts = all;
-    // A merged change with no picture is already in Done, with its time: it is not drawn twice.
-    var cards = all.filter(function (card) { return !(/^landed:/.test(card.id) && !pictured(card)); });
+    var cards = artefactCards(all);
     // The pictures lead; work with no picture follows as a plain line, in the same order otherwise.
     cards = cards.filter(pictured).concat(cards.filter(function (card) { return !pictured(card); }));
     var key = JSON.stringify([cards, artefactsAll]);
@@ -750,7 +751,7 @@ export const BRIEF_SCRIPT = `
   // How long ago each piece of work was done moves on with the clock, not only with updates.
   setInterval(function () {
     if (lastBrief) renderBrief(lastBrief);
-    artefactsEl.querySelectorAll(".art-ago").forEach(function (span) {
+    document.querySelectorAll(".art-ago").forEach(function (span) {
       span.textContent = ago(span.dataset.at);
     });
   }, 60000);

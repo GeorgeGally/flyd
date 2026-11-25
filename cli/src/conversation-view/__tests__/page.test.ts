@@ -3909,31 +3909,50 @@ describe("the front page", () => {
     expect(section().querySelector(".fterms")!.textContent).toBe("Looking for Logan, swatches…");
   });
 
-  it("keeps his newest Made artefacts on the home column as picture cards, beside Needs you and Now, with the Made tab holding all of them", async () => {
+  it("keeps his newest Made artefacts on the home column as the Made tab draws them, whatever order they arrive in", async () => {
     const stream = await opened();
     const art = (n: number, over: Record<string, unknown> = {}) => ({ id: `a${n}`, title: `Take ${n}`, line: `Line ${n}`, image: `/api/rail-image?f=${n}`, url: `https://example.com/${n}`, at: new Date(Date.now() - n * 60_000).toISOString(), ...over });
-    stream.emit("update", {
+    const artefacts = [
+      art(9, { at: undefined }), art(6), art(3, { image: undefined, url: undefined, steps: ["one"] }), art(4, { down: true }),
+      art(1), art(2, { image: undefined, preview: "http://127.0.0.1:8097/", at: new Date(Date.now() - 2 * 60_000).toISOString() }),
+      art(7, { id: "landed:pr", image: undefined }),
+    ];
+    const update = (next: string) => stream.emit("update", {
       order: ["u1"], messages: [], working: false, show: SHOW, jobsFleetKnown: true,
-      jobs: [{ id: "run", group: "moving", state: "Working", title: "Under way", project: "Logan", next: "Wiring it", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, at: new Date().toISOString() }],
-      rail: { conversations: [], artefacts: [art(1), art(2, { image: undefined, steps: ["one"] }), art(3), art(4, { down: true, preview: "http://127.0.0.1:1/" }), art(5), art(6)] },
+      jobs: [{ id: "run", group: "moving", state: "Working", title: "Under way", project: "Logan", next, owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, at: new Date().toISOString() }],
+      rail: { conversations: [], artefacts },
     });
-    // On the default tab: Now stays, Made follows it, and the group names how many he has.
+    update("Wiring it");
     expect(document.documentElement.getAttribute("data-rtab")).toBe("jobs");
     expect(groups().map(([name]) => name)).toEqual(["Needs you", "Now", "Made"]);
     const made = document.querySelector<HTMLElement>("#jobs-list .fmade")!;
-    expect(made.querySelector(".fhead span:last-child")!.textContent).toBe("4");
-    // Pictured work only (a plain reply and a page that is down are not cards here), newest few, each with its picture and its link.
-    const cards = Array.from(made.querySelectorAll<HTMLElement>(".ccard"));
-    expect(cards.map((card) => card.querySelector(".ctitle")!.textContent)).toEqual(["Take 1", "Take 3", "Take 5"]);
-    expect(cards[0]!.querySelector("img")).not.toBeNull();
-    expect(cards[0]!.getAttribute("href")).toBe("https://example.com/1");
-    expect(cards[0]!.querySelector(".cby")!.textContent).toContain("Line 1");
-    // The rest is one tap away, on the Made tab.
+    expect(made.querySelector(".fhead span:last-child")!.textContent).toBe("6");
+    const cards = Array.from(made.querySelectorAll<HTMLElement>(".art-card"));
+    expect(cards.map((card) => card.querySelector(".art-title")!.textContent)).toEqual(["Take 1", "Take 2", "Take 3"]);
+    expect(cards[0]!.querySelector("a.art-pic")!.getAttribute("href")).toBe("https://example.com/1");
+    expect(cards[0]!.querySelector(".art-pic img")).not.toBeNull();
+    const frame = cards[1]!.querySelector<HTMLIFrameElement>("iframe")!;
+    expect(frame.getAttribute("src")).toBe("http://127.0.0.1:8097/");
+    expect(cards[2]!.querySelector(".art-steps")!.textContent).toBe("one");
+    update("Testing it");
+    expect(document.querySelector("#jobs-list .job.line .next")!.textContent).toBe("Testing it");
+    expect(document.querySelector("#jobs-list .fmade iframe")).toBe(frame);
     const all = made.querySelector<HTMLElement>("[data-made-all]")!;
-    expect(all.textContent).toBe("See all 4");
+    expect(all.textContent).toBe("See all 6");
     all.click();
     expect(document.documentElement.getAttribute("data-rtab")).toBe("arts");
-    expect(document.querySelectorAll("#artefacts .art-card").length).toBeGreaterThan(3);
+    expect(document.querySelectorAll("#artefacts .art-card")).toHaveLength(6);
+  });
+
+  it("puts undated artefacts after dated ones in Made, and says nothing was made only when nothing was", async () => {
+    const stream = await opened();
+    const update = (artefacts: unknown[]) => stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true, rail: { conversations: [], artefacts } });
+    const madeGroup = () => groups().find(([name]) => name === "Made")!;
+    update([]);
+    expect(madeGroup()[1]).toBe("Nothing made yet.");
+    update([{ id: "board", title: "Board" }, { id: "old", title: "Old", at: "2026-01-01T00:00:00.000Z" }]);
+    expect(madeGroup()[1]).not.toBe("Nothing made yet.");
+    expect([...document.querySelectorAll("#jobs-list .fmade .art-title")].map((title) => title.textContent)).toEqual(["Old", "Board"]);
   });
 
   it("keeps the phone's live line, and so the sheet, within reach when nothing is under way", async () => {

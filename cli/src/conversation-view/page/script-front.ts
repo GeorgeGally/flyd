@@ -19,6 +19,9 @@ export const FRONT_SCRIPT = `
   var frontRoot = document.documentElement;
   var jobsEl = document.getElementById("jobs");
   var jobsList = document.getElementById("jobs-list");
+  var jobsTop = document.getElementById("jobs-top");
+  var jobsMade = document.getElementById("jobs-made");
+  var jobsRest = document.getElementById("jobs-rest");
   var todosEl = document.getElementById("todos");
   var jobView = document.getElementById("job-view");
   var stageHead = document.getElementById("stage-head");
@@ -245,31 +248,25 @@ export const FRONT_SCRIPT = `
       + '<div class="flines">' + shown.map(frontNowLine).join("") + '</div>'
       + (lines.length > few.length ? '<button type="button" class="fmore" data-more="now">' + (frontOpen.now ? "Show fewer" : "Show all " + lines.length) + '</button>' : "") + '</section>';
   }
-  // Made: his newest artefacts as picture cards, always on the home column; the Made tab keeps all of them.
+  // Made: his newest artefacts, drawn as the Made tab draws them, always on the home column; that tab keeps all of them.
+  // In its own container, redrawn only when its own cards change, so a framed page never reloads with the rest.
   var MADE_FEW_FRONT = 3;
-  function frontMadeKey(card) { return card.id || card.title; }
-  function frontMadeCards() {
-    var all = typeof lastArtefacts !== "undefined" ? lastArtefacts : [];
-    return all.filter(function (card) { return card && card.title && !card.down && (card.image || card.preview) && !(/^landed:/.test(card.id) && !card.image); })
-      .sort(function (a, b) { return (b.image ? 1 : 0) - (a.image ? 1 : 0); });
-  }
-  function frontMadeCard(card) {
-    var line = sideFlat(card.line);
-    var by = (line && line !== sideFlat(card.title) ? sideNowLine(line, 60) + (card.at ? " · " : "") : "") + (card.at ? ago(card.at) : "");
-    var href = card.url ? (/^\\/api\\//.test(card.url) ? withToken(card.url) : card.url) : "";
-    var inner = (card.image ? '<span class="cframe"><img src="' + frontEsc(/^\\/api\\//.test(card.image) ? withToken(card.image) : card.image) + '" alt="" loading="lazy"></span>' : "")
-      + '<span class="ctitle">' + frontEsc(sideFlat(card.title)) + '</span>'
-      + (by ? '<span class="cby">' + frontEsc(by) + '</span>' : "");
-    return href
-      ? '<a class="ccard" href="' + frontEsc(href) + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>'
-      : '<div class="ccard">' + inner + '</div>';
-  }
-  function frontMade() {
-    var cards = frontMadeCards();
-    if (!cards.length) return frontGroup("Made", 0, "", '<p class="fempty">Nothing made yet.</p>');
-    return '<section class="fgroup fmade"><h2 class="fhead"><span>Made</span><span>' + cards.length + '</span></h2>'
-      + '<div class="ccards">' + cards.slice(0, MADE_FEW_FRONT).map(frontMadeCard).join("") + '</div>'
+  var frontMadeDrawn = "";
+  function frontDrawMade(listed) {
+    var cards = listed ? artefactCards(lastArtefacts) : [];
+    var few = cards.slice().sort(function (a, b) { return (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0); }).slice(0, MADE_FEW_FRONT);
+    var key = JSON.stringify([listed, cards.length, few]);
+    if (key === frontMadeDrawn) return;
+    frontMadeDrawn = key;
+    if (fitFrames) jobsMade.querySelectorAll(".art-frame").forEach(function (box) { fitFrames.unobserve(box); });
+    if (!cards.length) {
+      jobsMade.innerHTML = listed ? frontGroup("Made", 0, "", '<p class="fempty">Nothing made yet.</p>') : "";
+      return;
+    }
+    jobsMade.innerHTML = '<section class="fgroup fmade"><h2 class="fhead"><span>Made</span><span>' + cards.length + '</span></h2><ul class="ccards"></ul>'
       + (cards.length > MADE_FEW_FRONT ? '<button type="button" class="fmore" data-made-all>See all ' + cards.length + '</button>' : "") + '</section>';
+    var list = jobsMade.querySelector(".ccards");
+    few.forEach(function (card) { list.appendChild(artefactItem(card)); });
   }
   // For this chat: what the page already holds that matches what he is talking about. A picture only when the item means it to be seen.
   function frontChatWords() {
@@ -388,7 +385,7 @@ export const FRONT_SCRIPT = `
   if (nowStrip) {
     nowStrip.addEventListener("click", function () { frontRoot.toggleAttribute("data-sheet"); });
     jobsEl.addEventListener("click", function (event) {
-      if (event.target.closest(".job, .ccard, .sheet-close")) frontRoot.removeAttribute("data-sheet");
+      if (event.target.closest(".job, .ccard, .art-card, .sheet-close")) frontRoot.removeAttribute("data-sheet");
     });
   }
   // His move first, as Core placed it; then one line a job for what is moving and what finished; what waits folds under Next.
@@ -410,16 +407,16 @@ export const FRONT_SCRIPT = `
     rtabDot.hidden = !needs.length;
     if (listed) frontStrip(needs, lines);
     frontChatSettle();
-    var html = !listed ? '<p class="fempty">Checking…</p>'
-      : frontSection("needs", PLACE_WORDS.needs, needs, "No decision is waiting.", Infinity)
-        + frontNow(moving, done)
-        + frontMade()
-        + frontNext(next)
-        + frontForChat();
+    frontDrawMade(listed);
+    var top = !listed ? '<p class="fempty">Checking…</p>'
+      : frontSection("needs", PLACE_WORDS.needs, needs, "No decision is waiting.", Infinity) + frontNow(moving, done);
+    var rest = !listed ? "" : frontNext(next) + frontForChat();
+    var html = top + rest;
     if (html === frontDrawn.jobs) return;
     frontDrawn.jobs = html;
     if (todosEl) jobsEl.insertAdjacentElement("afterend", todosEl);
-    jobsList.innerHTML = html;
+    jobsTop.innerHTML = top;
+    jobsRest.innerHTML = rest;
     var needsGroup = listed && jobsList.querySelector(".fgroup");
     if (todosEl && needsGroup) needsGroup.insertBefore(todosEl, needsGroup.querySelector(".fstrip").nextSibling);
     frontNeedsCount();

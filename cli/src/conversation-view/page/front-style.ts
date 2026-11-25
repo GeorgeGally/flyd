@@ -20,7 +20,7 @@ export const FRONT_STYLE = `
   --accent: var(--ink); --link: #1F5F99; --sel-bg: #ECE5D8; --sel-fg: var(--ink);
   background: var(--paper);
 }
-:root[data-layout="front"][data-theme="dark"] .job .frame img, :root[data-layout="front"][data-theme="dark"] .rail .art-pic img { outline-color: rgba(255, 255, 255, .1); }
+:root[data-layout="front"][data-theme="dark"] .job .frame img, :root[data-layout="front"][data-theme="dark"] :is(.rail, .jobs) .art-pic img { outline-color: rgba(255, 255, 255, .1); }
 :root[data-layout="front"][data-theme="dark"] {
   --paper: #111110; --card: #1A1A18; --sheet: #1F1F1D; --ink: #F1EFEA; --ink2: #C9C6BF; --mute: #8E8B83;
   --line: #2F2E2B; --mat: #2A2926; --well: #272624; --well-on: #2E2D2A;
@@ -113,6 +113,7 @@ export const FRONT_STYLE = `
 /* For this chat: what the page already holds that matches the talk. Words first; a picture only when it is meant to be seen. */
 .fterms { margin: -8px 0 20px; padding: 0 22px; font: 400 13px/1.4 var(--sans); color: var(--mute); }
 .ccards { display: flex; flex-direction: column; gap: 12px; }
+.fmade .ccards { margin: 0; padding: 0; list-style: none; gap: 16px; }
 .ccard { display: flex; flex-direction: column; padding: 20px 22px 18px; border-radius: var(--card-radius); background: var(--card); color: var(--ink); text-decoration: none; transition: background-color .2s ease; }
 a.ccard:hover { background: var(--sheet); }
 .ccard .cframe { display: block; margin: 0 0 16px; padding: var(--mat-pad); border-radius: 5px; background: var(--mat); aspect-ratio: 16 / 10; overflow: hidden; }
@@ -336,40 +337,40 @@ button.jv-thread { cursor: pointer; }
 :root[data-layout="front"] .rail .brief-list ul { gap: 16px; }
 :root[data-layout="front"] .rail .brief-list .art-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
 :root[data-layout="front"] .rail .art-grid > .art-card:first-child { grid-column: auto; }
-:root[data-layout="front"] .rail .art-card, :root[data-layout="front"] .rail .brief-list li:not(.art-card) {
+:root[data-layout="front"] :is(.rail, .jobs) .art-card, :root[data-layout="front"] .rail .brief-list li:not(.art-card) {
   display: flex; flex-direction: column; padding: var(--card-pad) var(--card-pad) 24px; border-radius: var(--card-radius);
   background: var(--card); overflow: hidden; transition: background-color .2s ease;
 }
-:root[data-layout="front"] .rail .art-card:hover { background: var(--sheet); }
-:root[data-layout="front"] .rail .art-pic { order: 0; margin: 0 0 20px; padding: var(--mat-pad); border-radius: 5px; background: var(--mat); aspect-ratio: 16 / 10; }
-:root[data-layout="front"] .rail .art-pic img { border-radius: 3px; }
+:root[data-layout="front"] :is(.rail, .jobs) .art-card:hover { background: var(--sheet); }
+:root[data-layout="front"] :is(.rail, .jobs) .art-pic { order: 0; margin: 0 0 20px; padding: var(--mat-pad); border-radius: 5px; background: var(--mat); aspect-ratio: 16 / 10; }
+:root[data-layout="front"] :is(.rail, .jobs) .art-pic img { border-radius: 3px; }
 /* A page is scaled to the mat, not cropped to it. */
-:root[data-layout="front"] .rail .art-frame { overflow: hidden; }
-:root[data-layout="front"] .rail .art-frame iframe { top: var(--mat-pad); left: var(--mat-pad); border-radius: 5px; background: #fff; }
-:root[data-layout="front"] .rail .art-card .art-title {
+:root[data-layout="front"] :is(.rail, .jobs) .art-frame { overflow: hidden; }
+:root[data-layout="front"] :is(.rail, .jobs) .art-frame iframe { top: var(--mat-pad); left: var(--mat-pad); border-radius: 5px; background: #fff; }
+:root[data-layout="front"] :is(.rail, .jobs) .art-card .art-title {
   order: 1; font: 500 17px/1.34 var(--sans); letter-spacing: -0.011em; color: var(--ink); text-wrap: pretty;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
 }
 /* Its name opens the piece too: a quiet link, not an underlined one. */
-:root[data-layout="front"] .rail .art-card .art-title { text-decoration: none; }
-:root[data-layout="front"] .rail .art-card .art-title:hover { color: var(--link); }
+:root[data-layout="front"] :is(.rail, .jobs) .art-card .art-title { text-decoration: none; }
+:root[data-layout="front"] :is(.rail, .jobs) .art-card .art-title:hover { color: var(--link); }
 /* The card's kind sits under its name as a quiet word, never a label over it. */
-:root[data-layout="front"] .rail .art-kind { order: 2; margin: 10px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
+:root[data-layout="front"] :is(.rail, .jobs) .art-kind { order: 2; margin: 10px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
 
 :root[data-layout="front"] .rail .art-plain { gap: 16px; margin-top: 0; }
 :root[data-layout="front"] .rail .art-plain + .brief-top { margin-top: 32px; }
 :root[data-layout="front"] .rail .art-grid + .art-plain { padding-top: 0; border-top: 0; }
-:root[data-layout="front"] .rail .art-steps { order: 3; }
+:root[data-layout="front"] :is(.rail, .jobs) .art-steps { order: 3; }
 :root[data-layout="front"] .rail .brief-line { font: 500 17px/1.34 var(--sans); letter-spacing: -0.011em; color: var(--ink); }
 :root[data-layout="front"] .rail #notices .brief-line { font: 500 15px/1.4 var(--sans); letter-spacing: 0; }
 :root[data-layout="front"] .rail .brief-outcome { order: 2; margin: 12px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); text-wrap: pretty; }
-:root[data-layout="front"] .rail .brief-meta, :root[data-layout="front"] .rail .art-meta { order: 4; margin: 18px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .brief-meta, :root[data-layout="front"] :is(.rail, .jobs) .art-meta { order: 4; margin: 18px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .brief-open { color: var(--ink2); }
 /* The card itself opens the piece: no "open" under it. The one-line explanation stays. */
-:root[data-layout="front"] .rail .art-card .brief-open { display: none; }
-:root[data-layout="front"] .rail .art-card .art-meta { white-space: normal; align-items: baseline; }
-:root[data-layout="front"] .rail .art-card .art-line { white-space: normal; }
-:root[data-layout="front"] .rail .art-card .art-ago { font-variant-numeric: tabular-nums; }
+:root[data-layout="front"] :is(.rail, .jobs) .art-card .brief-open { display: none; }
+:root[data-layout="front"] :is(.rail, .jobs) .art-card .art-meta { white-space: normal; align-items: baseline; }
+:root[data-layout="front"] :is(.rail, .jobs) .art-card .art-line { white-space: normal; }
+:root[data-layout="front"] :is(.rail, .jobs) .art-card .art-ago { font-variant-numeric: tabular-nums; }
 :root[data-layout="front"] .rail .brief-more { margin: 22px 0 0; padding: 8px var(--card-pad); font: 500 13px/1.3 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .brief-more:hover { color: var(--ink); }
 /* News: a picture on a card, then the story, with air between the cards and inside them. */
