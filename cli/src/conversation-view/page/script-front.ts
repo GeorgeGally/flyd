@@ -251,10 +251,12 @@ export const FRONT_SCRIPT = `
   // Made: his newest artefacts, drawn as the Made tab draws them, always on the home column; that tab keeps all of them.
   // In its own container, redrawn only when its own cards change, so a framed page never reloads with the rest.
   var MADE_FEW_FRONT = 3;
+  // Work under way, held up or queued is not made yet: with nothing to see, it only fills places made artefacts leave.
+  function frontUnmade(card) { return /^(live:live-|waiting:|next:)/.test(card.id) && !pictured(card); }
   var frontMadeDrawn = "";
   function frontDrawMade(listed) {
     var cards = listed ? artefactCards(lastArtefacts) : [];
-    var few = cards.slice().sort(function (a, b) { return (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0); }).slice(0, MADE_FEW_FRONT);
+    var few = cards.slice().sort(function (a, b) { return frontUnmade(a) - frontUnmade(b) || (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0); }).slice(0, MADE_FEW_FRONT);
     var key = JSON.stringify([listed, cards.length, few]);
     if (key === frontMadeDrawn) return;
     frontMadeDrawn = key;

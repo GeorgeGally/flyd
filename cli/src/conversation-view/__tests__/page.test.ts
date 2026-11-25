@@ -3979,6 +3979,26 @@ describe("the front page", () => {
     expect([...document.querySelectorAll("#jobs-list .fmade .art-title")].map((title) => title.textContent)).toEqual(["Old", "Board"]);
   });
 
+  it("never lets work under way, held up or queued push made artefacts out of Made", async () => {
+    const stream = await opened();
+    const at = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+    const running = [1, 2, 3].map((n) => ({ id: `live:live-job-${n}`, title: `Running ${n}`, at: at(0) }));
+    const unstarted = [{ id: "waiting:waiting-held", title: "Held", at: at(0) }, { id: "next:next-gate", title: "Queued", at: at(0) }];
+    const made = [
+      { id: "page", title: "Page", image: "/api/rail-image?f=1", at: at(30) },
+      { id: "live:http://127.0.0.1:8097/", title: "Board", preview: "http://127.0.0.1:8097/", at: at(20) },
+      { id: "landed:landed-pr", title: "Shot", image: "/api/rail-image?f=2", at: at(10) },
+    ];
+    const update = (artefacts: unknown[]) => stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true, rail: { conversations: [], artefacts } });
+    const titles = () => [...document.querySelectorAll("#jobs-list .fmade .art-title")].map((title) => title.textContent);
+    update([...running, ...unstarted, ...made]);
+    expect(titles()).toEqual(["Shot", "Board", "Page"]);
+    expect(document.querySelectorAll("#jobs-list .fmade .art-pictured")).toHaveLength(3);
+    expect(document.querySelector("[data-made-all]")!.textContent).toBe("See all 8");
+    update([running[0], made[0]]);
+    expect(titles()).toEqual(["Page", "Running 1"]);
+  });
+
   it("keeps the phone's live line, and so the sheet, within reach when nothing is under way", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true });
