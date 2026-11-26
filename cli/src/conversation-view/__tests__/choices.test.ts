@@ -59,14 +59,14 @@ describe("choiceOf", () => {
   it("reads a plain yes-or-no question as Yes and No, with the sentence before a short one", () => {
     expect(choiceOf("Captain, the leftover page is still there. Should I remove it?")).toEqual({
       question: "The leftover page is still there. Should I remove it?",
-      options: ["Yes", "No"],
+      options: [],
     });
   });
 
   it("offers the alternatives a question names", () => {
     expect(choiceOf("Checks are still running. Should I merge now or wait for checks?")!.options).toEqual(["Merge now", "Wait for checks"]);
     expect(choiceOf("Do you want A, B or C?")!.options).toEqual(["A", "B", "C"]);
-    expect(choiceOf("Is that fine or not?")!.options).toEqual(["Yes", "No"]);
+    expect(choiceOf("Is that fine or not?")!.options).toEqual([]);
     // A real A-or-B question that mentions a quantifier keeps its two options, not Yes/No.
     expect(choiceOf("Should I pick the two new ones, or keep them all?")!.options).toEqual(["Pick the two new ones", "Keep them all"]);
   });
@@ -123,8 +123,8 @@ describe("choiceOf", () => {
       question: "Still waiting on you",
       options: [],
       steps: [
-        { question: "Discard the old CapFive experiment branches (shader lab, truchet lab, deals pagination)?", options: ["Yes", "No"] },
-        { question: "Should Flyd's sidebar show newest at the top again?", options: ["Yes", "No"] },
+        { question: "Discard the old CapFive experiment branches (shader lab, truchet lab, deals pagination)?", options: [] },
+        { question: "Should Flyd's sidebar show newest at the top again?", options: [] },
       ],
     });
     // Each question keeps its own alternatives; one that asks which is his to say.
@@ -178,7 +178,7 @@ describe("openChoice", () => {
     // Firstmate's report on the missed notes ended on a question; 47 seconds later he sent a note about scrolling.
     const asked = reply("reply:b#383", "Fix 2 changes firstmate's shared code, so I want your yes first.\n\nShould I go ahead with fix 2?", { aside: true });
     const scrolling = said("note:1791778226", "its very easy, too easy, to scroll from nuanu page to the next page");
-    expect(openChoice([said("u1", "well its an issue. what failed?"), asked, scrolling])).toMatchObject({ message: asked, choice: { question: "Should I go ahead with fix 2?", options: ["Yes", "No"] } });
+    expect(openChoice([said("u1", "well its an issue. what failed?"), asked, scrolling])).toMatchObject({ message: asked, choice: { question: "Should I go ahead with fix 2?", options: [] } });
     // A later reply about that note does not overtake it either.
     expect(openChoice([asked, scrolling, reply("reply:c#1", "Scrolling now needs a firmer swipe to change page.")])?.message).toBe(asked);
     // His reply to another answer, in its own thread, is not an answer to this one.
@@ -261,13 +261,13 @@ describe("the choice, where he sees it", () => {
     const asked = reply("reply:b#383", MISSED_NOTES, { aside: true, timestamp: "2026-10-12T04:09:39Z" });
     const messages = [said("u1", "well its an issue. what failed?"), asked, { ...said("note:1791778226", "its very easy, too easy, to scroll from nuanu page to the next page"), timestamp: "2026-10-12T04:10:26Z" }];
     const update = new SnapshotDiffer().next({ messages, working: false });
-    expect(update.messages.find((message) => message.id === asked.id)!.choice).toEqual({ question: "Should I go ahead with fix 2?", options: ["Yes", "No"], replyTo: "reply:b#383" });
+    expect(update.messages.find((message) => message.id === asked.id)!.choice).toEqual({ question: "Should I go ahead with fix 2?", options: [], replyTo: "reply:b#383" });
     // Relayed, it is a message with its buttons, not a card; the staff's words wait behind "more".
     const shown = update.messages.find((message) => message.id === asked.id)!;
     expect(shown.card).toBeUndefined();
     expect(shown.html).toContain("Should I go ahead with fix 2?");
     const [call] = showOf({ messages, working: false }, { now }).items;
-    expect(call).toMatchObject({ kind: "call", headline: "Should I go ahead with fix 2?", decision: { replyTo: "reply:b#383", choices: ["Yes", "No"] } });
+    expect(call).toMatchObject({ kind: "call", headline: "Should I go ahead with fix 2?", decision: { replyTo: "reply:b#383", choices: [] } });
   });
 
   it("shows an answer Flyd gave for him as Flyd's, with its rule, until he takes it back", () => {
@@ -318,7 +318,7 @@ describe("saidAnswers", () => {
 
 describe("namedAnswers", () => {
   it("takes a question's own options before Flyd's wording, and names none for an open question", () => {
-    expect(namedAnswers("Ready on branch fm/x: merge it?", "Say go.")).toEqual({ options: ["Yes", "No"] });
+    expect(namedAnswers("Ready on branch fm/x: merge it?", "Say go.")).toEqual({ options: ["Go"] });
     expect(namedAnswers("Should I merge now or wait for checks?")).toEqual({ options: ["Merge now", "Wait for checks"] });
     expect(namedAnswers("Which price should ship?", "Say merge so it can go in.")).toEqual({ options: ["Merge"] });
     expect(namedAnswers("Which price should ship?", "Pick a price on the board.")).toBeNull();

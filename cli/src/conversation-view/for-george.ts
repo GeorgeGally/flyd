@@ -154,7 +154,7 @@ function lineOf(text: string, handled?: (text: string) => boolean): GeorgeLine {
   // A question put to him mid-reply ("still waiting on you: may I delete…? A backup is taken first.") is his too.
   const asked = said.find((sentence) => /\?["”')\]]*$/.test(sentence) && PUT_TO_HIM.test(sentence.replace(QUOTED, " ")) && !handled?.(sentence.replace(WAITING_ON_YOU, "")));
   if (asked && isPlumbing(asked)) return { kind: "absorbed" };
-  if (asked) return { kind: "decision", line: asLine(asked.replace(WAITING_ON_YOU, "")), options: OPEN_ASK.test(asked.replace(/^.*?:\s*/, "")) ? [] : ["Yes", "No"] };
+  if (asked) return { kind: "decision", line: asLine(asked.replace(WAITING_ON_YOU, "")), options: [] };
   // 'Still waiting on your "merge them" for: …' names his word in quotes.
   const awaited = said.map((sentence) => /\bwaiting (?:on|for) your\s+["“]([^"”]+)["”]/i.exec(sentence)).find(Boolean);
   if (awaited) {

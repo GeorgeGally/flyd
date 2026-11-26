@@ -167,12 +167,12 @@ function onlyOne(item: Listed): string {
   return clip(`Only ${item.number ? `${item.number}: ` : ""}${item.label}`, OPTION_CHARS + 8);
 }
 
-/** One question as a step: its alternatives, nothing to tap when it asks which, else yes or no. */
+/** One question as a step: the alternatives it names, else nothing to tap (he answers in his own words). */
 function stepOf(text: string): ChoiceStep {
   const question = itemQuestion(text);
   const either = alternatives(question);
   if (either.length) return { question, options: either };
-  return { question, options: OPEN_WORD.test(question) ? [] : ["Yes", "No"] };
+  return { question, options: [] };
 }
 
 /**
@@ -223,7 +223,8 @@ export function choiceOf(text: string): ReplyChoice | null {
   if (ABOUT_SET.test(sentence) && set.length >= 2 && set.length <= MAX_OPTIONS - 2) {
     return { question, options: [yesToAll(sentence), ...set.map(onlyOne), "No"] };
   }
-  return { question, options: ["Yes", "No"] };
+  // Buttons come only from the question's own options: never a Yes/No it did not offer.
+  return { question, options: [] };
 }
 
 /** A note that reads as his answer to whatever was just asked: yes, no, go ahead, hold off. */
