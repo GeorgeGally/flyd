@@ -126,8 +126,8 @@ export const TIMELINE_SCRIPT = `
       return node;
     }
     var shot = !open && job.group !== "moving" && job.shots && job.shots[0] ? job.shots[0] : null;
-    body.innerHTML = '<p class="work-meta">' + (job.group === "needs" ? '<i class="fdot" aria-hidden="true"></i>' : job.group === "moving" ? '<i class="fdot pulse" aria-hidden="true"></i>' : "") + frontEsc(meta) + '</p>'
-      + '<p class="work-title">' + frontEsc(title) + '</p>'
+    // No status line above the title: the dot says it needs him or is moving, the title says the rest.
+    body.innerHTML = '<p class="work-title">' + (job.group === "needs" ? '<i class="fdot" aria-hidden="true"></i>' : job.group === "moving" ? '<i class="fdot pulse" aria-hidden="true"></i>' : "") + frontEsc(title) + '</p>'
       + (line && line !== title && !open ? '<p class="work-line">' + frontEsc(line) + '</p>' : "")
       + (shot ? (finished ? '<div class="work-shot"><img src="' + frontEsc(shot.src) + '" alt="" loading="lazy"></div>' : '<button type="button" class="work-shot" data-open-job="' + frontEsc(job.id) + '"><img src="' + frontEsc(shot.src) + '" alt="" loading="lazy"></button>') : "")
       + (open ? "" : frontJobPicks(job))

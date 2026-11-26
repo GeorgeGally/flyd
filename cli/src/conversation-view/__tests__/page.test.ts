@@ -2093,10 +2093,10 @@ describe("header and artefact view", () => {
     const line = "News feeds are running from 64 sources. Today's edition came in at 12:19 with 11 stories, and your morning brief was ready at 07:02.";
     stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [], semantic: [], news: { running: true, line, warning: "The news writer's model account is out of credit, so the news has stopped updating." } } });
     expect(status.hidden).toBe(false);
-    expect(document.getElementById("news-status-line")!.textContent).toBe(line);
+    expect(document.getElementById("news-status-line")!.textContent).toBe("");
     expect(document.getElementById("news-status-warn")!.textContent).toContain("out of credit");
     stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [], semantic: [], news: { running: true, line } } });
-    expect(document.getElementById("news-status-warn")!.hidden).toBe(true);
+    expect(status.hidden).toBe(true);
   });
 
   it("offers no left column and no header button while nothing needs him, even with the column switched on", async () => {
@@ -3032,7 +3032,7 @@ describe("the front page", () => {
     const work = [...document.querySelectorAll<HTMLElement>("#stream > .msg.work:not(.done-sum)")];
     expect(work.map((node) => node.dataset.job)).toEqual(["landed", "cx", "ask"]);
     expect(work[2]!.classList.contains("needs")).toBe(true);
-    expect(work[1]!.querySelector(".work-meta .fdot.pulse")).not.toBeNull();
+    expect(work[1]!.querySelector(".work-title .fdot.pulse")).not.toBeNull();
     // What finished is a small plain message, not a card: its words and a quiet Reply, no picture, OK or ✕ card chrome.
     expect(work[0]!.classList.contains("note")).toBe(true);
     expect(work[0]!.querySelector(".work-note")!.textContent).toContain("Conversations split by project");

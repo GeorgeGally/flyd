@@ -149,9 +149,10 @@ export const TODAY_SCRIPT = `
     var signature = JSON.stringify(news || null);
     if (signature === newsStatusDrawn) return;
     newsStatusDrawn = signature;
-    newsStatusEl.hidden = !(news && news.line);
+    // How many sources answered is machinery: only a warning that the news is not working is said.
+    newsStatusEl.hidden = !(news && news.warning);
     if (newsStatusEl.hidden) return;
-    document.getElementById("news-status-line").textContent = news.line;
+    document.getElementById("news-status-line").textContent = "";
     var warn = document.getElementById("news-status-warn");
     warn.textContent = news.warning || "";
     warn.hidden = !news.warning;
