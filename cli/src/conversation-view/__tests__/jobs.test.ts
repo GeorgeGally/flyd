@@ -277,6 +277,10 @@ describe("jobsFrom", () => {
     const call = { id: "call-old", kind: "call", headline: "Pick the About page", why: "", quiet: true };
     const fleet = jobsFrom({ show: { ...screen, calls: [call] } as unknown as ShowScreen, now: NOW });
     expect(fleet.jobs.filter((job) => job.group === "needs")).toEqual([]);
+    const held = { id: "held:cap5", kind: "waiting", headline: "Cap5 worker", why: "", project: "Cap5", status: "paused" };
+    const mixed = jobsFrom({ show: { ...screen, calls: [{ ...call, project: "Cap5" }], held: [held] } as unknown as ShowScreen, now: NOW });
+    expect(mixed.jobs.filter((job) => job.group === "needs")).toEqual([]);
+    expect(mixed.jobs.filter((job) => job.group === "moving")).toHaveLength(1);
   });
 
   it("lists only the newest of two asks saying the same thing", () => {

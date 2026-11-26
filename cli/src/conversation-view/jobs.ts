@@ -91,8 +91,6 @@ export interface Job {
   handled?: { decisionId: string; task: string };
   /** Finished, with nothing of its own to say yet (its words only "finished"): kept on the board, shown nowhere. */
   bare?: true;
-  /** An old call firstmate still holds open: it is never put to him again. */
-  quiet?: true;
 }
 
 export interface JobRun {
@@ -509,6 +507,11 @@ export function jobsFrom(input: {
     bucket.reports.push({ hash: digestHash(report.text), project: bucket.title, title: report.title, text: report.text, ...(report.link ? { link: report.link } : {}) });
   }
 
+  // An ask is his only while it is current: a quiet (old) call or an ask over three days old is never put to him.
+  for (const bucket of buckets.values()) {
+    bucket.signals = bucket.signals.filter((signal) => signal.group !== "needs" || (!signal.quiet && !(now - Date.parse(signal.at) > ASK_KEEP_MS)));
+  }
+
   for (const [key, active] of activeProjects) {
     const project = buckets.get(key);
     if (!project || project.signals.length) continue;
@@ -615,7 +618,6 @@ export function jobsFrom(input: {
       ...(Object.keys(labels).some((option) => labels[option] !== option) ? { labels } : {}),
       ...(lead.domainRun ? { domainRun: lead.domainRun } : {}),
       ...(lead.handled ? { handled: lead.handled } : {}),
-      ...(lead.quiet ? { quiet: true as const } : {}),
     }, fallback, unread));
     // A finished card with nothing of its own to say yet (only "finished", no picture, link or digest) is bare: no surface shows it.
     const told = jobs.at(-1)!;
@@ -628,11 +630,10 @@ export function jobsFrom(input: {
     if (about && jobs.some((other) => other !== told && subjectOf(other) === about && Date.parse(other.at) > Date.parse(told.at))) told.bare = true;
   }
   jobs.sort((a, b) => rank(a.group, a.state) - rank(b.group, b.state) || Date.parse(b.at) - Date.parse(a.at));
-  // An ask is his only while it is current: a quiet (old) call, an ask over three days old, or an older card saying the same as a newer one is never shown.
+  // An older card saying the same as a newer one is never shown.
   const asked = new Set<string>();
   const current = jobs.filter((job) => {
     if (job.group !== "needs") return true;
-    if (job.quiet || now - Date.parse(job.at) > ASK_KEEP_MS) return false;
     const words = `${job.project ?? ""}|${(job.ask || job.next || job.title).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}`;
     if (asked.has(words)) return false;
     asked.add(words);
