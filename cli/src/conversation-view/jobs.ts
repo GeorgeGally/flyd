@@ -91,7 +91,7 @@ export interface Job {
   handled?: { decisionId: string; task: string };
   /** Finished, with nothing of its own to say yet (its words only "finished"): kept on the board, shown nowhere. */
   bare?: true;
-  /** An old call firstmate still holds open: it stays on Needs you, but never rings him again. */
+  /** An old call firstmate still holds open: it is never put to him again. */
   quiet?: true;
 }
 
@@ -292,9 +292,8 @@ function runSignalOf(run: JobRun, now: number): Signal | null {
   if (run.closed) return work === "ready" || work === "landed" ? { ...placed("closed"), at, next: run.outcome || "Done", owner: "", ask: "", because: `Run ${run.id} was closed: ${run.closed}` } : null;
   if (work === "needs_you") {
     if (run.source === "flyd") return null;
-    // A run with no open question of its own asks him nothing, and an ask left three days is stale: neither is his.
+    // An ask left three days is stale: it is no longer his.
     if (now - Date.parse(at) > ASK_KEEP_MS) return null;
-    // An unanswered ask stays his, however old: it is never parked where he would not look.
     return { ...placed("asks"), at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
   }
   // Who on the staff does the work is Flyd's business: the card says only whether it is his move or Flyd's.
@@ -629,7 +628,17 @@ export function jobsFrom(input: {
     if (about && jobs.some((other) => other !== told && subjectOf(other) === about && Date.parse(other.at) > Date.parse(told.at))) told.bare = true;
   }
   jobs.sort((a, b) => rank(a.group, a.state) - rank(b.group, b.state) || Date.parse(b.at) - Date.parse(a.at));
-  return { jobs, fleetKnown: Boolean(input.show?.read), inferred, pending: pending.slice(0, 8), untranslated: [...untranslated, ...timeline].filter((source, index, all) => all.findIndex((item) => item.key === source.key) === index) };
+  // An ask is his only while it is current: a quiet (old) call, an ask over three days old, or an older card saying the same as a newer one is never shown.
+  const asked = new Set<string>();
+  const current = jobs.filter((job) => {
+    if (job.group !== "needs") return true;
+    if (job.quiet || now - Date.parse(job.at) > ASK_KEEP_MS) return false;
+    const words = `${job.project ?? ""}|${(job.ask || job.next || job.title).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}`;
+    if (asked.has(words)) return false;
+    asked.add(words);
+    return true;
+  });
+  return { jobs: current, fleetKnown: Boolean(input.show?.read), inferred, pending: pending.slice(0, 8), untranslated: [...untranslated, ...timeline].filter((source, index, all) => all.findIndex((item) => item.key === source.key) === index) };
 }
 
 /**

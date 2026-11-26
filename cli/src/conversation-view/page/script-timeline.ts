@@ -63,32 +63,12 @@ export const TIMELINE_SCRIPT = `
     var d = new Date(iso);
     return !isNaN(d) && d.toDateString() === new Date().toDateString();
   }
-  var WORK_ASK_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
-  function workStale(job) {
-    var at = Date.parse(job.at || "");
-    return !isNaN(at) && Date.now() - at > WORK_ASK_KEEP_MS;
-  }
-  function workWords(job) {
-    return String(job.project || "").toLowerCase() + "|" + String(job.ask || job.next || job.title || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  }
-  // The newest ask carrying these words is the one shown; an older card saying the same is a duplicate.
-  function workFirstOfItsWords(job) {
-    var words = workWords(job);
-    var at = Date.parse(job.at || "") || 0;
-    return !Array.from(frontJobs.values()).some(function (other) {
-      if (other === job || other.group !== "needs" || other.quiet || workWords(other) !== words) return false;
-      var when = Date.parse(other.at || "") || 0;
-      return when > at || (when === at && other.id < job.id);
-    });
-  }
   // What the timeline carries: every current ask, work under way, what finished today, and anything he opened.
   function workInTimeline(job) {
     // A card he closed (✕, or OK on finished work) stays closed, across refreshes too.
     if (cardGone(job.id) && frontActive !== job.id) return false;
     if (workKept[job.id]) return true;
-    // An ask is his only while it is current: a quiet (old) call, an ask over three days old, or a second
-    // card saying the same thing as one already shown never reaches the chat.
-    if (job.group === "needs") return !job.quiet && !workStale(job) && workFirstOfItsWords(job);
+    if (job.group === "needs") return true;
     if (job.group === "moving" && job.state === PLACE_STATES.running) return true;
     // What finished today is one line at the bottom; it opens into the notes when he asks.
     if (job.group === "done" && !job.bare && workToday(job.at)) return workDoneOpen;

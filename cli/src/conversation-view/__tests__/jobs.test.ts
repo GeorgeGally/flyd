@@ -271,12 +271,21 @@ describe("jobsFrom", () => {
   });
 
 
-  it("ages a run's ask out after three days; an old call stays listed only quietly", () => {
+  it("ages a run's ask out after three days and never lists an old (quiet) call", () => {
     const board = jobsFrom({ runs: [run({ id: "old", status: "needs_decision", question: "Which price should ship?", updatedAt: "2026-10-01T10:00:00.000Z" })], now: NOW });
     expect(board.jobs.filter((job) => job.group === "needs")).toEqual([]);
     const call = { id: "call-old", kind: "call", headline: "Pick the About page", why: "", quiet: true };
     const fleet = jobsFrom({ show: { ...screen, calls: [call] } as unknown as ShowScreen, now: NOW });
-    expect(fleet.jobs[0]).toMatchObject({ group: "needs", quiet: true });
+    expect(fleet.jobs.filter((job) => job.group === "needs")).toEqual([]);
+  });
+
+  it("lists only the newest of two asks saying the same thing", () => {
+    const older = { id: "call-a", kind: "call", headline: "Pick the About page", why: "", at: "2026-10-26T09:00:00.000Z" };
+    const newer = { id: "call-b", kind: "call", headline: "Pick the About page", why: "", at: "2026-10-26T11:00:00.000Z" };
+    const board = jobsFrom({ show: { ...screen, calls: [older, newer] } as unknown as ShowScreen, now: NOW });
+    const needs = board.jobs.filter((job) => job.group === "needs");
+    expect(needs).toHaveLength(1);
+    expect(needs[0]!.at).toBe(newer.at);
   });
 
   it("keeps active runs distinct beside a project decision", () => {
