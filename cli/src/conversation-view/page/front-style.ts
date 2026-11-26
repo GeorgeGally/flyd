@@ -223,6 +223,16 @@ a.ccard:hover { background: var(--sheet); }
 :root[data-layout="front"] .earlier[open] summary { margin-bottom: 12px; }
 /* What needs him and what finished, told in the timeline as Flyd's own messages among his words. */
 :root[data-layout="front"] .msg.work { max-width: 64ch; padding: 18px 20px 20px; border-radius: 12px; background: var(--sheet); box-shadow: 0 0 0 1px var(--line); }
+:root[data-layout="front"] .msg.work { position: relative; }
+:root[data-layout="front"] .msg.work .work-meta { padding-right: 48px; }
+/* Close: one plain ✕ in the corner of every card, with a full-size hit area. */
+.work-close { position: absolute; top: 10px; right: 10px; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--mute); font: 400 16px/1 var(--sans); cursor: pointer; transition: background-color 160ms ease-out, color 160ms ease-out; }
+.work-close:hover { background: var(--well); color: var(--ink); }
+.work-close:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* A reply typed on the card itself sits under its buttons, with room above it. */
+.work-reply-box { margin-top: 20px; }
+.work-reply-box .art-chat-reply { display: none; }
+.msg.work:has(.work-reply-box .art-chat-field:not([hidden])) .work-reply { display: none; }
 :root[data-layout="front"] .msg.work.needs { box-shadow: 0 0 0 1px color-mix(in srgb, var(--hot) 40%, var(--line)); }
 .work-meta { display: flex; align-items: center; gap: 8px; margin: 0; font: 400 13px/1.4 var(--sans); color: var(--mute); }
 .work-title { margin: 8px 0 0; font: 500 18px/1.35 var(--sans); color: var(--ink); text-wrap: pretty; overflow-wrap: anywhere; }

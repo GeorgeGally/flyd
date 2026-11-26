@@ -65,7 +65,8 @@ export const TIMELINE_SCRIPT = `
   }
   // What the timeline carries: every ask, work under way, what finished today, and anything he opened.
   function workInTimeline(job) {
-    if (job.group === "done" && cardGone(job.id)) return false;
+    // A card he closed (✕, or OK on finished work) stays closed, across refreshes too.
+    if (cardGone(job.id) && frontActive !== job.id) return false;
     if (workKept[job.id] || job.group === "needs") return true;
     if (job.group === "moving" && job.state === PLACE_STATES.running) return true;
     if (job.group === "done" && !job.bare && workToday(job.at)) return true;
@@ -79,6 +80,13 @@ export const TIMELINE_SCRIPT = `
       node = el("article", "msg assistant work");
       node.dataset.job = job.id;
       node.appendChild(el("div", "work-body"));
+      // One plain control on every card: ✕ closes it for good, without opening anything.
+      var close = el("button", "work-close", "✕");
+      close.type = "button";
+      close.dataset.closeJob = job.id;
+      close.setAttribute("aria-label", "Close this card");
+      close.title = "Close";
+      node.appendChild(close);
       workNodes.set(job.id, node);
     }
     if (!workPlaced.has(job.id)) node.dataset.ts = workSaidAt(job);
@@ -154,10 +162,27 @@ export const TIMELINE_SCRIPT = `
       if (lastBrief) renderBrief(lastBrief);
       return;
     }
+    var closer = event.target.closest(".work-close");
+    if (closer) {
+      var shut = closer.dataset.closeJob;
+      if (frontActive === shut) frontSelect("talk");
+      cardDismiss(shut);
+      drawTimeline();
+      if (lastBrief) renderBrief(lastBrief);
+      return;
+    }
+    // Reply opens the card's own box on the card itself; what he sends goes to that card's thread.
     var reply = event.target.closest(".work-reply");
     if (reply) {
       var job = frontJobs.get(reply.dataset.replyJob);
-      if (job) frontAnswer(job).chat.reply("");
+      var card = workNodes.get(reply.dataset.replyJob);
+      if (!job || !card) return;
+      var chat = frontAnswer(job).chat;
+      var box = card.querySelector(":scope > .work-reply-box");
+      if (!box) { box = el("div", "work-reply-box"); card.appendChild(box); }
+      if (chat.form.parentElement !== box) box.appendChild(chat.form);
+      chat.form.hidden = false;
+      chat.reply("");
       return;
     }
     var pick = event.target.closest(".work .jpick");

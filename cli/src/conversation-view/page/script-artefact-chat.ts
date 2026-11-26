@@ -453,16 +453,26 @@ export const ARTEFACT_CHAT_SCRIPT = `
     field.appendChild(thumbs);
     field.appendChild(row);
     field.appendChild(commands);
-    // He types in the one message box: Reply puts this card's chip over it, and what he sends comes here.
+    // He replies on the card itself: Reply opens this card's own box in place, and what he sends goes
+    // where this card's answers always go. The message box under the conversation stays for general talk.
     field.hidden = true;
-    var title = (target.about && target.about.title) || (target.decision && (target.decision.question || target.decision.task)) || label;
-    function replyHere(prefill) {
-      replyTo(title, function (text, pictures) {
-        images = takesImages ? (pictures || []).slice(0, 4) : [];
-        paintImages();
-        deliver(text);
-      }, prefill, true);
+    function closeHere() {
+      field.hidden = true;
+      reply.hidden = false;
     }
+    function replyHere(prefill) {
+      field.hidden = false;
+      reply.hidden = true;
+      if (prefill && input.value.indexOf(prefill) === -1) { input.value = prefill + input.value.replace(/^\s+/, ""); state.text = input.value; save(); }
+      paint();
+      try { input.focus({ preventScroll: true }); } catch (_) { input.focus(); }
+      try { input.setSelectionRange(input.value.length, input.value.length); } catch (_) {}
+      try { field.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (_) {}
+    }
+    // Escape on an empty box folds it back to Reply; anything typed stays put.
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !input.value.trim() && !images.length) { event.preventDefault(); closeHere(); try { reply.focus(); } catch (_) {} }
+    });
     var reply = el("button", "art-chat-reply", "Reply");
     reply.type = "button";
     reply.addEventListener("click", function () { replyHere(""); });
@@ -470,11 +480,27 @@ export const ARTEFACT_CHAT_SCRIPT = `
     form.appendChild(field);
     form.appendChild(reply);
     form.appendChild(receipt);
-    // A reply about one picture: the message box takes this card's chip, names the picture and
-    // attaches it (when this card takes pictures). Nothing is sent until he does.
+    // A picture he is replying about goes into this card's box with his words.
+    function attachHere(src) {
+      if (!src || images.length >= 4 || images.some(function (one) { return one.from === src; })) return;
+      fetch(src).then(function (response) { return response.ok ? response.blob() : null; }).then(function (blob) {
+        if (!blob || ["image/png", "image/jpeg", "image/gif", "image/webp"].indexOf(blob.type) === -1 || blob.size > ${MAX_IMAGE_BYTES}) return;
+        var reader = new FileReader();
+        reader.onload = function () {
+          if (images.length >= 4) return;
+          var url = String(reader.result);
+          images.push({ url: url, mediaType: blob.type, data: url.slice(url.indexOf(",") + 1), from: src });
+          paintImages();
+          paint();
+        };
+        reader.readAsDataURL(blob);
+      }).catch(function () {});
+    }
+    // A reply about one picture: this card's box opens, names the picture and attaches it
+    // (when this card takes pictures). Nothing is sent until he does.
     function quote(label, src) {
       replyHere(label ? 'On "' + label + '": ' : "");
-      if (takesImages && src) attachFrom(src);
+      if (takesImages && src) attachHere(src);
     }
     var chat = { form: form, state: state, deliver: deliver, save: save, target: target, watch: watch, quote: quote, reply: replyHere, onPaint: null };
     paintThread();

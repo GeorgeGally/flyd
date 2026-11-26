@@ -3029,10 +3029,11 @@ describe("the front page", () => {
     expect(work[2]!.classList.contains("needs")).toBe(true);
     expect(work[1]!.querySelector(".work-meta .fdot.pulse")).not.toBeNull();
     expect(work[0]!.querySelector(".work-shot img")!.getAttribute("src")).toContain("/api/artefact-shot?task=l");
-    expect([...work[0]!.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Reply", "OK"]);
+    expect([...work[0]!.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Reply", "OK", "✕"]);
     expect(work[0]!.querySelector(".work-shot")!.tagName).toBe("DIV");
     work[0]!.querySelector<HTMLButtonElement>(".work-reply")!.click();
-    expect(document.getElementById("replying")!.hidden).toBe(false);
+    expect(work[0]!.querySelector<HTMLElement>(".work-reply-box .art-chat-field")!.hidden).toBe(false);
+    expect(document.getElementById("replying")!.hidden).toBe(true);
     work[0]!.querySelector<HTMLButtonElement>(".work-ok")!.click();
     expect(document.querySelector('[data-job="landed"].work')).toBeNull();
     // Open unfolds the job in place, under its own message.
@@ -4322,37 +4323,46 @@ describe("the front page", () => {
     expect(list.textContent).not.toContain("…");
   });
 
-  it("opens a handled line from the server's jobs, and his reply in the one message box reaches Flyd's answer", async () => {
+  it("opens a handled line from the server's jobs, and his reply typed on the card itself reaches Flyd's answer", async () => {
     const stream = await opened();
     stream.emit("update", {
       order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false },
       jobs: [{ id: "landed:sync", group: "done", state: "Handled for you", title: "Said yes for you: rebase and push.", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, handled: { decisionId: "dec-1", task: "sync" } }],
     });
     after(() => document.querySelector<HTMLElement>('.job[data-job="landed:sync"]')!.click());
-    // Reply uses the one message box and keeps the handled decision as its destination.
-    document.querySelector<HTMLButtonElement>('.work[data-job="landed:sync"] .work-reply')!.click();
-    expect(document.getElementById("replying")!.hidden).toBe(false);
-    const input = document.getElementById("input") as HTMLTextAreaElement;
-    input.value = "No, hold it";
-    document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
+    // Reply opens the card's own box in place; the message box under the conversation is left alone.
+    const card = document.querySelector<HTMLElement>('.work[data-job="landed:sync"]')!;
+    card.querySelector<HTMLButtonElement>(".work-reply")!.click();
     expect(document.getElementById("replying")!.hidden).toBe(true);
+    const box = card.querySelector<HTMLElement>(".work-reply-box")!;
+    const input = box.querySelector<HTMLTextAreaElement>("textarea")!;
+    expect(box.querySelector<HTMLElement>(".art-chat-field")!.hidden).toBe(false);
+    expect(document.activeElement).toBe(input);
+    input.value = "No, hold it";
+    input.dispatchEvent(new Event("input"));
+    box.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    expect((document.getElementById("input") as HTMLTextAreaElement).value).toBe("");
     const request = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
     expect(JSON.parse(String(request[1]!.body))).toMatchObject({ decisionFollowUp: "dec-1", decisionTask: "sync", text: "No, hold it" });
   });
 
-  it("drops the Flyd speaker label from the reply chip but keeps a lowercase flyd: the title itself says", async () => {
+  it("closes any card in the conversation with its ✕, and a closed card stays closed after a refresh", async () => {
     const stream = await opened();
-    const job = (id: string, title: string) => ({ id, group: "done", state: "Done", title, project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null });
-    stream.emit("update", {
+    const update = {
       order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false },
-      jobs: [job("a", "Flyd: I'm reviewing recent changes for token use"), job("b", "flyd: lowercase is the user's own word")],
-    });
-    for (const [id, shown] of [["a", "I'm reviewing recent changes for token use"], ["b", "flyd: lowercase is the user's own word"]] as const) {
-      after(() => document.querySelector<HTMLElement>(`.job[data-job="${id}"]`)!.click());
-      document.querySelector<HTMLButtonElement>(`.work[data-job="${id}"] .work-reply`)!.click();
-      expect(document.getElementById("replying-title")!.textContent).toBe(shown);
-    }
+      jobs: [{ id: "old-ask", group: "needs", state: "Needs you", title: "An old question", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "", ask: "Still?", because: "", shots: [], links: [], files: [], threads: [], digest: null }],
+    };
+    stream.emit("update", update);
+    await settle();
+    const close = document.querySelector<HTMLButtonElement>('.work[data-job="old-ask"] .work-close')!;
+    expect(close.getAttribute("aria-label")).toBe("Close this card");
+    close.click();
+    expect(document.querySelector('.work[data-job="old-ask"]')).toBeNull();
+    expect(JSON.parse(localStorage.getItem("flyd-dismissed") || "{}")).toHaveProperty("old-ask");
+    stream.emit("update", update);
+    await settle();
+    expect(document.querySelector('.work[data-job="old-ask"]')).toBeNull();
   });
 
   it("keeps every finished job reachable under Now: the newest few at first, all nine behind Show all", async () => {
