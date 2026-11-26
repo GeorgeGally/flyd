@@ -233,6 +233,12 @@ a.ccard:hover { background: var(--sheet); }
 .work-reply-box { margin-top: 20px; }
 .work-reply-box .art-chat-reply { display: none; }
 .msg.work:has(.work-reply-box .art-chat-field:not([hidden])) .work-reply { display: none; }
+:root[data-layout="front"] .msg.work.note { padding: 0; border-radius: 0; background: none; box-shadow: none; }
+.msg.work.note > .work-close { display: none; }
+.work-note { margin: 0; font: 400 14px/1.5 var(--sans); color: var(--ink2); text-wrap: pretty; overflow-wrap: anywhere; }
+.work-note-meta { display: flex; align-items: center; gap: 12px; margin: 4px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
+.work-note-meta .work-reply { padding: 0; border: 0; background: none; font: inherit; color: var(--mute); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; transition: color 160ms ease-out; }
+.work-note-meta .work-reply:hover { color: var(--ink); }
 :root[data-layout="front"] .msg.work.needs { box-shadow: 0 0 0 1px color-mix(in srgb, var(--hot) 40%, var(--line)); }
 .work-meta { display: flex; align-items: center; gap: 8px; margin: 0; font: 400 13px/1.4 var(--sans); color: var(--mute); }
 .work-title { margin: 8px 0 0; font: 500 18px/1.35 var(--sans); color: var(--ink); text-wrap: pretty; overflow-wrap: anywhere; }
@@ -352,6 +358,11 @@ button.jv-thread { cursor: pointer; }
   background: var(--card); overflow: hidden; transition: background-color .2s ease;
 }
 :root[data-layout="front"] :is(.rail, .jobs) .art-card:hover { background: var(--sheet); }
+/* Its ✕ sits in the corner on the card's own colour, so it reads over a picture too; the title keeps clear of it. */
+.art-card { position: relative; }
+.art-card .work-close { background: var(--card); }
+.art-card .work-close:hover { background: var(--well); }
+.art-card:not(.art-pictured) .art-title { padding-right: 40px; }
 :root[data-layout="front"] :is(.rail, .jobs) .art-pic { order: 0; margin: 0 0 20px; padding: var(--mat-pad); border-radius: 5px; background: var(--mat); aspect-ratio: 16 / 10; }
 :root[data-layout="front"] :is(.rail, .jobs) .art-pic img { border-radius: 3px; }
 /* A page is scaled to the mat, not cropped to it. */

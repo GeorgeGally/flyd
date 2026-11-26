@@ -716,10 +716,22 @@ export const BRIEF_SCRIPT = `
       foot.appendChild(go);
     }
     if (foot.firstChild) li.appendChild(foot);
+    // ✕ closes this one artefact for good, here and on the home column, across refreshes too.
+    var close = cardClose(artefactGoneKey(card));
+    close.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      cardDismiss(artefactGoneKey(card));
+      renderArtefacts(lastArtefacts);
+      if (typeof frontChatRedraw === "function") frontChatRedraw();
+    });
+    li.appendChild(close);
     return li;
   }
+  // An artefact's own key among closed cards, apart from the job it came from.
+  function artefactGoneKey(card) { return "made:" + card.id; }
   // A merged change with no picture is already in Done, with its time: it is not drawn twice.
-  function artefactCards(all) { return all.filter(function (card) { return !(/^landed:/.test(card.id) && !pictured(card)); }); }
+  function artefactCards(all) { return all.filter(function (card) { return !(/^landed:/.test(card.id) && !pictured(card)) && !cardGone(artefactGoneKey(card)); }); }
   function renderArtefacts(all) {
     lastArtefacts = all;
     var cards = artefactCards(all);

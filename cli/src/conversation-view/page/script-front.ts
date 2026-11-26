@@ -277,7 +277,7 @@ export const FRONT_SCRIPT = `
   function frontChatItems() {
     var items = [];
     (typeof lastArtefacts !== "undefined" ? lastArtefacts : []).forEach(function (card) {
-      if (!card || !card.title) return;
+      if (!card || !card.title || cardGone(artefactGoneKey(card))) return;
       items.push({ kind: "Made", title: card.title, text: card.line || "", at: card.at || "", url: card.url && !card.down ? (/^\\/api\\//.test(card.url) ? withToken(card.url) : card.url) : "" });
     });
     var left = frontUpdate && frontUpdate.leftColumn;

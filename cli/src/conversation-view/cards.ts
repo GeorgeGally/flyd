@@ -151,6 +151,15 @@ export const CARD_SCRIPT = `
     keys.forEach(function (k) { kept[k] = gone[k]; });
     store("flyd-dismissed", JSON.stringify(kept));
   }
+  // The one close control every card shares: a plain ✕ in its corner with a full-size hit area (.work-close).
+  function cardClose(key) {
+    var close = el("button", "work-close", "✕");
+    close.type = "button";
+    close.dataset.closeKey = key;
+    close.setAttribute("aria-label", "Close this card");
+    close.title = "Close";
+    return close;
+  }
   // A card: an icon tile, one line, a line under it, the time, a picture, a link, and — where it has more to say — a detail that unfolds in place.
   function visualCard(item, opts) {
     opts = opts || {};
