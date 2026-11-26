@@ -898,4 +898,44 @@ export const FRONT_SCRIPT = `
   function frontToday() { frontDate.textContent = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }); }
   frontToday();
   setInterval(function () { frontToday(); renderFront(); }, 60000);
+
+  // The newest stories sit at the top of the right column, whichever tab is open; the News tab carries a dot
+  // until he opens it once something new has come.
+  var FRESH_SEEN = "flyd-fresh-seen";
+  var freshNewest = "";
+  function freshAgo(day) {
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var then = new Date(day + "T00:00:00");
+    var days = Math.round((today - then) / 86400000);
+    return days <= 0 ? "today" : days === 1 ? "yesterday" : days + " days ago";
+  }
+  function freshDot() {
+    var dot = document.getElementById("news-dot");
+    if (!dot) return;
+    var seen = "";
+    try { seen = localStorage.getItem(FRESH_SEEN) || ""; } catch (_) {}
+    if (frontRoot.getAttribute("data-centre") === "news" && freshNewest) {
+      seen = freshNewest;
+      try { localStorage.setItem(FRESH_SEEN, seen); } catch (_) {}
+    }
+    dot.hidden = !freshNewest || seen === freshNewest;
+  }
+  function freshDraw(items) {
+    var html = items.length ? '<ul>' + items.map(function (story) {
+      var by = [story.source, freshAgo(story.published)].filter(Boolean).join(" · ");
+      return '<li><a href="' + frontEsc(story.url) + '" target="_blank" rel="noopener noreferrer"><span class="fresh-title">' + frontEsc(story.title) + '</span><span class="fresh-by">' + frontEsc(by) + '</span></a></li>';
+    }).join("") + '</ul>' : "";
+    document.querySelectorAll("[data-fresh]").forEach(function (box) { box.innerHTML = html; box.hidden = !html; });
+    freshNewest = items.length ? items[0].url : "";
+    freshDot();
+  }
+  function freshLoad() {
+    if (!VIEW_TOKEN) return;
+    fetch(withToken("/api/fresh-news"))
+      .then(function (response) { return response.ok ? response.json() : {}; })
+      .then(function (data) { freshDraw(Array.isArray(data && data.items) ? data.items.filter(function (story) { return story && story.title && frontHttp(story.url); }) : []); }, function () {});
+  }
+  freshLoad();
+  setInterval(freshLoad, 10 * 60000);
+  document.getElementById("centre-tabs").addEventListener("click", function () { setTimeout(freshDot, 0); });
 `;

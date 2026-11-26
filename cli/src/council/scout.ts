@@ -71,6 +71,8 @@ export interface EditionItem {
   n: number; title: string; url: string; source: string; sourceId?: string; topic: string; why: string; kind: ItemKind | "wildcard";
   media?: MediaKind; figure?: string; quote?: string; attribution?: string; mediaUrl?: string;
   storyId?: string; evidenceUrls?: string[]; confidence?: "multi-source" | "single-source"; evidenceStatus?: ScoutCandidate["evidenceStatus"]; updatedFrom?: string; evidenceSnippets?: string[]; evidenceCheckedAt?: string;
+  /** The day the story was published (YYYY-MM-DD), when its feed said. */
+  published?: string;
 }
 export interface Edition { date: string; generatedAt: string; topics: string[]; items: EditionItem[] }
 export const SCOUT_FEEDBACK_REASONS = ["wrong-topic", "repeat", "not-new", "too-shallow", "bad-source", "interesting", "surprising", "already-knew"] as const;
@@ -304,7 +306,7 @@ export const REDDIT_PER_RUN = 2;
 /** Subreddits the morning edition visits while its last30days searches run alongside. */
 export const REDDIT_PER_EDITION = 3;
 /** Feeds are read back this far, like last30days; seen links and headlines keep older items from repeating. */
-const FEED_WINDOW_DAYS = 30;
+const FEED_WINDOW_DAYS = 3;
 /** last30days searches one edition runs, and how many at once. */
 export const TOPICS_PER_EDITION = 3;
 const TOPIC_CONCURRENCY = 2;
@@ -326,7 +328,8 @@ async function fetchFeed(url: string, source: ScoutSource, fetchFn: typeof fetch
     const title = (item.title ?? "").replace(/\s+/g, " ").trim();
     if (!link || !title) return [];
     const published = item.publishedAt ? Date.parse(item.publishedAt) : NaN;
-    if (Number.isFinite(published) && published < cutoff) return [];
+    // News is fresh or it is not news: an item with no date, or older than the window, is left out.
+    if (!Number.isFinite(published) || published < cutoff) return [];
     return [{
       id: link, url: link, title, source: source.name, sourceId: source.id, topic: source.category ?? source.name,
       summary: item.content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 280),
@@ -583,6 +586,7 @@ export function parsePicks(
       n: items.length + 1, title: candidate.title, url: candidate.url, source: candidate.source,
       sourceId: candidate.sourceId, topic: candidate.topic, why: String(pick.why ?? "").trim(), kind,
       ...(candidate.storyId ? { storyId: candidate.storyId } : {}),
+      ...(candidate.published ? { published: candidate.published } : {}),
       ...(candidate.evidenceUrls?.length ? { evidenceUrls: candidate.evidenceUrls } : {}),
       ...(candidate.evidenceStatus ? { evidenceStatus: candidate.evidenceStatus } : {}),
       ...(candidate.updatedFrom ? { updatedFrom: candidate.updatedFrom } : {}),
@@ -692,6 +696,34 @@ export function readPool(dir = scoutDir(), now = new Date(), since?: string): Sc
     .filter((entry) => !Number.isFinite(from) || Date.parse(entry.pooledAt) >= from)
     .reverse()
     .map(({ pooledAt: _pooledAt, ...candidate }) => candidate);
+}
+
+/** A story fresh enough for home: its headline, link, source and the day it was published. */
+export interface FreshStory { title: string; url: string; source: string; published: string }
+
+/** How old a story may be and still be shown on home. */
+const FRESH_DAYS = 3;
+
+/**
+ * The newest stories for home: today's edition plus what the watches pooled since it came out, each with its
+ * publish day, none older than three days or undated, one per link, newest first. Pure apart from reading the store.
+ */
+export function freshStories(dir = scoutDir(), now = new Date(), limit = 5): FreshStory[] {
+  const edition = latestEdition(dir);
+  const cutoff = localDay(new Date(now.getTime() - FRESH_DAYS * 86_400_000));
+  const seen = new Set<string>();
+  const stories: Array<FreshStory & { order: number }> = [];
+  const add = (item: { title?: string; url?: string; source?: string; published?: string }, order: number) => {
+    if (!item.title || !item.url || !item.published || item.published < cutoff || seen.has(item.url)) return;
+    seen.add(item.url);
+    stories.push({ title: item.title, url: item.url, source: item.source ?? "", published: item.published, order });
+  };
+  readPool(dir, now, edition?.generatedAt).forEach((item, index) => add(item, index));
+  (edition?.items ?? []).forEach((item, index) => add(item, 1_000 + index));
+  return stories
+    .sort((a, b) => b.published.localeCompare(a.published) || a.order - b.order)
+    .slice(0, limit)
+    .map(({ order: _order, ...story }) => story);
 }
 
 function clearPool(dir: string, upTo: Date): void {

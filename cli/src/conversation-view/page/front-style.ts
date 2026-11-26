@@ -66,6 +66,15 @@ export const FRONT_STYLE = `
 .jobs::-webkit-scrollbar, .rail::-webkit-scrollbar, .rail-pane::-webkit-scrollbar { display: none; }
 :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { right: var(--gut); width: var(--arts-w); }
 .fgroup { margin: 0 0 48px; }
+/* The newest stories, first thing in the right column: a headline and where and when, nothing more. */
+.fresh-news { margin: 0 0 40px; padding: 0 var(--card-pad); }
+.fresh-news[hidden] { display: none; }
+.fresh-news ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.fresh-news a { display: block; color: var(--ink); text-decoration: none; font: 400 15px/1.35 var(--sans); }
+.fresh-news a:hover .fresh-title { text-decoration: underline; text-underline-offset: 3px; }
+.fresh-news .fresh-by { display: block; margin-top: 3px; font-size: 13px; color: var(--mute); }
+.ctab .news-dot { margin-left: 6px; }
+.ctab .news-dot[hidden] { display: none; }
 .fhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; padding: 0 var(--card-pad) 26px; font: 500 13px/1.3 var(--sans); color: var(--mute); }
 .fhead span:last-child { font-variant-numeric: tabular-nums; font-weight: 400; }
 .fempty { margin: 0; padding: 0 var(--card-pad); font-size: 14px; color: var(--mute); }

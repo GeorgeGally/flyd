@@ -1060,6 +1060,14 @@ export class ConversationViewServer {
       sendJson(res, 200, { weather: this.weather?.current() ?? null });
       return;
     }
+    if (req.method === "GET" && url.pathname === "/api/fresh-news") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" }); return;
+      }
+      const scout = await import("../council/scout.js");
+      sendJson(res, 200, { items: scout.freshStories() });
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/api/inspirations") {
       if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
         sendJson(res, 403, { error: "missing or wrong token" }); return;

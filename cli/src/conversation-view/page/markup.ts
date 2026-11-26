@@ -21,7 +21,7 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
 <header>
   <span class="who">${label}</span>
   <span class="front-date" id="front-date"></span>
-  <nav class="centre-tabs" id="centre-tabs" aria-label="The conversation, news, the week or machines"><button type="button" class="ctab" data-centre="talk" aria-pressed="true">Conversation</button><button type="button" class="ctab" data-centre="news" aria-pressed="false">News</button><button type="button" class="ctab" data-centre="week" aria-pressed="false">Week</button><button type="button" class="ctab" data-centre="machines" aria-pressed="false">Machines</button></nav>
+  <nav class="centre-tabs" id="centre-tabs" aria-label="The conversation, news, the week or machines"><button type="button" class="ctab" data-centre="talk" aria-pressed="true">Conversation</button><button type="button" class="ctab" data-centre="news" aria-pressed="false">News<span class="fdot news-dot" id="news-dot" hidden aria-label="new stories"></span></button><button type="button" class="ctab" data-centre="week" aria-pressed="false">Week</button><button type="button" class="ctab" data-centre="machines" aria-pressed="false">Machines</button></nav>
   <span class="project-badge" id="project-badge" hidden></span>
   <span class="picker" id="conversation-title" aria-label="Current conversation"></span>
   <a class="article-back" id="article-back" hidden target="_blank" rel="noopener noreferrer"></a>
@@ -48,6 +48,7 @@ ${FRONT_HTML}
 <aside class="rail" id="rail" hidden aria-label="Conversation history and done work">
   <button class="rail-hide" id="rail-hide" type="button" aria-label="Hide the column">✕</button>
   <div class="rail-pane">
+  <section class="fresh-news" id="fresh-news-arts" data-fresh hidden aria-label="Newest stories"></section>
   <div class="brief" id="brief" hidden>
     <section class="brief-list" id="notices" hidden aria-label="Notices"></section>
     <section class="brief-list artefacts" id="artefacts" hidden aria-label="Artefacts"></section>

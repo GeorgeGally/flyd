@@ -2898,7 +2898,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     more.click();
     expect(rows()).toBe(9);
     // On the front page earlier conversations fold away at the top of the timeline; the artefact column keeps the work, then the news.
-    expect([...document.querySelectorAll(".rail-pane > *")].map((node) => node.id)).toEqual(["brief", "brief-news"]);
+    expect([...document.querySelectorAll(".rail-pane > *")].map((node) => node.id)).toEqual(["fresh-news-arts", "brief", "brief-news"]);
     expect(document.getElementById("history")!.closest("details.earlier")!.parentElement!.id).toBe("stream");
   });
 

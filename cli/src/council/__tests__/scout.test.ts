@@ -533,7 +533,7 @@ describe("the edition draws on the whole day", () => {
     return JSON.stringify({ picks: pick(prompt) });
   });
 
-  it("reads feeds back thirty days, as last30days does, and dates each candidate by its day", async () => {
+  it("reads feeds back three days only, and dates each candidate by its day", async () => {
     onlySources([{ kind: "rss", name: "Import AI", target: "https://importai.test/feed" }]);
     const fetchFn = fakeFetch({ "importai.test": rss([
       { title: "This week in models", link: "https://importai.test/1", date: recent },
@@ -543,7 +543,7 @@ describe("the edition draws on the whole day", () => {
     const prompts: string[] = [];
     await runScout({ complete: rankerFor(prompts), fetchFn, dir, now: () => at("2026-11-14T07:00:00Z") });
     expect(prompts[0]).toContain("This week in models");
-    expect(prompts[0]).toMatch(/· 2026-10-23\b.*\) Three weeks back/);
+    expect(prompts[0]).not.toContain("Three weeks back");
     expect(prompts[0]).not.toContain("Last season");
   });
 
@@ -839,5 +839,23 @@ describe("sourceLabel", () => {
     expect(sourceLabel("reddit", "https://old.reddit.com/r/vjing/comments/x")).toBe("r/vjing");
     expect(sourceLabel("web", "https://www.core77.com/posts/1")).toBe("core77.com");
     expect(sourceLabel("Hackaday", "https://hackaday.com/x")).toBe("Hackaday");
+  });
+});
+
+describe("freshStories", () => {
+  it("puts the newest dated stories first, from the pool and the edition, and leaves out old or undated ones", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    const { freshStories } = await import("../scout.js");
+    const dir = mkdtempSync(join(tmpdir(), "fresh-stories-"));
+    const now = new Date("2026-11-26T15:00:00");
+    writeFileSync(join(dir, "edition-latest.json"), JSON.stringify({ date: "2026-11-26", generatedAt: "2026-11-26T07:00:00.000Z", topics: [], items: [
+      { n: 1, title: "Edition story", url: "https://a.test/1", source: "A", topic: "t", why: "", kind: "relevant", published: "2026-11-25" },
+      { n: 2, title: "Undated", url: "https://a.test/2", source: "A", topic: "t", why: "", kind: "relevant" },
+    ] }));
+    const pooled = (title: string, url: string, published: string) => JSON.stringify({ id: url, url, title, source: "B", sourceId: "rss:b", topic: "t", summary: "", published, pooledAt: "2026-11-26T10:00:00.000Z" });
+    writeFileSync(join(dir, "pool.jsonl"), [pooled("Today", "https://b.test/1", "2026-11-26"), pooled("Old", "https://b.test/2", "2026-11-10")].join("\n") + "\n");
+    expect(freshStories(dir, now).map((story) => story.title)).toEqual(["Today", "Edition story"]);
   });
 });
