@@ -17,7 +17,7 @@ export const SHOW_SCRIPT = `
   // any "Recommended: …" riding on it dropped, cut at a word under 64 characters.
   function tvHead(card) {
     var text = String(card.title || "").replace(/\\s+/g, " ").trim();
-    text = text.replace(/\\s*\\(?(?:recommended|i recommend|recommend)[:\\s].*$/i, "");
+    text = text.replace(/(?:(?<=[.;?!])\\s*|\\s*\\(\\s*)(?:recommended|i recommend)\\b.*$|\\s*\\b(?:recommended|i recommend)\\s*:.*$/i, "");
     var first = text.split(/(?<=[.!?])\\s+|;\\s+|\\s+[—–-]\\s+(?=[A-Z])/)[0] || text;
     first = first.replace(/[\\s,:;.…]+$/, "");
     if (first.length > 64) first = first.slice(0, 64).replace(/\\s+\\S*$/, "") + "…";
