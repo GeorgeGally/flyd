@@ -3920,6 +3920,25 @@ describe("the front page", () => {
     expect(document.querySelectorAll("#artefacts .art-card")).toHaveLength(6);
   });
 
+  it("flips to the Artefacts view from the top right: one artefact big with a short headline, arrows between them, and back", async () => {
+    const stream = await opened();
+    const long = "Which of the three directions should the board take next; the warm one or the plain one? Recommended: warm";
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true, rail: { conversations: [], artefacts: [
+      { id: "a1", title: long, image: "/api/rail-image?f=1" }, { id: "a2", title: "Flyd UI map", image: "/api/rail-image?f=2" },
+    ] } });
+    const flip = document.getElementById("tv-flip")!;
+    const tv = document.getElementById("tv")!;
+    expect(tv.hidden).toBe(true);
+    flip.click();
+    expect(tv.hidden).toBe(false);
+    expect(tv.querySelector(".tv-pic img")).not.toBeNull();
+    expect(tv.querySelector(".tv-head")!.textContent).toBe("Which of the three directions should the board take next");
+    tv.querySelector<HTMLElement>('[aria-label="Next artefact"]')!.click();
+    expect(tv.querySelector(".tv-head")!.textContent).toBe("Flyd UI map");
+    flip.click();
+    expect(tv.hidden).toBe(true);
+  });
+
   it("brings the whole Made list into view from the phone sheet's See all, and leaves the desktop's scroll alone", async () => {
     let phone = true;
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: phone && query.includes("760px"), media: query, addEventListener() {}, removeEventListener() {} }));

@@ -251,4 +251,25 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
   .scene.out > *, .ro.fade, .doing.on::before, .msg.spot { animation: none; }
   
 }
+
+/* The Artefacts view: one artefact fills the screen under the header, picture big, headline big. */
+.tv { position: fixed; inset: var(--top, 56px) 0 0 0; z-index: 40; background: var(--paper, var(--bg)); overflow: auto; animation: show-in 220ms ease-out; }
+.tv-stage { min-height: 100%; box-sizing: border-box; padding: 32px var(--gut, 32px) 48px; display: flex; }
+.tv-scene { flex: 1; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 40px; max-width: 1400px; margin: 0 auto; width: 100%; }
+.tv-pic { min-height: 0; height: min(64vh, calc(100vh - 340px)); display: flex; align-items: center; justify-content: center; }
+.tv-pic img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 18px 44px rgba(0,0,0,.18); }
+.tv-pic.tv-nopic { height: 0; }
+.tv-frame { width: 100%; height: 100%; border-radius: 8px; overflow: hidden; box-shadow: 0 18px 44px rgba(0,0,0,.18); background: #fff; }
+.tv-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+.tv-frame.tv-phone { width: min(100%, calc(min(64vh, calc(100vh - 340px)) * 0.46)); border-radius: 32px; }
+.tv-words { display: grid; gap: 14px; justify-items: start; }
+.tv-head { margin: 0; font: 600 clamp(32px, 4vw, 64px)/1.08 var(--sans); letter-spacing: -0.02em; color: var(--strong); text-decoration: none; text-wrap: balance; }
+a.tv-head:hover { opacity: 0.8; }
+.tv-line { margin: 0; font: 400 20px/1.45 var(--sans); color: var(--muted); max-width: 60ch; }
+.tv-nav { display: flex; align-items: center; gap: 16px; margin-top: 24px; }
+.tv-step { width: 48px; height: 48px; border: 1px solid var(--faint); border-radius: 999px; background: transparent; color: var(--strong); font-size: 20px; cursor: pointer; transition: opacity 160ms ease-out; }
+.tv-step:disabled { opacity: 0.3; cursor: default; }
+.tv-count { color: var(--muted); font-size: 16px; font-variant-numeric: tabular-nums; }
+.tv-empty { margin: auto; color: var(--muted); font-size: 24px; }
+#tv-flip[aria-checked="true"] { color: var(--strong); text-decoration: underline; text-underline-offset: 6px; }
 `;
