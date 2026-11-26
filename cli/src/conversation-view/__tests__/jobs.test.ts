@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { SnapshotDiffer } from "../server.js";
 import { digestHash } from "../job-digest.js";
 import { editJob, jobRunFromDomain, jobsFrom, runTitle, type JobRun } from "../jobs.js";
-import { heldItems, parseBearings } from "../artefact.js";
+import { callItems, heldItems, parseBearings, type FleetArtefact } from "../artefact.js";
 import type { DomainRun } from "../../command/types.js";
 import { applyProjectOps, readProjects, type Project } from "../../council/projects.js";
 import type { ShowScreen } from "../show.js";
@@ -438,9 +438,11 @@ describe("jobsFrom", () => {
 
   it("tells a held decision only its own words, never a finished lab's reading on the same project", () => {
     const lab = "I would take version 4, Departure Board, forward, but none of the five shows the real thank-you page picture. ".repeat(4);
-    const call = { id: "call:artefacts", kind: "call", headline: "Flyd: restore the Artefacts tab George misses", why: "", project: "Flyd", at: "2026-10-26T11:00:00.000Z",
-      decision: { question: "choose which Artefacts view to bring back", choices: [] }, questionIdentity: "hold:artefacts" };
-    const show = { ...screen, calls: [call] } as unknown as ShowScreen;
+    // The live case: the fleet row's own label, through the real fleet-row-to-call path that says other titles plainly.
+    const fleet: FleetArtefact = { calls: [{ label: "Flyd: restore the Artefacts tab George misses", task: "artefacts", repo: "Flyd", question: "choose which Artefacts view to bring back", at: "2026-10-26T11:00:00.000Z" }], live: [], ready: [], landed: [], held: [], next: [], changes: [] };
+    const calls = callItems(fleet);
+    expect(calls).toHaveLength(1);
+    const show = { ...screen, calls } as unknown as ShowScreen;
     const reading = { hash: digestHash(lab), project: "Flyd", changed: "I recommend Departure Board, but none of the five uses your thank-you page picture.", needed: "Send me the real thank-you page picture so I can finish it.", at: "2026-10-26T11:30:00.000Z", model: "m", inputTokens: 0, outputTokens: 0, usd: 0 };
     const board = jobsFrom({ projects: [project({ id: "flyd", name: "Flyd", kind: "product" })], show, reports: [{ project: "Flyd", title: "Design lab", text: lab }], digests: [reading], now: NOW });
     const card = board.jobs.find((job) => job.group === "needs")!;

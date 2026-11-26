@@ -54,7 +54,7 @@ export interface ShowItem {
    * task; a question a reply put to him names where his answer goes (replyTo),
    * and goes back the way a reply to an answer does.
    */
-  decision?: { task: string; decisionId?: string; question: string; choices: string[]; replyTo?: string; recommended?: string; decisions?: HoldDecision[]; steps?: ChoiceStep[] };
+  decision?: { task: string; decisionId?: string; question: string; /** The fleet row's own title, as the chief of staff wrote it: never rewritten. */ title?: string; choices: string[]; replyTo?: string; recommended?: string; decisions?: HoldDecision[]; steps?: ChoiceStep[] };
   /** Stable while it is the same thing, so the page animates only what is new. */
   id: string;
   kind: ShowKind;

@@ -599,7 +599,7 @@ export function jobsFrom(input: {
       id: bucket.id,
       group,
       state: notice ? STATE.done : shownState,
-      title: verbatim ? lead.raw!.title || bucket.title : named ? named.title : bucket.title,
+      title: verbatim ? lead.decision!.title || lead.raw!.title || bucket.title : named ? named.title : bucket.title,
       project: bucket.project,
       at,
       ...(toldAt ? { toldAt } : {}),

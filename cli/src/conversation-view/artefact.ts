@@ -1444,7 +1444,7 @@ function loopbackRowItem(kind: ShowKind, id: string, row: ArtefactRow, options: 
     ...(kind === "call" && row.quiet ? { quiet: true } : {}),
     headline,
     why: "",
-    ...(kind === "call" && row.task ? { decision: { task: row.task, ...(row.executiveDecisionId ? { decisionId: row.executiveDecisionId } : {}), question: row.question ?? row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}), ...(row.decisions?.length ? { decisions: row.decisions } : {}) } } : {}),
+    ...(kind === "call" && row.task ? { decision: { task: row.task, ...(row.label ? { title: row.label } : {}), ...(row.executiveDecisionId ? { decisionId: row.executiveDecisionId } : {}), question: row.question ?? row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}), ...(row.decisions?.length ? { decisions: row.decisions } : {}) } } : {}),
     // Several listed questions need no line restating the work's name under the headline.
     ...(asked ? (several && !row.said?.line && !row.recommendation?.option ? {} : { detail: row.recommendation?.option ? recommendationText(row.recommendation) : row.said?.line || sourceHeadline }) : detail ? { detail } : {}),
     ...(row.at ? { at: row.at } : {}),
