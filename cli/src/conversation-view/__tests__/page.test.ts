@@ -706,6 +706,23 @@ describe("conversation page", () => {
     expect(pending()).toEqual([]);
   });
 
+  it("puts his just-sent message last, below a job message said after the empty-state boxes", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>first</p>", timestamp: "2026-10-05T19:00:00.000Z" }]);
+    const main = document.getElementById("stream")!;
+    const work = document.createElement("article");
+    work.className = "msg assistant work";
+    work.dataset.ts = "2026-10-05T19:30:00.000Z";
+    main.insertBefore(work, document.getElementById("working"));
+    await type("are you there?");
+    stream.emit("update", { order: ["u1", "note:1"], messages: [{ id: "note:1", role: "user", html: "<p>are you there?</p>", timestamp: "2026-10-05T20:01:00.000Z" }], working: true });
+    await settle();
+    const shown = Array.from(main.querySelectorAll(":scope > .msg"));
+    expect(shown.at(-1)!.textContent).toContain("are you there?");
+    expect(shown.indexOf(work)).toBeLessThan(shown.length - 1);
+  });
+
   it("keeps a saved-but-not-woken warning on the delivered note instead of reporting it unsent", async () => {
     sendResponse = { id: "note:1", timestamp: "2026-10-05T20:01:00.000Z", warning: "fm-inbox: firstmate was NOT woken" };
     load("");
@@ -1392,7 +1409,7 @@ describe("conversation page", () => {
     expect(scope.textContent).toBe("Project");
   });
 
-  it("recalls earlier messages with Shift+Up and restores the draft with Shift+Down", async () => {
+  it("recalls earlier messages with Up from the first line and restores the draft with Down", async () => {
     load("");
     await settle();
     open("latest", [
@@ -1402,7 +1419,7 @@ describe("conversation page", () => {
       { id: "u3", role: "user", html: "<p>second ask</p>" },
     ]);
     const input = document.getElementById("input") as HTMLTextAreaElement;
-    const press = (key: string, shiftKey = true) => {
+    const press = (key: string, shiftKey = false) => {
       const event = new KeyboardEvent("keydown", { key, shiftKey, cancelable: true });
       input.dispatchEvent(event);
       return event.defaultPrevented;
@@ -1410,8 +1427,7 @@ describe("conversation page", () => {
     input.value = "half-typed draft";
     input.setSelectionRange(input.value.length, input.value.length);
 
-    expect(press("ArrowUp", false)).toBe(false);
-    expect(input.value).toBe("half-typed draft");
+    expect(press("ArrowDown")).toBe(false);
     expect(press("ArrowUp")).toBe(true);
     expect(input.value).toBe("second ask");
     press("ArrowUp");
@@ -1423,28 +1439,37 @@ describe("conversation page", () => {
     press("ArrowDown");
     expect(input.value).toBe("half-typed draft");
     expect(press("ArrowDown")).toBe(false);
+
+    expect(press("ArrowUp", true)).toBe(true);
+    expect(input.value).toBe("second ask");
+    press("ArrowDown", true);
+    expect(input.value).toBe("half-typed draft");
   });
 
-  it("leaves plain Up to move the caret, even on the first line, and includes messages just sent", async () => {
+  it("leaves plain Up and Down to move the caret inside a multi-line message, and includes messages just sent", async () => {
     load("");
     await settle();
     open("latest", [{ id: "u1", role: "user", html: "<p>older</p>" }]);
     const input = document.getElementById("input") as HTMLTextAreaElement;
+    const press = (key: string) => {
+      const event = new KeyboardEvent("keydown", { key, cancelable: true });
+      input.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
     input.value = "line one\nline two";
     input.setSelectionRange(input.value.length, input.value.length);
-    const up = new KeyboardEvent("keydown", { key: "ArrowUp", cancelable: true });
-    input.dispatchEvent(up);
-    expect(up.defaultPrevented).toBe(false);
+    expect(press("ArrowUp")).toBe(false);
     expect(input.value).toBe("line one\nline two");
     input.setSelectionRange(0, 0);
-    const firstLineUp = new KeyboardEvent("keydown", { key: "ArrowUp", cancelable: true });
-    input.dispatchEvent(firstLineUp);
-    expect(firstLineUp.defaultPrevented).toBe(false);
-    expect(input.value).toBe("line one\nline two");
+    expect(press("ArrowDown")).toBe(false);
+    expect(press("ArrowUp")).toBe(true);
+    expect(input.value).toBe("older");
 
     input.value = "";
     await type("just sent");
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", shiftKey: true, cancelable: true }));
+    input.value = "";
+    input.dispatchEvent(new Event("input"));
+    expect(press("ArrowUp")).toBe(true);
     expect(input.value).toBe("just sent");
   });
 

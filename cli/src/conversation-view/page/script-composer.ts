@@ -319,9 +319,10 @@ export const COMPOSER_SCRIPT = `
   });
   input.addEventListener("input", grow);
   input.addEventListener("input", function () { noteRefusal(""); });
-  // Terminal-style history: Shift+Up recalls earlier messages, newest first;
-  // Shift+Down walks back and finally restores the draft. Plain Up and Down
-  // only move the caret.
+  // Terminal-style history: Up recalls earlier messages, newest first, when
+  // the box is empty or the caret is on its first line; Down walks back from
+  // the last line and finally restores the draft. Shift+Up/Down always recall.
+  // Elsewhere in a multi-line message, Up and Down only move the caret.
   var recall = { list: [], index: -1, draft: "" };
   function captainHistory() {
     var list = [];
@@ -431,8 +432,15 @@ export const COMPOSER_SCRIPT = `
   input.addEventListener("keydown", function (event) {
     if (event.isComposing) return;
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); return; }
-    if (!event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
+    if (event.altKey || event.metaKey || event.ctrlKey) return;
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
     var value = input.value;
+    if (!event.shiftKey) {
+      var start = input.selectionStart, end = input.selectionEnd;
+      if (start !== end) return;
+      if (event.key === "ArrowUp" && start > 0 && value.lastIndexOf("\\n", start - 1) !== -1) return;
+      if (event.key === "ArrowDown" && value.indexOf("\\n", start) !== -1) return;
+    }
     if (event.key === "ArrowUp") {
       if (recall.index === -1) {
         recall.list = captainHistory();
