@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,7 +23,7 @@ describe("job digests", () => {
     expect(digestFromModel("not json", source("hello"), usage, at)).toBeNull();
   });
 
-  it("asks once per hash, stores a failure, and logs the estimate", async () => {
+  it("asks once per hash, never stores a failure, and logs the estimate", async () => {
     const path = pathFor("job-digests.json");
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     let calls = 0;
@@ -41,10 +41,23 @@ describe("job digests", () => {
 
     const bad = source(`${text} again`);
     await scheduleDigest([bad], { path, ask: async () => "nope" });
+    expect(readDigests(path).some((digest) => digest.hash === bad.hash)).toBe(false);
     let retried = false;
     await scheduleDigest([bad], { path, ask: async () => { retried = true; return "again"; } });
     expect(retried).toBe(false);
-    expect(readDigests(path).find((digest) => digest.hash === bad.hash)!.failed).toBe(true);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 11 * 60_000);
+    await scheduleDigest([bad], { path, ask: async () => JSON.stringify({ changed: "The deck is one offer now.", needed: "Nothing" }) });
+    expect(readDigests(path).find((digest) => digest.hash === bad.hash)).toMatchObject({ changed: "The deck is one offer now." });
+  });
+
+  it("retries a reading stored as failed by an older Flyd", async () => {
+    const path = pathFor("legacy.json");
+    const item = source("The legacy deck lost tier three.");
+    writeFileSync(path, JSON.stringify({ digests: [{ hash: item.hash, changed: "", needed: "", at, ...usage, failed: true }] }));
+    expect(readDigests(path)).toEqual([]);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    await scheduleDigest([item], { path, ask: async () => JSON.stringify({ changed: "Tier three is gone.", needed: "Nothing" }) });
+    expect(readDigests(path)).toMatchObject([{ hash: item.hash, changed: "Tier three is gone." }]);
   });
 
   it("keeps a new reading said to him even when the model writes about him", () => {
@@ -65,13 +78,3 @@ describe("job digests", () => {
     expect(scheduleDigest([source("stored already")], { path: pathFor("none.json") })).toBeUndefined();
   });
 });
-
-describe("a reading about its own item", () => {
-  it("drops a reading that shares none of its item's words", () => {
-    const source = { hash: "h", title: "Flyd: restore the Artefacts tab", text: "Choose which Artefacts view to bring back: Made tab or the full-screen TV." };
-    const usage = { model: "m", inputTokens: 0, outputTokens: 0, usd: 0 };
-    expect(digestFromModel(JSON.stringify({ changed: "Send me the real thank-you page picture.", needed: "Nothing" }), source, usage, "t")).toBeNull();
-    expect(digestFromModel(JSON.stringify({ changed: "The Artefacts tab can come back.", needed: "Pick which view." }), source, usage, "t")).not.toBeNull();
-  });
-});
-

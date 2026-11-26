@@ -164,15 +164,15 @@ describe("jobsFrom", () => {
     const report = { project: "Cap5", title: "Project report", text };
     const digest = { hash, project: "Cap5", changed: "The report changed.", means: "Review it.", needed: "Choose.", at: "2026-10-26T10:00:00Z", model: "test", inputTokens: 0, outputTokens: 0, usd: 0 };
     const worker = { ...screen, underway: [{ id: "live:worker", kind: "live", headline: "Revise", why: "", task: "worker", project: "Cap5" }] } as unknown as ShowScreen;
-    for (const input of [{ show: worker }, { runs: [run()] }, { runs: [run({ status: "needs_decision" })] }]) {
+    for (const [input, asks] of [[{ show: worker }, false], [{ runs: [run()] }, false], [{ runs: [run({ status: "needs_decision" })] }, true]] as const) {
       const base = { projects: [project()], sessions: [session], reports: [report], ...input, now: NOW };
       const board = jobsFrom(base);
       expect(board.jobs).toHaveLength(1);
       expect(board.jobs[0]!.threads).toContainEqual({ id: session.id, title: session.title, at: session.updatedAt, kind: "conversation" });
-      expect(board.pending).toMatchObject([{ hash, text }]);
-      // The project's report is not the item's own: the card never reads it as its words.
+      // A Needs-you card never reads its project's report, so that report is never sent to the model for it.
+      expect(board.pending).toEqual(asks ? [] : [expect.objectContaining({ hash, text })]);
       const withDigest = jobsFrom({ ...base, digests: [digest] });
-      expect(withDigest.jobs[0]!.digest).toBeNull();
+      expect(withDigest.jobs[0]!.digest).toEqual(asks ? null : { changed: digest.changed, needed: digest.needed });
       expect(withDigest.pending).toEqual([]);
     }
   });
@@ -445,6 +445,7 @@ describe("jobsFrom", () => {
     const board = jobsFrom({ projects: [project({ id: "flyd", name: "Flyd", kind: "product" })], show, reports: [{ project: "Flyd", title: "Design lab", text: lab }], digests: [reading], now: NOW });
     const card = board.jobs.find((job) => job.group === "needs")!;
     expect(card.digest).toBeNull();
+    expect(board.pending).toEqual([]);
     expect(JSON.stringify(card)).not.toMatch(/thank-you|Departure Board/);
     // The chief of staff's own words, as written: its title and its question, nothing rewritten.
     expect(card.title).toBe("Flyd: restore the Artefacts tab George misses");

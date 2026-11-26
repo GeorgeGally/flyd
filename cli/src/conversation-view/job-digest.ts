@@ -30,8 +30,6 @@ export interface JobDigest {
   outputTokens: number;
   /** Estimated USD from the token estimate. The ledger records the provider's own charge under source `job-digest`. */
   usd: number;
-  /** The model did not return a usable reading. Kept so the same text is not sent again. */
-  failed?: boolean;
 }
 
 export interface DigestSource {
@@ -44,7 +42,9 @@ export interface DigestSource {
 
 const LINE = 180;
 const KEEP = 200;
+const RETRY_MS = 10 * 60_000;
 let inFlight: string | null = null;
+const failedAt = new Map<string, number>();
 
 export function digestPath(): string {
   return process.env.FLYD_JOB_DIGESTS_PATH?.trim() || join(FLYD_DIR, "job-digests.json");
@@ -56,8 +56,8 @@ export function digestHash(text: string): string {
 
 export function readDigests(path = digestPath()): JobDigest[] {
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as { digests?: JobDigest[] };
-    return Array.isArray(parsed.digests) ? parsed.digests : [];
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as { digests?: Array<JobDigest & { failed?: boolean }> };
+    return Array.isArray(parsed.digests) ? parsed.digests.filter((digest) => !digest.failed) : [];
   } catch {
     return [];
   }
@@ -89,8 +89,6 @@ export function digestFromModel(text: string, source: DigestSource, usage: { mod
   const changed = plain(record.changed);
   const needed = plain(record.needed);
   if (!changed && !needed) return null;
-  // A reading must be about the item it was given: one that shares none of its words is a guess, not a reading.
-  if (!aboutSource(`${changed} ${needed}`, source)) return null;
   const rawLink = clip(record.link) || source.link || "";
   const link = /^https?:\/\//i.test(rawLink) ? rawLink : undefined;
   return {
@@ -104,18 +102,6 @@ export function digestFromModel(text: string, source: DigestSource, usage: { mod
     outputTokens: usage.outputTokens,
     usd: usage.usd,
   };
-}
-
-const COMMON = new Set("about after again also been before being could does done each first from have here into just like make more need needs next nothing only over said send should some still than that their them then there these they this those very want what when where which will with work would your yours".split(" "));
-const wordsOf = (text: string) => new Set((text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}-]{3,}/gu) ?? []).map((word) => word.replace(/(?:ies|es|s)$/, "")).filter((word) => word.length >= 4 && !COMMON.has(word)));
-
-/** Whether a line shares at least one telling word with the item's own title and text. Pure. */
-export function aboutSource(line: string, source: Pick<DigestSource, "title" | "text">): boolean {
-  const said = wordsOf(line);
-  if (!said.size) return false;
-  const own = wordsOf(`${source.title} ${source.text}`);
-  for (const word of said) if (own.has(word)) return true;
-  return false;
 }
 
 function estimate(model: string, input: string, output: string): { model: string; inputTokens: number; outputTokens: number; usd: number } {
@@ -138,7 +124,7 @@ const PROMPT = [
 export type DigestAsk = (prompt: string) => Promise<string>;
 
 /** One quick-model call. Tests pass `ask`. */
-export async function distill(source: DigestSource, ask: DigestAsk = defaultAsk, now = new Date()): Promise<JobDigest> {
+export async function distill(source: DigestSource, ask: DigestAsk = defaultAsk, now = new Date()): Promise<JobDigest | null> {
   const prompt = `${PROMPT}\n\nTitle: ${source.title.slice(0, 200)}\n\n${source.text.slice(0, 4_000)}`;
   const model = "claude-haiku-5-5";
   let text = "";
@@ -147,13 +133,13 @@ export async function distill(source: DigestSource, ask: DigestAsk = defaultAsk,
   } catch (error) {
     const usage = estimate(model, prompt, "");
     logDigest(source.hash, usage, "failed");
-    return { hash: source.hash, ...(source.project ? { project: source.project } : {}), changed: "", needed: "", at: now.toISOString(), ...usage, failed: true };
+    return null;
   }
   const usage = estimate(model, prompt, text);
   const digest = digestFromModel(text, source, usage, now.toISOString());
   if (!digest) {
     logDigest(source.hash, usage, "unreadable");
-    return { hash: source.hash, ...(source.project ? { project: source.project } : {}), changed: "", needed: "", at: now.toISOString(), ...usage, failed: true };
+    return null;
   }
   logDigest(source.hash, usage, "ok");
   return digest;
@@ -176,10 +162,13 @@ export function scheduleDigest(sources: DigestSource[], options: { path?: string
   if (process.env.VITEST && !options.ask) return;
   const path = options.path ?? digestPath();
   const have = new Set(readDigests(path).map((digest) => digest.hash));
-  const next = sources.find((source) => source.hash && !have.has(source.hash) && source.hash !== inFlight);
+  const now = Date.now();
+  const next = sources.find((source) => source.hash && !have.has(source.hash) && source.hash !== inFlight && now - (failedAt.get(source.hash) ?? -Infinity) >= RETRY_MS);
   if (!next) return;
   inFlight = next.hash;
   return distill(next, options.ask).then((digest) => {
+    if (!digest) { failedAt.set(next.hash, Date.now()); return; }
+    failedAt.delete(next.hash);
     rememberDigest(digest, path);
     options.onStored?.();
   }).catch(() => undefined).finally(() => {

@@ -521,8 +521,8 @@ export function jobsFrom(input: {
     }
   }
 
-  const digests = (input.digests ?? []).filter((digest) => !digest.failed);
-  const stored = new Set((input.digests ?? []).map((digest) => digest.hash));
+  const digests = input.digests ?? [];
+  const stored = new Set(digests.map((digest) => digest.hash));
   const jobs: Job[] = [];
   const pending: DigestSource[] = [];
   const untranslated: CardSource[] = [];
@@ -552,9 +552,10 @@ export function jobsFrom(input: {
     const at = [...bucket.signals.map((signal) => signal.at), ...bucket.threads.map((thread) => thread.at)].filter(Boolean).sort().at(-1) ?? "";
     const toldAt = bucket.signals.map((signal) => signal.at).filter(Boolean).sort().at(-1);
     if (lead.group === "done" && dayNumber(at || project?.updated || "", now) > DONE_KEEP_DAYS) continue;
-    const digest = newestDigest(digests, bucket, lead);
+    const readable = readableReports(bucket, lead);
+    const digest = newestDigest(digests, readable);
     for (const source of bucket.reports) {
-      if (!stored.has(source.hash) && !pending.some((item) => item.hash === source.hash)) pending.push(source);
+      if (readable.has(source.hash) && !stored.has(source.hash) && !pending.some((item) => item.hash === source.hash)) pending.push(source);
     }
     const { shots, links } = cardMedia(bucket, lead);
     const digestSaid = digestView(digest, lead.ask);
@@ -862,21 +863,22 @@ function cardMedia(bucket: Bucket, lead: Signal): { shots: Job["shots"]; links: 
 }
 
 /**
- * The reading for the card's lead item. A lead with its own report reads only
- * that report's digest: a project card leading on the Week page PR never shows
- * the WhatsApp card's reading because both are Flyd work. A lead without one
- * reads the project's own reports only when it is the project's own card; a
- * held decision or a run with no report of its own reads none, never another
- * item's, and never a reading that only shares the project's name. Pure.
+ * The reports a card's lead item may be read by. A lead with its own report
+ * reads only that report: a project card leading on the Week page PR never
+ * shows the WhatsApp card's reading because both are Flyd work. A Needs-you
+ * lead without one reads none, so a held decision is never told in another
+ * item's words. Any other lead reads only its project's own reports, never one
+ * that belongs to another item. Only these are ever sent to the model. Pure.
  */
-function newestDigest(digests: JobDigest[], bucket: Bucket, lead: Signal): JobDigest | undefined {
-  // An item of its own (a held decision, a run, a staff line) is told only by its own report: a project's other readings are other items' words.
-  if (!lead.reportHash && (lead.group === "needs" || lead.raw || lead.decision || lead.questionIdentity)) return undefined;
+function readableReports(bucket: Bucket, lead: Signal): Set<string> {
+  if (lead.reportHash) return new Set([lead.reportHash]);
+  if (lead.group === "needs") return new Set();
   const owned = new Set(bucket.signals.flatMap((signal) => (signal.reportHash ? [signal.reportHash] : [])));
-  const hashes = lead.reportHash
-    ? new Set([lead.reportHash])
-    : new Set(bucket.reports.map((report) => report.hash).filter((hash) => !owned.has(hash)));
-  // Matched by report only: a reading stored under the same project name may be any of its items'.
+  return new Set(bucket.reports.map((report) => report.hash).filter((hash) => !owned.has(hash)));
+}
+
+/** The newest stored reading among the reports a card may read. Matched by report only: a reading stored under the same project name may be any of its items'. Pure. */
+function newestDigest(digests: JobDigest[], hashes: Set<string>): JobDigest | undefined {
   return digests
     .filter((digest) => hashes.has(digest.hash))
     .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
