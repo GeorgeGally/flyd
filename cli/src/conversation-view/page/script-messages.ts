@@ -241,13 +241,16 @@ export const MESSAGES_SCRIPT = `
     if (shot) { shot.classList.add("card-thumb"); box.appendChild(shot); }
     el.insertBefore(box, el.querySelector(":scope > .summary") || el.querySelector(":scope > .body"));
   }
+  var SHORT_REPLY_CHARS = 700;
   function summarize(el, message) {
     ["summary", "compare", "more"].forEach(function (name) {
       var old = el.querySelector(":scope > ." + name);
       if (old) old.remove();
     });
-    el.classList.toggle("has-summary", !!message.summary);
-    if (!message.summary) { delete el.dataset.summary; return; }
+    // A short reply is shown whole: a summary and a "more" are only for long ones.
+    var whole = !message.compare && typeof message.text === "string" && message.text.length <= SHORT_REPLY_CHARS;
+    el.classList.toggle("has-summary", !!message.summary && !whole);
+    if (!message.summary || whole) { delete el.dataset.summary; return; }
     el.dataset.summary = message.summary.source;
     var body = el.querySelector(".body");
     var summary = document.createElement("div");

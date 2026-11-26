@@ -182,7 +182,12 @@ a.ccard:hover { background: var(--sheet); }
 }
 .stage-back:hover, .stage-back:focus-visible { color: var(--ink); }
 :root[data-layout="front"]:not([data-job]) .stage-back { display: none; }
-:root[data-layout="front"]:not([data-job]) .stage-head h1 { margin-top: 0; }
+/* The conversation has no pinned headline: an old first message is not what today is about. */
+:root[data-layout="front"]:not([data-job]) .stage-head h1 { display: none; }
+/* The day each stretch of the conversation was said, where the day changes. */
+.day-sep { margin: 28px 0 14px; font: 500 13px/1.3 var(--sans); color: var(--mute); text-align: center; }
+.msg.work.note.done-sum .work-note { color: var(--mute); }
+.done-sum .work-more { margin-left: 8px; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .crumb-close { margin-left: auto; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; color: var(--mute); }
 .crumb-close:hover, .crumb-close:focus-visible { color: var(--ink); }
 .crumb .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

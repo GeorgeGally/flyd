@@ -3024,7 +3024,12 @@ describe("the front page", () => {
       ],
     });
     await settle();
-    const work = [...document.querySelectorAll<HTMLElement>("#stream > .msg.work")];
+    // What finished today is one line at the bottom, opened into its notes on Show.
+    const summary = document.querySelector<HTMLElement>("#stream > .msg.done-sum")!;
+    expect(summary.textContent).toContain("Done today: 1");
+    expect(document.querySelector('#stream > .msg.work[data-job="landed"]')).toBeNull();
+    summary.querySelector<HTMLButtonElement>(".work-more")!.click();
+    const work = [...document.querySelectorAll<HTMLElement>("#stream > .msg.work:not(.done-sum)")];
     expect(work.map((node) => node.dataset.job)).toEqual(["landed", "cx", "ask"]);
     expect(work[2]!.classList.contains("needs")).toBe(true);
     expect(work[1]!.querySelector(".work-meta .fdot.pulse")).not.toBeNull();
