@@ -267,11 +267,11 @@ describe("what needs him", () => {
     expect(isCurrentDecision({ label: "No word on it" }, NOW)).toBe(false);
     expect(isCurrentDecision({ label: "No word on it", choices: ["Keep", "Remove"] }, NOW)).toBe(true);
   });
-  it("drops an old hold with nothing to answer but keeps an old one with options", () => {
+  it("drops an old hold after three days, whether or not it has options", () => {
     const old = { at: "2026-10-11T02:44:00Z" };
     const extras = new Map([["fm-handover", old], ["pick", old]]);
     const calls = enrichFleet(fleet, backlog, extras, NOW).calls.map((row) => row.task);
-    expect(calls).toEqual(["pick"]);
+    expect(calls).toEqual([]);
   });
   it("keeps a recent hold with nothing to answer", () => {
     const extras = new Map([["fm-handover", { at: "2026-10-16T02:44:00Z" }]]);
@@ -1010,8 +1010,9 @@ describe("ArtefactFeed", () => {
     const status = join(home, "state", "x.status");
     writeFileSync(join(home, "state", "y.status"), "waiting\n");
     writeFileSync(status, "waiting\n");
-    utimesSync(join(home, "state", "y.status"), new Date("2026-10-20T00:00:00Z"), new Date("2026-10-20T00:00:00Z"));
-    utimesSync(status, new Date("2026-10-19T00:00:00Z"), new Date("2026-10-19T00:00:00Z"));
+    // Calls age out after three days: both were raised within the last hours, y the later.
+    utimesSync(join(home, "state", "y.status"), new Date(Date.now() - 3_600_000), new Date(Date.now() - 3_600_000));
+    utimesSync(status, new Date(Date.now() - 7_200_000), new Date(Date.now() - 7_200_000));
     const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
     await feed.refresh();
     const before = composeArtefact(feed.current());

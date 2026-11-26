@@ -634,7 +634,8 @@ export function jobsFrom(input: {
   const asked = new Set<string>();
   const current = jobs.filter((job) => {
     if (job.group !== "needs") return true;
-    const words = `${job.project ?? ""}|${(job.ask || job.next || job.title).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}`;
+    // A card with no project is told apart by its title, so two unregistered repos' generic asks both stay.
+    const words = `${job.project || job.title}|${(job.ask || job.next || job.title).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}`;
     if (asked.has(words)) return false;
     asked.add(words);
     return true;

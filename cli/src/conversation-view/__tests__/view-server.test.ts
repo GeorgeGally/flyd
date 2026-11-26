@@ -174,7 +174,7 @@ describe("SnapshotDiffer relays", () => {
     ], working: false });
     expect(update.order).toEqual(["t2"]);
     // Asked mid-reply, it is still answerable where it stands.
-    expect(update.messages[0]!.choice).toMatchObject({ question: "May I delete the 44,148 test-junk records from Flyd's memory?", options: ["Yes", "No"], replyTo: "t2" });
+    expect(update.messages[0]!.choice).toMatchObject({ question: "May I delete the 44,148 test-junk records from Flyd's memory?", options: [], replyTo: "t2" });
     const answered = new SnapshotDiffer().next({ messages: [{ id: "t1", role: "assistant", text: asked, aside: true }, { id: "note:1", role: "user", text: "yes, delete it" }], working: false });
     expect(answered.messages.find((message) => message.id === "t1")!.choice).toBeUndefined();
   });
@@ -208,10 +208,10 @@ describe("SnapshotDiffer relays", () => {
     expect(pictured!.shots).toHaveLength(1);
   });
 
-  it("tells a relayed question as a message with its answer buttons, never a card for its words", () => {
+  it("tells a relayed question as a message with its own answers (none for a yes-or-no), never a card for its words", () => {
     const asked = "The work is green. Shall I push it?";
     const [shown] = new SnapshotDiffer().next({ messages: [{ id: "t1", role: "assistant", text: asked, aside: true }], working: false }).messages;
-    expect(shown!.choice).toMatchObject({ options: ["Yes", "No"] });
+    expect(shown!.choice).toMatchObject({ options: [] });
     expect(shown!.card).toBeUndefined();
     const after = new SnapshotDiffer().next({ messages: [{ id: "t1", role: "assistant", text: asked, aside: true }, { id: "note:1", role: "user", text: "no, keep it" }], working: false }).messages.find((message) => message.id === "t1");
     expect(after!.choice).toBeUndefined();
@@ -227,21 +227,21 @@ describe("SnapshotDiffer relays", () => {
     expect(shown!.shots).toHaveLength(1);
   });
 
-  it("cards finished work that also asks him, with its answer buttons on the card", () => {
+  it("cards finished work that also asks him, its question answerable on the card", () => {
     const [shown] = new SnapshotDiffer().next({ messages: [
       { id: "u1", role: "user", text: "make the header calmer" },
       { id: "t1", role: "assistant", text: "The header is calmer now: one line, no shadow. Want me to push it?", shots: ["/tmp/flyd-shot.png"], page: { url: "http://127.0.0.1:4000/", label: "127.0.0.1:4000" } },
     ], working: false }).messages.filter((message) => message.role === "assistant");
     expect(shown!.card).toBeDefined();
     expect(shown!.card!.kind).not.toBe("decision");
-    expect(shown!.choice).toMatchObject({ options: ["Yes", "No"] });
+    expect(shown!.choice).toMatchObject({ options: [] });
   });
 
   it("tells a relayed change that also asks him by what was done, its question asked once under the card", () => {
     const [shown] = new SnapshotDiffer().next({ messages: [
       { id: "t1", role: "assistant", text: "Changed the header on the shop page. Shall I push it?", aside: true, page: { url: "http://127.0.0.1:4000/shop", label: "127.0.0.1:4000/shop" } },
     ], working: false }).messages;
-    expect(shown!.choice).toMatchObject({ options: ["Yes", "No"] });
+    expect(shown!.choice).toMatchObject({ options: [] });
     expect(shown!.card!.line).toContain("header on the shop page");
     expect(shown!.card!.line).not.toContain("push it");
   });
@@ -970,13 +970,13 @@ describe("ConversationViewServer", () => {
     const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
     const sent = await post(port, body, headers);
     expect(sent.status).toBe(200);
-    expect(JSON.parse(sent.body)).toMatchObject({ id: "note:decision-note", waiting: "Sent to firstmate" });
+    expect(JSON.parse(sent.body)).toMatchObject({ id: "note:decision-note", waiting: "Sent." });
     expect(noteWords()).toBe("Answer to pending decision visuals: Pick a Christmas look\nQuestion: Choose Evergreen or a mix\n\nEvergreen luxe");
     expect(feed.current().fleet!.calls).toHaveLength(1);
     expect((await post(port, JSON.stringify({ decision: "visuals", text: " " }), headers)).status).toBe(400);
     // Any artefact: his words go to firstmate naming what they are about.
     const about = await post(port, JSON.stringify({ about: { title: "Christmas Nuanu map", task: "gnm-xmas-map", url: "https://example.com/map" }, text: "Make the pins bigger" }), headers);
-    expect(JSON.parse(about.body)).toMatchObject({ id: "note:decision-note", waiting: "Sent to firstmate" });
+    expect(JSON.parse(about.body)).toMatchObject({ id: "note:decision-note", waiting: "Sent." });
     expect(noteWords()).toBe('About the artefact "Christmas Nuanu map"\nTask: gnm-xmas-map\nPage: https://example.com/map\n\nMake the pins bigger');
     // A sidebar card's own words go with it, on one line each, so firstmate knows what it says.
     await post(port, JSON.stringify({ about: { title: "Finished a job for you", line: "gnm notes", detail: "The file is at\n~/Documents/Flyd/gnm.md" }, text: "Open it" }), headers);
@@ -1254,7 +1254,7 @@ describe("ConversationViewServer", () => {
     const differ = new SnapshotDiffer();
     const shown = differ.next(await server!["source"].read("s1")).messages;
     expect(shown.find((message) => message.role === "assistant" && message.id.startsWith("reply:"))!.choice)
-      .toMatchObject({ question: "Should I merge it?", options: ["Yes", "No"] });
+      .toMatchObject({ question: "Should I merge it?", options: [] });
   });
 
   it("sends his comment on a spot of the phone preview to firstmate, with the page, viewport and spot", async () => {

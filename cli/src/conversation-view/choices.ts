@@ -228,6 +228,13 @@ export function choiceOf(text: string): ReplyChoice | null {
   return { question, options: [] };
 }
 
+/** Whether a question is put as yes or no: it names no answers of its own and asks neither which nor what. Pure. */
+export function asksYesOrNo(asked: { question: string; options: string[] }): boolean {
+  if (asked.options.length) return false;
+  const last = sentences(asked.question).at(-1) ?? asked.question;
+  return /\?["”')\]]*$/.test(last) && !OPEN_WORD.test(last) && !OPEN_WORD.test(last.replace(LEAD_IN, ""));
+}
+
 /** A note that reads as his answer to whatever was just asked: yes, no, go ahead, hold off. */
 const ANSWER_LIKE = /^(?:yes|yeah|yep|yup|no|nope|nah|sure|ok(?:ay)?|go(?:\s+(?:ahead|for it))?|do it|don['’]?t|please do|approved?|agreed|both|all of them|none|neither|hold(?:\s+off)?|wait|skip(?:\s+it)?|lgtm|ship it)\b/i;
 
