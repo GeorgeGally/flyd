@@ -141,12 +141,12 @@ describe("E3 and E6: Flyd's own runs frozen at needs_decision", () => {
     expect(settleClosedRuns(row("x"), { dir }).map((item) => item.status)).toEqual(["cancelled"]);
   });
 
-  it("a run nothing in the record names still asks him after three days: an unanswered ask is never parked", () => {
+  it("a run's unanswered ask ages out after three days", () => {
     const stuck = jobRunFromDomain(run("flyd-project-threads-1794406370827", { updatedAt: new Date(NOW - 4 * DAY).toISOString() }));
     const fresh = jobRunFromDomain(run("domain-fresh-question", { updatedAt: new Date(NOW - DAY).toISOString() }));
     const groups = jobsFrom({ now: NOW, runs: [stuck, fresh] }).jobs.map((job) => [job.because, job.group]);
     expect(groups).toContainEqual(["Run domain-fresh-question is waiting on a decision", "needs"]);
-    expect(groups.find(([because]) => String(because).includes("flyd-project-threads"))?.[1]).toBe("needs");
+    expect(groups.find(([because]) => String(because).includes("flyd-project-threads"))).toBeUndefined();
   });
 });
 

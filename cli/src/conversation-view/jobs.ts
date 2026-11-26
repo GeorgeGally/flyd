@@ -151,6 +151,8 @@ const DONE_KEEP_DAYS = 21;
 export const READY_KEEP_MS = DAY;
 /** An open run that has not moved for this long is not work under way, whatever its record still says. */
 const QUIET_RUN_MS = DAY;
+/** How long an unanswered run's question stays his before it ages out. */
+const ASK_KEEP_MS = 3 * DAY;
 const REPORT_CHARS = 240;
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 
@@ -204,8 +206,8 @@ export function runTitle(outcome: string): string {
 
 export function jobRunFromDomain(run: DomainRun): JobRun {
   const report = [run.result?.brief, run.result?.detailedReport].filter((part): part is string => Boolean(part?.trim())).join("\n\n");
-  const question = run.result?.unresolvedQuestions.find((item) => item.trim())
-    ?? (run.result?.brief?.trim() || undefined);
+  // Only a question the run left open is put to him: its brief is a report, never a question.
+  const question = run.result?.unresolvedQuestions.find((item) => item.trim());
   return {
     id: run.id,
     status: run.status,
@@ -290,6 +292,8 @@ function runSignalOf(run: JobRun, now: number): Signal | null {
   if (run.closed) return work === "ready" || work === "landed" ? { ...placed("closed"), at, next: run.outcome || "Done", owner: "", ask: "", because: `Run ${run.id} was closed: ${run.closed}` } : null;
   if (work === "needs_you") {
     if (run.source === "flyd") return null;
+    // A run with no open question of its own asks him nothing, and an ask left three days is stale: neither is his.
+    if (now - Date.parse(at) > ASK_KEEP_MS) return null;
     // An unanswered ask stays his, however old: it is never parked where he would not look.
     return { ...placed("asks"), at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
   }
@@ -574,9 +578,8 @@ export function jobsFrom(input: {
     // So is one whose stored reading says nothing is wanted from him.
     const reading = raw ? input.cardWords!.get(raw.key) : undefined;
     const notice = lead.group === "needs" && !asks && (raw?.asks === false || Boolean(reading && NOTHING_WANTED.test(reading.body)));
-    // Held-up work whose reading asks for his call is his move: it sits in Needs you, not among work under way.
-    const heldAsks = lead.group === "moving" && /^blocked$/i.test(state) && Boolean(reading && asksSomething(reading.body) && !NOTHING_FOR_HIM.test(reading.body) && !NOTHING_WANTED.test(reading.body) && !FLYD_MOVES_NEXT.test(reading.body));
-    const group: JobGroup = notice ? "done" : heldAsks ? "needs" : lead.group;
+    // Needs you is decided by the record (an open call, a run's unresolved question), never by the words of a reading.
+    const group: JobGroup = notice ? "done" : lead.group;
     const fallback = fallbackWords(bucket.name ?? "", group, state, raw?.asks !== false);
     const named = raw ? input.cardWords!.get(raw.key) ?? fallback : undefined;
     // A question with its own answers keeps its words while they are plain; asked in developer words, it is said plainly and its answers stay. Only a question the run put to him is ever shown as asked: a staff status line never is.
@@ -590,16 +593,16 @@ export function jobsFrom(input: {
     jobs.push(shownPlainly({
       id: bucket.id,
       group,
-      state: notice ? STATE.done : heldAsks ? STATE_WORDS.asks : shownState,
+      state: notice ? STATE.done : shownState,
       title: named ? named.title : bucket.title,
       project: bucket.project,
       at,
       ...(toldAt ? { toldAt } : {}),
       ...(lead.started ? { started: lead.started } : {}),
       // The question is said once: a next line that only repeats it is left out.
-      next: heldAsks ? "" : words ? (group === "needs" ? "" : words.body) : sameWords(lead.next, lead.ask) ? "" : shownLine(lead.next, group),
+      next: words ? (group === "needs" ? "" : words.body) : sameWords(lead.next, lead.ask) ? "" : shownLine(lead.next, group),
       owner: notice ? "" : lead.owner,
-      ask: notice ? "" : heldAsks ? reading!.body : words ? (group === "needs" ? words.body : "") : lead.ask && forHim(plainSaid(lead.ask)),
+      ask: notice ? "" : words ? (group === "needs" ? words.body : "") : lead.ask && forHim(plainSaid(lead.ask)),
       ...(lead.questionIdentity ? { questionIdentity: lead.questionIdentity } : {}),
       because: lead.because,
       shots: shots.slice(0, 4),

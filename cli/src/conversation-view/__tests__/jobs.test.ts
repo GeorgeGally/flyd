@@ -184,7 +184,8 @@ describe("jobsFrom", () => {
       messages: [{ id: "answer", kind: "decision", body: "yes", at: "2026-10-26T11:00:00Z" }],
       result: { format: "raw", brief: "Which version?", detailedReport: "", decisionsMade: [], unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "low" },
     };
-    expect(jobsFrom({ runs: [jobRunFromDomain(domain)], now: NOW }).jobs[0]?.ask).toBe("Which version?");
+    // Its brief is a report, never put to him as a question: only an unresolved question is.
+    expect(jobsFrom({ runs: [jobRunFromDomain(domain)], now: NOW }).jobs[0]?.ask).not.toBe("Which version?");
     expect(jobsFrom({ runs: [jobRunFromDomain({ ...domain, request: { ...domain.request, source: "flyd" } })], now: NOW }).jobs).toEqual([]);
     expect(jobRunFromDomain({ ...domain, result: { ...domain.result!, unresolvedQuestions: ["Ship now?"] } }).question).toBe("Ship now?");
   });
@@ -270,12 +271,12 @@ describe("jobsFrom", () => {
   });
 
 
-  it("keeps an ask he has not answered in three days on Needs you, still answerable", () => {
+  it("ages a run's ask out after three days; an old call stays listed only quietly", () => {
     const board = jobsFrom({ runs: [run({ id: "old", status: "needs_decision", question: "Which price should ship?", updatedAt: "2026-10-01T10:00:00.000Z" })], now: NOW });
-    expect(board.jobs[0]).toMatchObject({ group: "needs", ask: "Which price should ship?", domainRun: "old" });
+    expect(board.jobs.filter((job) => job.group === "needs")).toEqual([]);
     const call = { id: "call-old", kind: "call", headline: "Pick the About page", why: "", quiet: true };
     const fleet = jobsFrom({ show: { ...screen, calls: [call] } as unknown as ShowScreen, now: NOW });
-    expect(fleet.jobs[0]).toMatchObject({ group: "needs" });
+    expect(fleet.jobs[0]).toMatchObject({ group: "needs", quiet: true });
   });
 
   it("keeps active runs distinct beside a project decision", () => {

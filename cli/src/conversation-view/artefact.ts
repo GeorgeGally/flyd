@@ -540,9 +540,10 @@ export const STALE_CALL_MS = 3 * 24 * 60 * 60 * 1000;
 /** Whether a hold is a decision still waiting on him: not a read-me or reminder, and not an old hold with no question to answer. Pure. */
 export function isCurrentDecision(row: ArtefactRow, now: number): boolean {
   if (notADecision(row)) return false;
-  if (row.choices?.length) return true;
   const touched = row.at ? Date.parse(row.at) : Number.NaN;
-  return !Number.isNaN(touched) && now - touched <= STALE_CALL_MS;
+  // Answers of its own keep an undated hold a call; once dated, every call ages out after three days.
+  if (Number.isNaN(touched)) return Boolean(row.choices?.length);
+  return now - touched <= STALE_CALL_MS;
 }
 
 export interface EnrichOptions {
