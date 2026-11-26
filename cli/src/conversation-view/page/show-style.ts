@@ -253,7 +253,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 }
 
 /* The Artefacts view: one artefact fills the screen under the header, picture big, headline big. */
-.tv { position: fixed; inset: var(--top, 56px) 0 0 0; z-index: 40; background: var(--paper, var(--bg)); overflow: auto; animation: show-in 220ms ease-out; }
+.tv { position: fixed; inset: var(--top, 56px) 0 0 0; z-index: 8; background: var(--paper, var(--bg)); overflow: auto; animation: show-in 220ms ease-out; }
 .tv-stage { min-height: 100%; box-sizing: border-box; padding: 32px var(--gut, 32px) 48px; display: flex; }
 .tv-scene { flex: 1; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 40px; max-width: 1400px; margin: 0 auto; width: 100%; }
 .tv-pic { min-height: 0; height: min(64vh, calc(100vh - 340px)); display: flex; align-items: center; justify-content: center; }

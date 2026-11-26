@@ -108,7 +108,9 @@ export const SHOW_SCRIPT = `
   }
   tvFlip.addEventListener("click", function () { tvSet(!tvOn()); });
   document.addEventListener("keydown", function (event) {
-    if (!tvOn() || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (!tvOn() || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || !prefs.hidden || !lightbox.hidden) return;
+    var from = event.target;
+    if (from && from.closest && from.closest("input, textarea, select, [contenteditable]")) return;
     if (event.key === "Escape") { event.preventDefault(); tvSet(false); }
     else if (event.key === "ArrowRight") { event.preventDefault(); tvMove(1); }
     else if (event.key === "ArrowLeft") { event.preventDefault(); tvMove(-1); }
