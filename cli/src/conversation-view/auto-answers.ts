@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { choiceTarget, type ReplyChoice } from "./choices.js";
+import { asksYesOrNo, choiceTarget, type ReplyChoice } from "./choices.js";
 import { autoAnswerNote, undoNote } from "./replies.js";
 import { inline, sentences } from "./summaries.js";
 import type { ConversationMessage, SentMessage } from "./types.js";
@@ -163,7 +163,7 @@ export interface Asked {
  */
 export function settledBy(message: ConversationMessage, asked: Asked, preferences: string): Settled | null {
   // A yes-or-no question only, put by firstmate, not by Flyd's own desk.
-  if (!asked.options.includes("Yes") || choiceTarget(message).startsWith("ask:")) return null;
+  if (!asksYesOrNo(asked) || choiceTarget(message).startsWith("ask:")) return null;
   return standingAnswer(asked.question, message.text, preferences);
 }
 

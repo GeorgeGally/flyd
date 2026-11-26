@@ -141,12 +141,12 @@ describe("E3 and E6: Flyd's own runs frozen at needs_decision", () => {
     expect(settleClosedRuns(row("x"), { dir }).map((item) => item.status)).toEqual(["cancelled"]);
   });
 
-  it("a run nothing in the record names still asks him after three days: an unanswered ask is never parked", () => {
+  it("a run's unanswered ask ages out after three days", () => {
     const stuck = jobRunFromDomain(run("flyd-project-threads-1794406370827", { updatedAt: new Date(NOW - 4 * DAY).toISOString() }));
     const fresh = jobRunFromDomain(run("domain-fresh-question", { updatedAt: new Date(NOW - DAY).toISOString() }));
     const groups = jobsFrom({ now: NOW, runs: [stuck, fresh] }).jobs.map((job) => [job.because, job.group]);
     expect(groups).toContainEqual(["Run domain-fresh-question is waiting on a decision", "needs"]);
-    expect(groups.find(([because]) => String(because).includes("flyd-project-threads"))?.[1]).toBe("needs");
+    expect(groups.find(([because]) => String(because).includes("flyd-project-threads"))).toBeUndefined();
   });
 });
 
@@ -257,8 +257,8 @@ describe("an old call firstmate still confirms open", () => {
     expect(fleet.calls.map((row) => [row.task, row.quiet === true])).toEqual([["dir-controls-lab-choice", true]]);
     expect(decided.map((change) => [change.taskId, change.quiet])).toEqual([["dir-controls-lab-choice", true]]);
     expect(islandStatusOf({ working: false }, fleet, boardOf(fleet, Date.now())).reply).toBeUndefined();
-    // It never rings again, but an unanswered ask stays on Needs you where he can still answer it.
-    expect(boardOf(fleet, Date.now()).map((job) => job.group)).toEqual(["needs"]);
+    // It never rings again, and a quiet (old) call is not put to him on Needs you either.
+    expect(boardOf(fleet, Date.now()).map((job) => job.group)).not.toContain("needs");
   });
 
   it("asks him as usual while it is still fresh", async () => {

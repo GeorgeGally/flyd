@@ -57,6 +57,8 @@ describe("a pending decision the staff's record has closed", () => {
 });
 
 describe("Needs you, read against the record", () => {
+  // Calls age out after three days, so the record is dated today.
+  const TODAY = new Date().toISOString().slice(0, 10);
   it("never shows George a call whose task finished, and tells the staff to close it once", async () => {
     const home = mkdtempSync(join(tmpdir(), "overtaken-feed-"));
     mkdirSync(join(home, "bin"));
@@ -72,10 +74,10 @@ describe("Needs you, read against the record", () => {
       "",
       "## Captain",
       sellStep,
-      `- [ ] cap5-hero - Pick the CapFive hero photo (repo: cap5) (kind: captain) (since 2026-10-12) (hold: ${hold("George picks the hero photo for the CapFive home page: 1 Boardroom, 2 Skyline")}) (hold-kind: captain)`,
+      `- [ ] cap5-hero - Pick the CapFive hero photo (repo: cap5) (kind: captain) (since ${TODAY}) (hold: ${hold("George picks the hero photo for the CapFive home page: 1 Boardroom, 2 Skyline")}) (hold-kind: captain)`,
       "",
     ].join("\n"));
-    const open = `- [ ] gnm-sell-step-pick - ${SELL_STEP.label} (repo: good_neighbours) (kind: captain) (since 2026-10-12) (hold: ${hold(SELL_STEP.detail!)}) (hold-kind: captain)`;
+    const open = `- [ ] gnm-sell-step-pick - ${SELL_STEP.label} (repo: good_neighbours) (kind: captain) (since ${TODAY}) (hold: ${hold(SELL_STEP.detail!)}) (hold-kind: captain)`;
     backlog(open);
     const sent: Array<[string, string]> = [];
     const feed = new ArtefactFeed({
@@ -87,7 +89,7 @@ describe("Needs you, read against the record", () => {
     expect(feed.current().fleet!.calls.map((row) => row.task)).toEqual(["gnm-sell-step-pick", "cap5-hero"]);
     expect(sent).toHaveLength(0);
 
-    backlog(`${open.replace("- [ ]", "- [x]")} (merged: 2026-10-16)`);
+    backlog(`${open.replace("- [ ]", "- [x]")} (merged: ${TODAY})`);
     await feed.refresh();
     await feed.refresh();
     const fleet = feed.current().fleet!;
@@ -96,7 +98,7 @@ describe("Needs you, read against the record", () => {
     expect(fleetCounts(fleet).call).toBe(1);
     expect(composeArtefact(feed.current()).find((item) => item.task === "gnm-sell-step-pick")).toMatchObject({ kind: "clear", detail: "Settled, nothing needed." });
     expect(sent).toHaveLength(1);
-    expect(sent[0]![0]).toMatch(/its task finished 2026-10-16/);
+    expect(sent[0]![0]).toMatch(new RegExp(`its task finished ${TODAY}`));
     expect(sent[0]![1]).toMatch(/^flyd-close-[0-9a-f]{12}-gnm-sell-step-pick$/);
     expect(sent[0]![1].length).toBeLessThanOrEqual(125);
 
@@ -118,7 +120,7 @@ describe("Needs you, read against the record", () => {
     const snapshot = join(home, "bearings.json");
     writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
     writeFileSync(snapshot, JSON.stringify({ decisions_open: [{ id: "gnm-sell-step-pick", summary: "Pick a layout for the What do you sell? step" }] }));
-    writeFileSync(join(home, "data", "backlog.md"), `- [x] gnm-sell-step-pick - ${SELL_STEP.label} (repo: good_neighbours) (merged: 2026-10-16)\n`);
+    writeFileSync(join(home, "data", "backlog.md"), `- [x] gnm-sell-step-pick - ${SELL_STEP.label} (repo: good_neighbours) (merged: ${TODAY})\n`);
     const sent: string[] = [];
     const decided: string[][] = [];
     const feed = new ArtefactFeed({

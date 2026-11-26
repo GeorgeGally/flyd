@@ -63,13 +63,15 @@ export const TIMELINE_SCRIPT = `
     var d = new Date(iso);
     return !isNaN(d) && d.toDateString() === new Date().toDateString();
   }
-  // What the timeline carries: every ask, work under way, what finished today, and anything he opened.
+  // What the timeline carries: every current ask, work under way, what finished today, and anything he opened.
   function workInTimeline(job) {
     // A card he closed (✕, or OK on finished work) stays closed, across refreshes too.
     if (cardGone(job.id) && frontActive !== job.id) return false;
-    if (workKept[job.id] || job.group === "needs") return true;
+    if (workKept[job.id]) return true;
+    if (job.group === "needs") return true;
     if (job.group === "moving" && job.state === PLACE_STATES.running) return true;
-    if (job.group === "done" && !job.bare && workToday(job.at)) return true;
+    // What finished today is one line at the bottom; it opens into the notes when he asks.
+    if (job.group === "done" && !job.bare && workToday(job.at)) return workDoneOpen;
     // Once said, it stays where it was said while the board carries it: a job pausing or queueing
     // is told in place, never taken out and said again further down.
     return workNodes.has(job.id) && !job.bare;
@@ -104,8 +106,8 @@ export const TIMELINE_SCRIPT = `
       return node;
     }
     var shot = !open && job.group !== "moving" && job.shots && job.shots[0] ? job.shots[0] : null;
-    body.innerHTML = '<p class="work-meta">' + (job.group === "needs" ? '<i class="fdot" aria-hidden="true"></i>' : job.group === "moving" ? '<i class="fdot pulse" aria-hidden="true"></i>' : "") + frontEsc(meta) + '</p>'
-      + '<p class="work-title">' + frontEsc(title) + '</p>'
+    // No status line above the title: the dot says it needs him or is moving, the title says the rest.
+    body.innerHTML = '<p class="work-title">' + (job.group === "needs" ? '<i class="fdot" aria-hidden="true"></i>' : job.group === "moving" ? '<i class="fdot pulse" aria-hidden="true"></i>' : "") + frontEsc(title) + '</p>'
       + (line && line !== title && !open ? '<p class="work-line">' + frontEsc(line) + '</p>' : "")
       + (shot ? (finished ? '<div class="work-shot"><img src="' + frontEsc(shot.src) + '" alt="" loading="lazy"></div>' : '<button type="button" class="work-shot" data-open-job="' + frontEsc(job.id) + '"><img src="' + frontEsc(shot.src) + '" alt="" loading="lazy"></button>') : "")
       + (open ? "" : frontJobPicks(job))
@@ -133,6 +135,82 @@ export const TIMELINE_SCRIPT = `
     }
     if (node.nextSibling !== before || node.parentElement !== main) main.insertBefore(node, before);
   }
+  var workDoneOpen = false;
+  var workDoneNode = null;
+  function workDoneToday() {
+    return Array.from(frontJobs.values()).filter(function (job) {
+      return job.group === "done" && !job.bare && workToday(job.at) && !(cardGone(job.id) && frontActive !== job.id);
+    });
+  }
+  // "Done today: 12 CapFive, 5 Pixel demo", one line instead of a block of notes.
+  function drawDoneSummary() {
+    var done = workDoneToday();
+    if (!done.length) { if (workDoneNode) { workDoneNode.remove(); workDoneNode = null; } return; }
+    if (!workDoneNode) {
+      workDoneNode = el("article", "msg assistant work note done-sum");
+      workDoneNode.addEventListener("click", function (event) {
+        if (!event.target.closest(".work-more")) return;
+        workDoneOpen = !workDoneOpen;
+        drawTimeline();
+      });
+    }
+    var counts = {};
+    var order = [];
+    done.forEach(function (job) {
+      var named = /^([^:]{2,40}):\\s/.exec(job.title || "");
+      var name = job.project || (named ? named[1] : "") || "other work";
+      if (!counts[name]) { counts[name] = 0; order.push(name); }
+      counts[name]++;
+    });
+    order.sort(function (a, b) { return counts[b] - counts[a]; });
+    var words = "Done today: " + order.map(function (name) { return counts[name] + " " + name; }).join(", ");
+    var drawn = JSON.stringify([words, workDoneOpen]);
+    if (workDoneNode.dataset.drawn !== drawn) {
+      workDoneNode.dataset.drawn = drawn;
+      workDoneNode.innerHTML = '<p class="work-note">' + frontEsc(words) + '<button type="button" class="work-more" aria-expanded="' + workDoneOpen + '">' + (workDoneOpen ? "Hide" : "Show") + '</button></p>';
+    }
+    var before = main.querySelector(":scope > .msg.pending") || working;
+    if (workDoneNode.nextSibling !== before || workDoneNode.parentElement !== main) main.insertBefore(workDoneNode, before);
+  }
+  // A line naming the day wherever the conversation crosses into a new one.
+  var DAY_SEP_MS = 0;
+  function drawDays() {
+    var last = "";
+    Array.prototype.forEach.call(main.querySelectorAll(":scope > .msg, :scope > .day-sep"), function (node) {
+      if (node.classList.contains("day-sep")) {
+        var next = node.nextElementSibling;
+        var nextDay = next && next.classList.contains("msg") && !next.classList.contains("done-sum") ? workDayOf(next) : "";
+        if (!nextDay || nextDay === last || node.dataset.day !== nextDay) node.remove();
+        return;
+      }
+      var day = node.classList.contains("done-sum") ? "" : workDayOf(node);
+      if (!day || day === last) return;
+      last = day;
+      var prev = node.previousElementSibling;
+      if (prev && prev.classList.contains("day-sep") && prev.dataset.day === day) return;
+      var sep = el("p", "day-sep");
+      sep.dataset.day = day;
+      sep.textContent = workDayWords(day);
+      main.insertBefore(sep, node);
+    });
+  }
+  function workDayOf(node) {
+    var d = new Date(node.dataset.ts || "");
+    return isNaN(d) ? "" : d.toDateString();
+  }
+  function workDayWords(day) {
+    var d = new Date(day);
+    var days = Math.round((new Date(new Date().toDateString()) - d) / 86400000);
+    if (days === 0) return "Today";
+    if (days === 1) return "Yesterday";
+    return d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+  }
+  var dayPending = false;
+  if (window.MutationObserver) new MutationObserver(function (changes) {
+    if (dayPending || changes.every(function (change) { return Array.prototype.every.call(change.addedNodes, function (n) { return n.classList && n.classList.contains("day-sep"); }) && Array.prototype.every.call(change.removedNodes, function (n) { return n.classList && n.classList.contains("day-sep"); }); })) return;
+    dayPending = true;
+    setTimeout(function () { dayPending = false; drawDays(); }, DAY_SEP_MS);
+  }).observe(main, { childList: true });
   function drawTimeline() {
     var jobs = Array.from(frontJobs.values()).filter(workInTimeline);
     var shown = {};
@@ -146,6 +224,7 @@ export const TIMELINE_SCRIPT = `
       workNodes.delete(id);
       workPlaced.delete(id);
     });
+    drawDoneSummary();
     if (frontUpdate && Array.isArray(frontUpdate.jobs) && frontUpdate.jobsFleetKnown === true) workDrawnOnce = true;
     // A job open in the timeline holds its detail under its message.
     var open = workNodes.get(frontActive);

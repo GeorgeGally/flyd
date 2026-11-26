@@ -1060,6 +1060,14 @@ export class ConversationViewServer {
       sendJson(res, 200, { weather: this.weather?.current() ?? null });
       return;
     }
+    if (req.method === "GET" && url.pathname === "/api/fresh-news") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" }); return;
+      }
+      const scout = await import("../council/scout.js");
+      sendJson(res, 200, { items: scout.freshStories() });
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/api/inspirations") {
       if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
         sendJson(res, 403, { error: "missing or wrong token" }); return;
@@ -2064,7 +2072,7 @@ export class ConversationViewServer {
           options: call.choices ?? [],
         } : undefined, session);
         if (executive) await this.feed.refresh({ fresh: true }).catch(() => undefined);
-        const receipt = { ...sent, ...(executive && /\b(another round|one more round|try again|more options?|more versions?|not quite|not there yet|different direction|iterate|redo)\b/i.test(payload.text) ? { followUp: call.executiveDecisionId } : {}), waiting: executive ? "Flyd is carrying your decision into the work" : "Sent to firstmate" };
+        const receipt = { ...sent, ...(executive && /\b(another round|one more round|try again|more options?|more versions?|not quite|not there yet|different direction|iterate|redo)\b/i.test(payload.text) ? { followUp: call.executiveDecisionId } : {}), waiting: executive ? "Flyd is carrying your decision into the work" : "Sent." };
         if (executive && (images as ImageUpload[]).length) {
           await this.sendToJob(res, { ...job, title: job.title ?? call.label, task: call.task ?? job.task, question: call.question ?? call.detail ?? job.question }, payload.text, images as ImageUpload[], session, receipt)
             .catch((error: unknown) => this.sendJobResult(res, 502, { error: error instanceof Error ? error.message : String(error) }, receipt));
@@ -2235,7 +2243,7 @@ export class ConversationViewServer {
     try {
       const words = text.trim();
       const note = words ? withCommandMarker(`${named}\n\n${words}`, await this.commandIn(words)) : named;
-      respond(200, { ...await this.source.sendDecision(note, images, undefined, session), waiting: "Sent to firstmate" });
+      respond(200, { ...await this.source.sendDecision(note, images, undefined, session), waiting: "Sent." });
     } catch (error) {
       respond(502, { error: error instanceof Error ? error.message : String(error) });
     }

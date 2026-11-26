@@ -101,7 +101,7 @@ describe("Flyd decides its staff's routine questions", () => {
     const asked = reply(`Two things are waiting on you:\n1. Shall I rebase the menu fix onto the latest and push it?\n2. Shall I delete the old preview servers' data?`);
     const notes = await answered(asked);
     expect(notes.map((note) => note.replyQuote)).toEqual(["Shall I rebase the menu fix onto the latest and push it?"]);
-    expect(openChoice([asked, ...notes])?.choice).toEqual({ question: "Shall I delete the old preview servers' data?", options: ["Yes", "No"] });
+    expect(openChoice([asked, ...notes])?.choice).toEqual({ question: "Shall I delete the old preview servers' data?", options: [] });
     const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
     // Only the question still his keeps its buttons, under the message; the one Flyd answered is told in it.
     expect(shown!.card).toBeUndefined();

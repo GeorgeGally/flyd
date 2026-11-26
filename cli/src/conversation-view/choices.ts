@@ -5,8 +5,9 @@ import { capitalise, clip, inline, SALUTATION, sentences } from "./summaries.js"
 import type { ConversationMessage } from "./types.js";
 
 // A reply that ends by asking him something, read as a choice he can make
-// with one tap: the question in a sentence, and its options. A yes-or-no
-// question is Yes / No; one that offers a numbered set ("Want me to add all
+// with one tap: the question in a sentence, and its options. Options come
+// only from the question itself, never a Yes / No it did not offer; one that
+// offers a numbered set ("Want me to add all
 // three?") is all of them, any one of them, or none; "A or B?" is A and B; a
 // list under "Which do you want?" is one button per item. An open question
 // has no options, only his own words. A list whose items are themselves
@@ -167,12 +168,12 @@ function onlyOne(item: Listed): string {
   return clip(`Only ${item.number ? `${item.number}: ` : ""}${item.label}`, OPTION_CHARS + 8);
 }
 
-/** One question as a step: its alternatives, nothing to tap when it asks which, else yes or no. */
+/** One question as a step: the alternatives it names, else nothing to tap (he answers in his own words). */
 function stepOf(text: string): ChoiceStep {
   const question = itemQuestion(text);
   const either = alternatives(question);
   if (either.length) return { question, options: either };
-  return { question, options: OPEN_WORD.test(question) ? [] : ["Yes", "No"] };
+  return { question, options: [] };
 }
 
 /**
@@ -223,7 +224,15 @@ export function choiceOf(text: string): ReplyChoice | null {
   if (ABOUT_SET.test(sentence) && set.length >= 2 && set.length <= MAX_OPTIONS - 2) {
     return { question, options: [yesToAll(sentence), ...set.map(onlyOne), "No"] };
   }
-  return { question, options: ["Yes", "No"] };
+  // Buttons come only from the question's own options: never a Yes/No it did not offer.
+  return { question, options: [] };
+}
+
+/** Whether a question is put as yes or no: it names no answers of its own and asks neither which nor what. Pure. */
+export function asksYesOrNo(asked: { question: string; options: string[] }): boolean {
+  if (asked.options.length) return false;
+  const last = sentences(asked.question).at(-1) ?? asked.question;
+  return /\?["”')\]]*$/.test(last) && !OPEN_WORD.test(last) && !OPEN_WORD.test(last.replace(LEAD_IN, ""));
 }
 
 /** A note that reads as his answer to whatever was just asked: yes, no, go ahead, hold off. */
@@ -395,8 +404,8 @@ function ordered(answers: NamedAnswers): NamedAnswers {
 
 /**
  * The small fixed set of answers a decision put to him names, from the first
- * of these words that names any: a question with its options (a yes-or-no
- * question is Yes / No), or Flyd's own "say merge" wording. An open question,
+ * of these words that names any: a question with its own options, or Flyd's
+ * own "say merge" wording. An open question,
  * several questions at once, or a pick-any-number list names none: those are
  * his own words to give. Pure.
  */

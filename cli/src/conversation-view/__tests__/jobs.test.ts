@@ -151,7 +151,7 @@ describe("jobsFrom", () => {
   });
 
   it("offers an answer only to a domain run that can still take one", () => {
-    const board = jobsFrom({ runs: [run({ id: "open", status: "needs_decision", phase: "checking" }), run({ id: "finished", status: "needs_decision", phase: "done" }), run({ id: "plain", status: "needs_decision" })], now: NOW });
+    const board = jobsFrom({ runs: [run({ id: "open", outcome: "Revise the deck", status: "needs_decision", phase: "checking" }), run({ id: "finished", outcome: "Pick the cover", status: "needs_decision", phase: "done" }), run({ id: "plain", outcome: "Choose the font", status: "needs_decision" })], now: NOW });
     const answer = (id: string) => board.jobs.find((job) => job.id === `run:${id}`)?.domainRun;
     expect(["open", "finished", "plain"].map(answer)).toEqual(["open", undefined, "plain"]);
     expect(board.jobs.find((job) => job.id === "run:finished")?.group).toBe("needs");
@@ -184,7 +184,8 @@ describe("jobsFrom", () => {
       messages: [{ id: "answer", kind: "decision", body: "yes", at: "2026-10-26T11:00:00Z" }],
       result: { format: "raw", brief: "Which version?", detailedReport: "", decisionsMade: [], unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "low" },
     };
-    expect(jobsFrom({ runs: [jobRunFromDomain(domain)], now: NOW }).jobs[0]?.ask).toBe("Which version?");
+    // Its brief is a report, never put to him as a question: only an unresolved question is.
+    expect(jobsFrom({ runs: [jobRunFromDomain(domain)], now: NOW }).jobs[0]?.ask).not.toBe("Which version?");
     expect(jobsFrom({ runs: [jobRunFromDomain({ ...domain, request: { ...domain.request, source: "flyd" } })], now: NOW }).jobs).toEqual([]);
     expect(jobRunFromDomain({ ...domain, result: { ...domain.result!, unresolvedQuestions: ["Ship now?"] } }).question).toBe("Ship now?");
   });
@@ -219,8 +220,8 @@ describe("jobsFrom", () => {
     const groupOf = (board: ReturnType<typeof jobsFrom>, id: string) => board.jobs.find((job) => job.threads.some((thread) => thread.id === id))?.group;
     const board = jobsFrom({
       runs: [
-        ready({ id: "fresh-pr", artifacts: [pr], settled: "2026-10-26T02:00:00.000Z" }),
-        ready({ id: "fresh", settled: "2026-10-26T02:00:00.000Z" }),
+        ready({ id: "fresh-pr", outcome: "Ship the pricing page", artifacts: [pr], settled: "2026-10-26T02:00:00.000Z" }),
+        ready({ id: "fresh", outcome: "Revise the deck", settled: "2026-10-26T02:00:00.000Z" }),
         // Settled two days ago; a later message bumped its update time, which does not restart the day.
         ready({ id: "old-pr", artifacts: [pr], settled: "2026-10-24T11:00:00.000Z", updatedAt: "2026-10-26T11:30:00.000Z" }),
         ready({ id: "old", project: "Other", settled: "2026-10-24T11:00:00.000Z" }),
@@ -270,12 +271,25 @@ describe("jobsFrom", () => {
   });
 
 
-  it("keeps an ask he has not answered in three days on Needs you, still answerable", () => {
+  it("ages a run's ask out after three days and never lists an old (quiet) call", () => {
     const board = jobsFrom({ runs: [run({ id: "old", status: "needs_decision", question: "Which price should ship?", updatedAt: "2026-10-01T10:00:00.000Z" })], now: NOW });
-    expect(board.jobs[0]).toMatchObject({ group: "needs", ask: "Which price should ship?", domainRun: "old" });
+    expect(board.jobs.filter((job) => job.group === "needs")).toEqual([]);
     const call = { id: "call-old", kind: "call", headline: "Pick the About page", why: "", quiet: true };
     const fleet = jobsFrom({ show: { ...screen, calls: [call] } as unknown as ShowScreen, now: NOW });
-    expect(fleet.jobs[0]).toMatchObject({ group: "needs" });
+    expect(fleet.jobs.filter((job) => job.group === "needs")).toEqual([]);
+    const held = { id: "held:cap5", kind: "waiting", headline: "Cap5 worker", why: "", project: "Cap5", status: "paused" };
+    const mixed = jobsFrom({ show: { ...screen, calls: [{ ...call, project: "Cap5" }], held: [held] } as unknown as ShowScreen, now: NOW });
+    expect(mixed.jobs.filter((job) => job.group === "needs")).toEqual([]);
+    expect(mixed.jobs.filter((job) => job.group === "moving")).toHaveLength(1);
+  });
+
+  it("lists only the newest of two asks saying the same thing", () => {
+    const older = { id: "call-a", kind: "call", headline: "Pick the About page", why: "", at: "2026-10-26T09:00:00.000Z" };
+    const newer = { id: "call-b", kind: "call", headline: "Pick the About page", why: "", at: "2026-10-26T11:00:00.000Z" };
+    const board = jobsFrom({ show: { ...screen, calls: [older, newer] } as unknown as ShowScreen, now: NOW });
+    const needs = board.jobs.filter((job) => job.group === "needs");
+    expect(needs).toHaveLength(1);
+    expect(needs[0]!.at).toBe(newer.at);
   });
 
   it("keeps active runs distinct beside a project decision", () => {

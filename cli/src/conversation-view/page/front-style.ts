@@ -66,8 +66,20 @@ export const FRONT_STYLE = `
 .jobs::-webkit-scrollbar, .rail::-webkit-scrollbar, .rail-pane::-webkit-scrollbar { display: none; }
 :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { right: var(--gut); width: var(--arts-w); }
 .fgroup { margin: 0 0 48px; }
+/* The newest stories, first thing in the right column: a headline and where and when, nothing more. */
+.fresh-news { margin: 0 0 40px; padding: 0 var(--card-pad); }
+.fresh-news[hidden] { display: none; }
+.fresh-news ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.fresh-news a { display: block; color: var(--ink); text-decoration: none; font: 400 15px/1.35 var(--sans); }
+.fresh-news a:hover .fresh-title { text-decoration: underline; text-underline-offset: 3px; }
+.fresh-news .fresh-by { display: block; margin-top: 3px; font-size: 13px; color: var(--mute); }
+.ctab .news-dot { margin-left: 6px; }
+.ctab .news-dot[hidden] { display: none; }
 .fhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; padding: 0 var(--card-pad) 26px; font: 500 13px/1.3 var(--sans); color: var(--mute); }
 .fhead span:last-child { font-variant-numeric: tabular-nums; font-weight: 400; }
+/* No small grey headings or counts over the right column's groups: the space between them is enough. */
+:root[data-layout="front"] .fhead, :root[data-layout="front"] .rail .brief-top, :root[data-layout="front"] .rail .brief-label { display: none; }
+.work-title .fdot { margin-right: 8px; vertical-align: middle; }
 .fempty { margin: 0; padding: 0 var(--card-pad); font-size: 14px; color: var(--mute); }
 .fmore { display: block; margin: 14px 0 0; padding: 8px var(--card-pad); border: 0; background: none; font: 500 13px/1.3 var(--sans); color: var(--mute); cursor: pointer; transition: color .2s; }
 .fmore:hover { color: var(--ink); }
@@ -173,7 +185,12 @@ a.ccard:hover { background: var(--sheet); }
 }
 .stage-back:hover, .stage-back:focus-visible { color: var(--ink); }
 :root[data-layout="front"]:not([data-job]) .stage-back { display: none; }
-:root[data-layout="front"]:not([data-job]) .stage-head h1 { margin-top: 0; }
+/* The conversation has no pinned headline: an old first message is not what today is about. */
+:root[data-layout="front"]:not([data-job]) .stage-head h1 { display: none; }
+/* The day each stretch of the conversation was said, where the day changes. */
+.day-sep { margin: 28px 0 14px; font: 500 13px/1.3 var(--sans); color: var(--mute); text-align: center; }
+.msg.work.note.done-sum .work-note { color: var(--mute); }
+.done-sum .work-more { margin-left: 8px; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .crumb-close { margin-left: auto; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; color: var(--mute); }
 .crumb-close:hover, .crumb-close:focus-visible { color: var(--ink); }
 .crumb .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

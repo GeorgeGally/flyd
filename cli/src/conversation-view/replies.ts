@@ -97,7 +97,11 @@ export function artefactAsk(parent: Exchange): string {
 /** A message with its reply line read: his own words, and what they answer. Pure. */
 export function readReply(message: ConversationMessage): ConversationMessage {
   const found = MARKER.exec(message.text);
-  if (!found) return message;
+  if (!found) {
+    // A relay line anywhere else in a message is plumbing: it is never shown.
+    const text = message.text.replace(RELAY, "").trim();
+    return text === message.text ? message : { ...message, text };
+  }
   const rule = found[1]!.startsWith("Flyd is answering") ? RULE.exec(found[4]!)?.[1] : undefined;
   return {
     ...message,
@@ -109,6 +113,9 @@ export function readReply(message: ConversationMessage): ConversationMessage {
     ...(TAKEN_BACK.test(found[4]!) ? { undoes: true } : {}),
   };
 }
+
+/** Any bracketed relay line Flyd wrote for its staff, wherever it sits in a message. */
+const RELAY = /\[(?:Captain is replying from Flyd|Flyd is answering for the captain|Flyd is asking for the artefact) to [^\]\n]*\]\n*/g;
 
 /** His own words in a message, its reply line gone. Pure. */
 export function ownWords(text: string): string {
