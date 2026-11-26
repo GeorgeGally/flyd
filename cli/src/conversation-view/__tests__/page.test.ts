@@ -3851,7 +3851,7 @@ describe("the front page", () => {
       job({ id: "held", group: "moving", state: "Blocked", title: "Held up" }),
       job({ id: "bare", group: "done", state: "Done", title: "Finished", next: "This is done.", bare: true }),
     ] });
-    expect(groups()).toEqual([["Needs you", "No decision is waiting."], ["Now", 1], ["Made", "Nothing made yet."], ["Next", 2]]);
+    expect(groups()).toEqual([["Needs you", "No decision is waiting."], ["Now", 1], ["Artefacts", "Nothing made yet."], ["Next", 2]]);
     const next = document.querySelector<HTMLDetailsElement>("#jobs-list details.fnext")!;
     expect(next.open).toBe(false);
     expect(document.querySelector('#stream > .msg.work[data-job="bare"]')).toBeNull();
@@ -3946,8 +3946,8 @@ describe("the front page", () => {
       rail: { conversations: [], artefacts },
     });
     update("Wiring it");
-    expect(document.documentElement.getAttribute("data-rtab")).toBe("jobs");
-    expect(groups().map(([name]) => name)).toEqual(["Needs you", "Now", "Made"]);
+    expect(document.documentElement.getAttribute("data-rtab")).toBe("arts");
+    expect(groups().map(([name]) => name)).toEqual(["Needs you", "Now", "Artefacts"]);
     const made = document.querySelector<HTMLElement>("#jobs-list .fmade")!;
     expect(made.querySelector(".fhead span:last-child")!.textContent).toBe("5");
     const cards = Array.from(made.querySelectorAll<HTMLElement>(".art-card"));
@@ -3993,7 +3993,7 @@ describe("the front page", () => {
   it("puts undated artefacts after dated ones in Made, and says nothing was made only when nothing was", async () => {
     const stream = await opened();
     const update = (artefacts: unknown[]) => stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true, rail: { conversations: [], artefacts } });
-    const madeGroup = () => groups().find(([name]) => name === "Made")!;
+    const madeGroup = () => groups().find(([name]) => name === "Artefacts")!;
     update([]);
     expect(madeGroup()[1]).toBe("Nothing made yet.");
     update([{ id: "board", title: "Board" }, { id: "old", title: "Old", at: "2026-01-01T00:00:00.000Z" }]);
@@ -4050,7 +4050,7 @@ describe("the front page", () => {
     expect(titles()).toEqual(["Page", "Words"]);
     expect(document.querySelector("#jobs-list .fmade .art-steps")!.textContent).toBe("one");
     update([...running("Wiring", 0), ...unfinished]);
-    expect(groups().find(([name]) => name === "Made")![1]).toBe("Nothing made yet.");
+    expect(groups().find(([name]) => name === "Artefacts")![1]).toBe("Nothing made yet.");
   });
 
   it("keeps the phone's live line, and so the sheet, within reach when nothing is under way", async () => {
@@ -4111,7 +4111,7 @@ describe("the front page", () => {
     expect(document.querySelector("#jobs-list")!.textContent).toBe("Checking…");
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: BOARD });
     // What finished reads as a line in Now, under what is under way.
-    expect(groups()).toEqual([["Needs you", 1], ["Now", 1], ["Made", "Nothing made yet."]]);
+    expect(groups()).toEqual([["Needs you", 1], ["Now", 1], ["Artefacts", "Nothing made yet."]]);
     const needs = document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!;
     expect(needs.querySelector(".frame img")).not.toBeNull();
     // Under "Needs you" the dot says it; the card names the project.
@@ -4364,7 +4364,7 @@ describe("the front page", () => {
     const stream = await opened();
     const update = {
       order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false },
-      jobs: [{ id: "old-ask", group: "needs", state: "Needs you", title: "An old question", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "", ask: "Still?", because: "", shots: [], links: [], files: [], threads: [], digest: null }],
+      jobs: [{ id: "old-ask", group: "needs", state: "Needs you", title: "An old question", project: "", at: new Date().toISOString(), next: "", owner: "", ask: "Still?", because: "", shots: [], links: [], files: [], threads: [], digest: null }],
     };
     stream.emit("update", update);
     await settle();
@@ -4400,7 +4400,7 @@ describe("the front page", () => {
     expect(groups()).toEqual([
       ["Needs you", "No decision is waiting."],
       ["Now", "Nothing is under way right now."],
-      ["Made", "Nothing made yet."],
+      ["Artefacts", "Nothing made yet."],
     ]);
     stream.emit("update", {
       order: ["u1"], messages: [], working: false, jobsFleetKnown: true,
@@ -4480,7 +4480,7 @@ describe("his own to-dos, in Needs you", () => {
   it("sit in Needs you under the calls, with no tab of their own", async () => {
     const stream = await opened();
     stream.emit("update", { order: [], messages: [], working: false, todos: LIST, jobs: [], jobsFleetKnown: true });
-    expect(Array.from(document.querySelectorAll(".rtab")).map((tab) => tab.textContent)).toEqual(["Now", "Projects", "Made"]);
+    expect(Array.from(document.querySelectorAll(".rtab")).map((tab) => tab.textContent)).toEqual(["Artefacts", "Now", "Projects"]);
     const needs = document.querySelector("#jobs-list .fgroup")!;
     expect(needs.querySelector(".fhead")!.textContent).toContain("Needs you");
     expect(needs.querySelector("#todos")).not.toBeNull();
@@ -4790,7 +4790,7 @@ describe("the Machines screen", () => {
     load("");
     await settle();
     expect(Array.from(document.querySelectorAll(".ctab")).map((one) => one.textContent)).toEqual(["Conversation", "News", "Week", "Machines"]);
-    expect(Array.from(document.querySelectorAll(".rtab")).map((one) => one.textContent)).toEqual(["Now", "Projects", "Made"]);
+    expect(Array.from(document.querySelectorAll(".rtab")).map((one) => one.textContent)).toEqual(["Artefacts", "Now", "Projects"]);
     expect(reads(fetcher)).toBe(0);
     tab().click();
     await settle();

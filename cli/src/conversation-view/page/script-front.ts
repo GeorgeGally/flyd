@@ -45,11 +45,13 @@ export const FRONT_SCRIPT = `
   function frontTab(name) {
     frontRoot.dataset.rtab = name;
     rtabs.querySelectorAll(".rtab").forEach(function (tab) { tab.setAttribute("aria-pressed", String(tab.dataset.rtab === name)); });
-    try { localStorage.setItem("flyd-front-tab", name); } catch (_) {}
+    try { localStorage.setItem(FRONT_TAB_KEY, name); } catch (_) {}
   }
-  var savedTab = "jobs";
-  try { savedTab = localStorage.getItem("flyd-front-tab") || "jobs"; } catch (_) {}
-  frontTab(savedTab === "arts" || savedTab === "threads" ? savedTab : "jobs");
+  // Artefacts is where the column opens; a tab he picks since is remembered (a fresh key, so the old default to Now is not).
+  var FRONT_TAB_KEY = "flyd-front-tab-2";
+  var savedTab = "arts";
+  try { savedTab = localStorage.getItem(FRONT_TAB_KEY) || "arts"; } catch (_) {}
+  frontTab(savedTab === "jobs" || savedTab === "threads" ? savedTab : "arts");
   rtabs.addEventListener("click", function (event) {
     var tab = event.target.closest(".rtab");
     if (!tab) return;
@@ -248,7 +250,7 @@ export const FRONT_SCRIPT = `
       + '<div class="flines">' + shown.map(frontNowLine).join("") + '</div>'
       + (lines.length > few.length ? '<button type="button" class="fmore" data-more="now">' + (frontOpen.now ? "Show fewer" : "Show all " + lines.length) + '</button>' : "") + '</section>';
   }
-  // Made: his newest finished artefacts, pictures first, drawn as the Made tab draws them, always on the home column; that tab keeps all of them.
+  // Artefacts: his newest finished artefacts, pictures first, drawn as the Artefacts tab draws them, always on the home column; that tab keeps all of them.
   // In its own container, redrawn only when its own cards change, so a framed page never reloads with the rest.
   var MADE_FEW_FRONT = 3;
   // Finished only: not work under way (Now has it; a framed page is live:<url>), held up or queued, nor a page that cannot be shown.
@@ -262,10 +264,10 @@ export const FRONT_SCRIPT = `
     frontMadeDrawn = key;
     if (fitFrames) jobsMade.querySelectorAll(".art-frame").forEach(function (box) { fitFrames.unobserve(box); });
     if (!cards.length) {
-      jobsMade.innerHTML = listed ? frontGroup("Made", 0, "", '<p class="fempty">Nothing made yet.</p>') : "";
+      jobsMade.innerHTML = listed ? frontGroup("Artefacts", 0, "", '<p class="fempty">Nothing made yet.</p>') : "";
       return;
     }
-    jobsMade.innerHTML = '<section class="fgroup fmade"><h2 class="fhead"><span>Made</span><span>' + cards.length + '</span></h2><ul class="ccards"></ul>'
+    jobsMade.innerHTML = '<section class="fgroup fmade"><h2 class="fhead"><span>Artefacts</span><span>' + cards.length + '</span></h2><ul class="ccards"></ul>'
       + (cards.length > MADE_FEW_FRONT ? '<button type="button" class="fmore" data-made-all>See all</button>' : "") + '</section>';
     var list = jobsMade.querySelector(".ccards");
     few.forEach(function (card) { list.appendChild(artefactItem(card)); });
