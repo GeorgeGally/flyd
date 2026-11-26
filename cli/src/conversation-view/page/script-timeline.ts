@@ -177,7 +177,7 @@ export const TIMELINE_SCRIPT = `
     var counts = {};
     var order = [];
     done.forEach(function (job) {
-      var named = /^([^:]{2,40}):\s/.exec(job.title || "");
+      var named = /^([^:]{2,40}):\\s/.exec(job.title || "");
       var name = job.project || (named ? named[1] : "") || "other work";
       if (!counts[name]) { counts[name] = 0; order.push(name); }
       counts[name]++;
