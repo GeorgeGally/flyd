@@ -3241,6 +3241,23 @@ describe("the front page", () => {
     }
   });
 
+  it("shows a chief-of-staff decision's title as written, while other titles still speak to him", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const job = (over: Record<string, unknown>) => ({ project: "", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, at: new Date().toISOString(), ...over });
+    const jobs = [
+      job({ id: "cos", group: "needs", state: "Needs you", title: "Flyd: restore the Artefacts tab George misses", ask: "choose which Artefacts view to bring back", verbatim: true }),
+      job({ id: "other", group: "needs", state: "Needs you", title: "Pick George's hero" }),
+    ];
+    stream.emit("update", { order: [], messages: [], working: false, show: SHOW, jobsFleetKnown: true, jobs });
+    await settle();
+    const title = (id: string) => document.querySelector(`.msg.work[data-job="${id}"] .work-title`)!.textContent;
+    // Never "you misses": the chief of staff's own words are not reworded on the page.
+    expect(title("cos")).toBe("Flyd: restore the Artefacts tab George misses");
+    expect(title("other")).toBe("Pick your hero");
+  });
+
   it("opens the item a link names in place, and what needs him first for a call, once the board has come", async () => {
     load("?job=moving");
     await settle();

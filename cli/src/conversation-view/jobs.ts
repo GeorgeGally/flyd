@@ -53,6 +53,8 @@ export interface Job {
   group: JobGroup;
   state: string;
   title: string;
+  /** Its title is the chief of staff's own words, as written: the page shows it without saying it in his words. */
+  verbatim?: true;
   /** Client, or the one-line what, shown beside the state. */
   project: string;
   /** Its newest moment: its own records, and any conversation named for its project (the column's order). */
@@ -600,6 +602,7 @@ export function jobsFrom(input: {
       group,
       state: notice ? STATE.done : shownState,
       title: verbatim ? lead.decision!.title || lead.raw!.title || bucket.title : named ? named.title : bucket.title,
+      ...(verbatim ? { verbatim: true as const } : {}),
       project: bucket.project,
       at,
       ...(toldAt ? { toldAt } : {}),

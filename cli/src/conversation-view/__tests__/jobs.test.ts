@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { SnapshotDiffer } from "../server.js";
 import { digestHash } from "../job-digest.js";
 import { editJob, jobRunFromDomain, jobsFrom, runTitle, type JobRun } from "../jobs.js";
-import { callItems, heldItems, parseBearings, type FleetArtefact } from "../artefact.js";
+import { callItems, heldItems, parseBearings, projectFleetDecisions, type FleetArtefact } from "../artefact.js";
 import type { DomainRun } from "../../command/types.js";
 import { applyProjectOps, readProjects, type Project } from "../../council/projects.js";
 import type { ShowScreen } from "../show.js";
@@ -440,7 +440,8 @@ describe("jobsFrom", () => {
     const lab = "I would take version 4, Departure Board, forward, but none of the five shows the real thank-you page picture. ".repeat(4);
     // The live case: the fleet row's own label, through the real fleet-row-to-call path that says other titles plainly.
     const fleet: FleetArtefact = { calls: [{ label: "Flyd: restore the Artefacts tab George misses", task: "artefacts", repo: "Flyd", question: "choose which Artefacts view to bring back", at: "2026-10-26T11:00:00.000Z" }], live: [], ready: [], landed: [], held: [], next: [], changes: [] };
-    const calls = callItems(fleet);
+    // Firstmate's own decision with no executive rewrite is said plainly on the way ("George" reads "you"): the card's title is not.
+    const calls = callItems(projectFleetDecisions(fleet, []));
     expect(calls).toHaveLength(1);
     const show = { ...screen, calls } as unknown as ShowScreen;
     const reading = { hash: digestHash(lab), project: "Flyd", changed: "I recommend Departure Board, but none of the five uses your thank-you page picture.", needed: "Send me the real thank-you page picture so I can finish it.", at: "2026-10-26T11:30:00.000Z", model: "m", inputTokens: 0, outputTokens: 0, usd: 0 };
@@ -451,7 +452,9 @@ describe("jobsFrom", () => {
     expect(JSON.stringify(card)).not.toMatch(/thank-you|Departure Board/);
     // The chief of staff's own words, as written: its title and its question, nothing rewritten.
     expect(card.title).toBe("Flyd: restore the Artefacts tab George misses");
-    expect(card.ask).toBe("choose which Artefacts view to bring back");
+    // Marked so the page shows it as written too, never "you misses".
+    expect(card.verbatim).toBe(true);
+    expect(card.ask).toMatch(/^[Cc]hoose which Artefacts view to bring back$/);
   });
 
   it("never borrows a reading that only shares the project's name", () => {
