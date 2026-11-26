@@ -78,7 +78,7 @@ export const FRONT_STYLE = `
 .fhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; padding: 0 var(--card-pad) 26px; font: 500 13px/1.3 var(--sans); color: var(--mute); }
 .fhead span:last-child { font-variant-numeric: tabular-nums; font-weight: 400; }
 /* No small grey headings or counts over the right column's groups: the space between them is enough. */
-:root[data-layout="front"] .fhead { display: none; }
+:root[data-layout="front"] .fhead, :root[data-layout="front"] .rail .brief-top, :root[data-layout="front"] .rail .brief-label { display: none; }
 .work-title .fdot { margin-right: 8px; vertical-align: middle; }
 .fempty { margin: 0; padding: 0 var(--card-pad); font-size: 14px; color: var(--mute); }
 .fmore { display: block; margin: 14px 0 0; padding: 8px var(--card-pad); border: 0; background: none; font: 500 13px/1.3 var(--sans); color: var(--mute); cursor: pointer; transition: color .2s; }
