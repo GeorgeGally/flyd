@@ -3028,20 +3028,17 @@ describe("the front page", () => {
     expect(work.map((node) => node.dataset.job)).toEqual(["landed", "cx", "ask"]);
     expect(work[2]!.classList.contains("needs")).toBe(true);
     expect(work[1]!.querySelector(".work-meta .fdot.pulse")).not.toBeNull();
-    expect(work[0]!.querySelector(".work-shot img")!.getAttribute("src")).toContain("/api/artefact-shot?task=l");
-    expect([...work[0]!.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Reply", "OK", "✕"]);
-    expect(work[0]!.querySelector(".work-shot")!.tagName).toBe("DIV");
+    // What finished is a small plain message, not a card: its words and a quiet Reply, no picture, OK or ✕ card chrome.
+    expect(work[0]!.classList.contains("note")).toBe(true);
+    expect(work[0]!.querySelector(".work-note")!.textContent).toContain("Conversations split by project");
+    expect(work[0]!.querySelector(".work-shot, .work-title, .work-ok")).toBeNull();
+    expect([...work[0]!.querySelectorAll(".work-body button")].map((button) => button.textContent)).toEqual(["Reply"]);
     work[0]!.querySelector<HTMLButtonElement>(".work-reply")!.click();
     expect(work[0]!.querySelector<HTMLElement>(".work-reply-box .art-chat-field")!.hidden).toBe(false);
     expect(document.getElementById("replying")!.hidden).toBe(true);
-    work[0]!.querySelector<HTMLButtonElement>(".work-ok")!.click();
-    expect(document.querySelector('[data-job="landed"].work')).toBeNull();
     // Open unfolds the job in place, under its own message.
     work[2]!.querySelector<HTMLButtonElement>(".work-open")!.click();
     expect(document.querySelector(".job-view")!.closest(".msg.work")).toBe(work[2]);
-    stream.emit("update", { order: [], messages: [], working: false, show: SHOW, jobsFleetKnown: true, jobs: [job({ id: "landed", group: "done", state: "Done", title: "Conversations split by project", at: at(0) })] });
-    await settle();
-    expect(document.querySelector('[data-job="landed"].work')).toBeNull();
   });
 
   it("leaves the conversation and its job messages standing across a refresh, and a reader scrolled up where he was", async () => {
@@ -4002,6 +3999,22 @@ describe("the front page", () => {
     update([{ id: "board", title: "Board" }, { id: "old", title: "Old", at: "2026-01-01T00:00:00.000Z" }]);
     expect(madeGroup()[1]).not.toBe("Nothing made yet.");
     expect([...document.querySelectorAll("#jobs-list .fmade .art-title")].map((title) => title.textContent)).toEqual(["Old", "Board"]);
+  });
+
+  it("closes one artefact card in the sidebar with its ✕, and it stays closed after a refresh", async () => {
+    const stream = await opened();
+    const update = () => stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [], jobsFleetKnown: true, rail: { conversations: [], artefacts: [{ id: "board", title: "Board", at: "2026-01-02T00:00:00.000Z" }, { id: "old", title: "Old", at: "2026-01-01T00:00:00.000Z" }] } });
+    const titles = (where: string) => [...document.querySelectorAll(`${where} .art-title`)].map((title) => title.textContent);
+    update();
+    expect(titles("#jobs-list .fmade")).toEqual(["Board", "Old"]);
+    const close = document.querySelector<HTMLButtonElement>('#jobs-list .fmade .art-card[data-key="board"] .work-close')!;
+    expect(close.getAttribute("aria-label")).toBe("Close this card");
+    close.click();
+    expect(titles("#jobs-list .fmade")).toEqual(["Old"]);
+    expect(titles("#artefacts")).toEqual(["Old"]);
+    expect(JSON.parse(localStorage.getItem("flyd-dismissed") || "{}")).toHaveProperty("made:board");
+    update();
+    expect(titles("#jobs-list .fmade")).toEqual(["Old"]);
   });
 
   it("shows only finished artefacts in Made, and a worker's status change never redraws it", async () => {

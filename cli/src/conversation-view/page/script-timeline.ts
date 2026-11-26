@@ -81,12 +81,7 @@ export const TIMELINE_SCRIPT = `
       node.dataset.job = job.id;
       node.appendChild(el("div", "work-body"));
       // One plain control on every card: ✕ closes it for good, without opening anything.
-      var close = el("button", "work-close", "✕");
-      close.type = "button";
-      close.dataset.closeJob = job.id;
-      close.setAttribute("aria-label", "Close this card");
-      close.title = "Close";
-      node.appendChild(close);
+      node.appendChild(cardClose(job.id));
       workNodes.set(job.id, node);
     }
     if (!workPlaced.has(job.id)) node.dataset.ts = workSaidAt(job);
@@ -95,11 +90,19 @@ export const TIMELINE_SCRIPT = `
     var line = frontLine(job);
     var title = frontTitle(job.title);
     var finished = job.group === "done";
+    // What finished is told as a small plain message under what he asked, not as a card.
+    node.classList.toggle("note", finished);
     var open = !finished && frontActive === job.id;
     var drawn = JSON.stringify([job.state, title, line, job.project, job.at, job.shots && job.shots[0], job.choices, job.recommended, open, frontPicked(job)]);
     if (body.dataset.drawn === drawn) return node;
     body.dataset.drawn = drawn;
     var meta = [job.project, job.state, job.at ? frontWhen(job.at) : ""].filter(Boolean).join(" · ");
+    if (finished) {
+      body.innerHTML = '<p class="work-note">' + frontEsc(title) + (line && line !== title ? " " + frontEsc(line) : "") + '</p>'
+        + '<p class="work-note-meta">' + frontEsc(meta)
+        + (VIEW_TOKEN ? '<button type="button" class="work-reply" data-reply-job="' + frontEsc(job.id) + '">Reply</button>' : "") + '</p>';
+      return node;
+    }
     var shot = !open && job.group !== "moving" && job.shots && job.shots[0] ? job.shots[0] : null;
     body.innerHTML = '<p class="work-meta">' + (job.group === "needs" ? '<i class="fdot" aria-hidden="true"></i>' : job.group === "moving" ? '<i class="fdot pulse" aria-hidden="true"></i>' : "") + frontEsc(meta) + '</p>'
       + '<p class="work-title">' + frontEsc(title) + '</p>'
@@ -164,7 +167,7 @@ export const TIMELINE_SCRIPT = `
     }
     var closer = event.target.closest(".work-close");
     if (closer) {
-      var shut = closer.dataset.closeJob;
+      var shut = closer.dataset.closeKey;
       if (frontActive === shut) frontSelect("talk");
       cardDismiss(shut);
       drawTimeline();
