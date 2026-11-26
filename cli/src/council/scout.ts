@@ -714,9 +714,10 @@ export function freshStories(dir = scoutDir(), now = new Date(), limit = 5): Fre
   const seen = new Set<string>();
   const stories: Array<FreshStory & { order: number }> = [];
   const add = (item: { title?: string; url?: string; source?: string; published?: string }, order: number) => {
-    if (!item.title || !item.url || !item.published || item.published < cutoff || seen.has(item.url)) return;
+    const published = item.published?.slice(0, 10);
+    if (!item.title || !item.url || !published || published < cutoff || seen.has(item.url)) return;
     seen.add(item.url);
-    stories.push({ title: item.title, url: item.url, source: item.source ?? "", published: item.published, order });
+    stories.push({ title: item.title, url: item.url, source: item.source ?? "", published, order });
   };
   readPool(dir, now, edition?.generatedAt).forEach((item, index) => add(item, index));
   (edition?.items ?? []).forEach((item, index) => add(item, 1_000 + index));
