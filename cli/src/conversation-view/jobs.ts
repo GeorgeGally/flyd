@@ -53,6 +53,8 @@ export interface Job {
   group: JobGroup;
   state: string;
   title: string;
+  /** Its title is the chief of staff's own words, as written: the page shows it without saying it in his words. */
+  verbatim?: true;
   /** Client, or the one-line what, shown beside the state. */
   project: string;
   /** Its newest moment: its own records, and any conversation named for its project (the column's order). */
@@ -521,8 +523,8 @@ export function jobsFrom(input: {
     }
   }
 
-  const digests = (input.digests ?? []).filter((digest) => !digest.failed);
-  const stored = new Set((input.digests ?? []).map((digest) => digest.hash));
+  const digests = input.digests ?? [];
+  const stored = new Set(digests.map((digest) => digest.hash));
   const jobs: Job[] = [];
   const pending: DigestSource[] = [];
   const untranslated: CardSource[] = [];
@@ -552,9 +554,10 @@ export function jobsFrom(input: {
     const at = [...bucket.signals.map((signal) => signal.at), ...bucket.threads.map((thread) => thread.at)].filter(Boolean).sort().at(-1) ?? "";
     const toldAt = bucket.signals.map((signal) => signal.at).filter(Boolean).sort().at(-1);
     if (lead.group === "done" && dayNumber(at || project?.updated || "", now) > DONE_KEEP_DAYS) continue;
-    const digest = newestDigest(digests, bucket, lead);
+    const readable = readableReports(bucket, lead);
+    const digest = newestDigest(digests, readable);
     for (const source of bucket.reports) {
-      if (!stored.has(source.hash) && !pending.some((item) => item.hash === source.hash)) pending.push(source);
+      if (readable.has(source.hash) && !stored.has(source.hash) && !pending.some((item) => item.hash === source.hash)) pending.push(source);
     }
     const { shots, links } = cardMedia(bucket, lead);
     const digestSaid = digestView(digest, lead.ask);
@@ -575,7 +578,9 @@ export function jobsFrom(input: {
     const identity = lead.questionIdentity && /^(?:hold|call):/.test(lead.questionIdentity) ? lead.questionIdentity : undefined;
     // Only a call is put to him by its own words: a run waiting on him says so by its record, whatever its line says.
     const wantsAnswer = lead.group === "needs" && Boolean(identity) && !/^(?:ready for you|report ready)$/i.test(state);
-    const raw = input.cardWords && lead.raw ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line, shownAnswers ? answers!.options.map((option) => shownAnswers[option]!) : undefined, { ...(identity ? { identity } : {}), wantsAnswer }) : undefined;
+    // A call or decision the chief of staff put to him is shown in its own words, as written: Flyd never rewrites it.
+    const verbatim = Boolean(lead.raw?.keep && lead.group === "needs" && lead.decision?.question && lead.because.startsWith("Fleet "));
+    const raw = input.cardWords && lead.raw && !verbatim ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line, shownAnswers ? answers!.options.map((option) => shownAnswers[option]!) : undefined, { ...(identity ? { identity } : {}), wantsAnswer }) : undefined;
     // A call that only tells him something is a notice, not a need: it is told as done, never filed under Needs you or Todo.
     // So is one whose stored reading says nothing is wanted from him.
     const reading = raw ? input.cardWords!.get(raw.key) : undefined;
@@ -596,7 +601,8 @@ export function jobsFrom(input: {
       id: bucket.id,
       group,
       state: notice ? STATE.done : shownState,
-      title: named ? named.title : bucket.title,
+      title: verbatim ? lead.decision!.title || lead.raw!.title || bucket.title : named ? named.title : bucket.title,
+      ...(verbatim ? { verbatim: true as const } : {}),
       project: bucket.project,
       at,
       ...(toldAt ? { toldAt } : {}),
@@ -604,7 +610,7 @@ export function jobsFrom(input: {
       // The question is said once: a next line that only repeats it is left out.
       next: words ? (group === "needs" ? "" : words.body) : sameWords(lead.next, lead.ask) ? "" : shownLine(lead.next, group),
       owner: notice ? "" : lead.owner,
-      ask: notice ? "" : words ? (group === "needs" ? words.body : "") : lead.ask && forHim(plainSaid(lead.ask)),
+      ask: notice ? "" : verbatim ? lead.ask : words ? (group === "needs" ? words.body : "") : lead.ask && forHim(plainSaid(lead.ask)),
       ...(lead.questionIdentity ? { questionIdentity: lead.questionIdentity } : {}),
       because: lead.because,
       shots: shots.slice(0, 4),
@@ -860,18 +866,22 @@ function cardMedia(bucket: Bucket, lead: Signal): { shots: Job["shots"]; links: 
 }
 
 /**
- * The reading for the card's lead item. A lead with its own report reads only
- * that report's digest: a project card leading on the Week page PR never shows
- * the WhatsApp card's reading because both are Flyd work. A lead without one
- * reads the project's own reports, never another item's, and never a reading
- * that only shares the project's name. Pure.
+ * The reports a card's lead item may be read by. A lead with its own report
+ * reads only that report: a project card leading on the Week page PR never
+ * shows the WhatsApp card's reading because both are Flyd work. A Needs-you
+ * lead without one reads none, so a held decision is never told in another
+ * item's words. Any other lead reads only its project's own reports, never one
+ * that belongs to another item. Only these are ever sent to the model. Pure.
  */
-function newestDigest(digests: JobDigest[], bucket: Bucket, lead: Signal): JobDigest | undefined {
+function readableReports(bucket: Bucket, lead: Signal): Set<string> {
+  if (lead.reportHash) return new Set([lead.reportHash]);
+  if (lead.group === "needs") return new Set();
   const owned = new Set(bucket.signals.flatMap((signal) => (signal.reportHash ? [signal.reportHash] : [])));
-  const hashes = lead.reportHash
-    ? new Set([lead.reportHash])
-    : new Set(bucket.reports.map((report) => report.hash).filter((hash) => !owned.has(hash)));
-  // Matched by report only: a reading stored under the same project name may be any of its items'.
+  return new Set(bucket.reports.map((report) => report.hash).filter((hash) => !owned.has(hash)));
+}
+
+/** The newest stored reading among the reports a card may read. Matched by report only: a reading stored under the same project name may be any of its items'. Pure. */
+function newestDigest(digests: JobDigest[], hashes: Set<string>): JobDigest | undefined {
   return digests
     .filter((digest) => hashes.has(digest.hash))
     .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];

@@ -102,6 +102,8 @@ export interface ArtefactRow {
   holdIdentity?: string;
   /** The question's identity (questionIdentityOf), fixed when the call is first read, before its words are reworded. */
   questionIdentity?: string;
+  /** A call's title exactly as the chief of staff wrote it, kept before its label is said plainly: never rewritten. */
+  title?: string;
   /**
    * An old call firstmate still confirms open (the 3-day rule would drop it, its own predicate says it stands): it
    * stays in the list, quietly. It never rings him and is never put to him afresh; closing it is firstmate's.
@@ -787,7 +789,7 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
       if (!firstmate) return [];
       const plain = plainQuestionFor(row.question ?? row.label, tasks);
       const detail = row.detail ? plainQuestionFor(row.detail, tasks) : null;
-      if (plain) return [{ ...row, label: plain, ...(row.question ? { question: plain } : {}), detail: detail ?? undefined }];
+      if (plain) return [{ ...row, title: row.title ?? row.label, label: plain, ...(row.question ? { question: plain } : {}), detail: detail ?? undefined }];
       const { question: _question, detail: _detail, choices: _choices, ...held } = row;
       return [{ ...held, label: `A call on ${row.repo ?? "your work"} is waiting; Flyd is getting it restated.` }];
     }
@@ -795,6 +797,7 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
       ...row,
       executiveDecisionId: asked.decisionId,
       status: "Needs your choice",
+      title: row.title ?? row.label,
       label: asked.question,
       question: asked.question,
       // The executive decision's own grounded options win; a row that already
@@ -1444,7 +1447,7 @@ function loopbackRowItem(kind: ShowKind, id: string, row: ArtefactRow, options: 
     ...(kind === "call" && row.quiet ? { quiet: true } : {}),
     headline,
     why: "",
-    ...(kind === "call" && row.task ? { decision: { task: row.task, ...(row.executiveDecisionId ? { decisionId: row.executiveDecisionId } : {}), question: row.question ?? row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}), ...(row.decisions?.length ? { decisions: row.decisions } : {}) } } : {}),
+    ...(kind === "call" && row.task ? { decision: { task: row.task, ...((row.title ?? row.label) ? { title: row.title ?? row.label } : {}), ...(row.executiveDecisionId ? { decisionId: row.executiveDecisionId } : {}), question: row.question ?? row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}), ...(row.decisions?.length ? { decisions: row.decisions } : {}) } } : {}),
     // Several listed questions need no line restating the work's name under the headline.
     ...(asked ? (several && !row.said?.line && !row.recommendation?.option ? {} : { detail: row.recommendation?.option ? recommendationText(row.recommendation) : row.said?.line || sourceHeadline }) : detail ? { detail } : {}),
     ...(row.at ? { at: row.at } : {}),
@@ -2513,7 +2516,7 @@ export class ArtefactFeed {
       // Every worker the staff is running, not only the twenty the snapshot lists.
       const running = decided.unavailable ? [] : this.staffLive(withRecent);
       if (running.length) decided.live = [...decided.live, ...running];
-      decided.calls = decided.calls.map((row) => ({ ...row, label: callHeadline(row.label, row.task ? entries.get(row.task)?.title : undefined) }));
+      decided.calls = decided.calls.map((row) => ({ ...row, title: row.title ?? row.label, label: callHeadline(row.label, row.task ? entries.get(row.task)?.title : undefined) }));
       for (const row of decided.calls) {
         const entry = row.ledgerOnly ? undefined : this.ledger.get(ledgerKey("calls", row) ?? "");
         if (entry) Object.assign(entry, { asked: true, row });

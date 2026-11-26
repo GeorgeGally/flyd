@@ -71,8 +71,9 @@ describe("board cards from staff status lines", () => {
         decision: { task: "pick", question: "Which hero image?", choices: ["A", "B"] } }],
     } as unknown as ShowScreen;
     const board = jobsFrom({ projects: [easel], show, cardWords: new Map(), now: NOW });
-    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: "Easel: needs your answer", ask: "Which hero image?", choices: ["A", "B"] });
-    expect(board.untranslated.map((source) => source.line)).toEqual(["Pick A or B"]);
+    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: "Which hero image?", verbatim: true, ask: "Which hero image?", choices: ["A", "B"] });
+    // Shown as written, so never sent to be reworded.
+    expect(board.untranslated).toEqual([]);
   });
 
   it("says a ready run's question asked in developer words plainly, and shows its answers only once the reading puts the question", () => {
@@ -109,8 +110,8 @@ describe("board cards from staff status lines", () => {
         decision: { task: "easel-crop", question: "Try the crop tool now?", choices: ["Yes", "Later"] } }],
     } as unknown as ShowScreen;
     const board = jobsFrom({ projects: [easel], show, cardWords: new Map(), now: NOW });
-    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: "Easel: ready for you to look over", ask: "Try the crop tool now?", choices: ["Yes", "Later"] });
-    expect(board.untranslated.map((source) => source.line)).toEqual([RAW]);
+    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: "Easel", verbatim: true, ask: "Try the crop tool now?", choices: ["Yes", "Later"] });
+    expect(board.untranslated).toEqual([]);
   });
 
   it("leaves held-up work among work under way whatever its reading says: Needs you comes from the record, not words", () => {
@@ -308,7 +309,8 @@ describe("what the review found still reaching him", () => {
       decision: { task: "pierre", question: "Which Pierre version?", choices: ["V1", "V2"] } }] } as unknown as ShowScreen;
     const board = jobsFrom({ projects: [], show, cardWords: new Map(), now: NOW });
     const card = board.jobs.find((job) => job.group === "needs")!;
-    expect(card.title).toBe("Pierre: needs your answer");
+    // The chief of staff's own title, as written.
+    expect(card.title).toBe("Pierre lab");
     expect(JSON.stringify(card)).not.toMatch(/an update is ready|Open to see details/i);
   });
 

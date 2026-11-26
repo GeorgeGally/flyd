@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -16,14 +16,14 @@ afterEach(() => { vi.restoreAllMocks(); });
 
 describe("job digests", () => {
   it("reads a fenced JSON reading and keeps only an http link", () => {
-    const parsed = digestFromModel('```json\n{"changed":"Tier three is gone.","means":"One offer.","needed":"Send it.","link":"javascript:alert(1)"}\n```', source("hello"), usage, at);
+    const parsed = digestFromModel('```json\n{"changed":"Tier three is gone.","means":"One offer.","needed":"Send it.","link":"javascript:alert(1)"}\n```', source("The deck: tier three is gone."), usage, at);
     expect(parsed).toMatchObject({ changed: "Tier three is gone.", needed: "Send it." });
     expect(parsed).not.toHaveProperty("means");
     expect(parsed!.link).toBeUndefined();
     expect(digestFromModel("not json", source("hello"), usage, at)).toBeNull();
   });
 
-  it("asks once per hash, stores a failure, and logs the estimate", async () => {
+  it("asks once per hash, never stores a failure, and logs the estimate", async () => {
     const path = pathFor("job-digests.json");
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     let calls = 0;
@@ -41,14 +41,27 @@ describe("job digests", () => {
 
     const bad = source(`${text} again`);
     await scheduleDigest([bad], { path, ask: async () => "nope" });
+    expect(readDigests(path).some((digest) => digest.hash === bad.hash)).toBe(false);
     let retried = false;
     await scheduleDigest([bad], { path, ask: async () => { retried = true; return "again"; } });
     expect(retried).toBe(false);
-    expect(readDigests(path).find((digest) => digest.hash === bad.hash)!.failed).toBe(true);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 11 * 60_000);
+    await scheduleDigest([bad], { path, ask: async () => JSON.stringify({ changed: "The deck is one offer now.", needed: "Nothing" }) });
+    expect(readDigests(path).find((digest) => digest.hash === bad.hash)).toMatchObject({ changed: "The deck is one offer now." });
+  });
+
+  it("retries a reading stored as failed by an older Flyd", async () => {
+    const path = pathFor("legacy.json");
+    const item = source("The legacy deck lost tier three.");
+    writeFileSync(path, JSON.stringify({ digests: [{ hash: item.hash, changed: "", needed: "", at, ...usage, failed: true }] }));
+    expect(readDigests(path)).toEqual([]);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    await scheduleDigest([item], { path, ask: async () => JSON.stringify({ changed: "Tier three is gone.", needed: "Nothing" }) });
+    expect(readDigests(path)).toMatchObject([{ hash: item.hash, changed: "Tier three is gone." }]);
   });
 
   it("keeps a new reading said to him even when the model writes about him", () => {
-    const parsed = digestFromModel(JSON.stringify({ changed: "George's lab has three open questions.", needed: "George needs to pick the Reports heading.", link: "" }), source("cap5"), usage, at);
+    const parsed = digestFromModel(JSON.stringify({ changed: "George's lab has three open questions.", needed: "George needs to pick the Reports heading.", link: "" }), source("The cap5 lab asks about the Reports heading."), usage, at);
     expect(parsed).toMatchObject({ changed: "Your lab has three open questions.", needed: "You need to pick the Reports heading." });
   });
 

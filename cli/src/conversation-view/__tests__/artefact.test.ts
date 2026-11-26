@@ -320,7 +320,7 @@ describe("the backlog", () => {
     const { unsaid } = withVoice(fleet, () => undefined);
     expect(unsaid.find((row) => row.kind === "report available")!.context).toContain("newer than merged work");
     const items = composeArtefact({ fleet, memories: [], news: [], taste: [] });
-    expect(items[0]!.decision).toEqual({ task: "visuals", question, choices: ["Evergreen luxe", "Fairy-light night", "Red letter day", "Christmas in the tropics", "Christmas card"], recommended: "Evergreen luxe" });
+    expect(items[0]!.decision).toEqual({ task: "visuals", title: "Choose a Christmas look", question, choices: ["Evergreen luxe", "Fairy-light night", "Red letter day", "Christmas in the tropics", "Christmas card"], recommended: "Evergreen luxe" });
     // The question leads in plain words, the options left to the buttons; the work it is about sits under it.
     expect(items[0]!.headline).toBe("Picks the direction");
     expect(items[0]!.detail).toBe("Choose a Christmas look");

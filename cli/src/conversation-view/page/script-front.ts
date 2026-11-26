@@ -702,7 +702,7 @@ export const FRONT_SCRIPT = `
 
   function frontListedJob(job) {
     return {
-      id: job.id, group: job.group, state: job.state || "", title: frontTitle(job.title), project: job.project || "",
+      id: job.id, group: job.group, state: job.state || "", title: job.verbatim === true ? frontText(job.title) : frontTitle(job.title), verbatim: job.verbatim === true, project: job.project || "",
       at: job.at || "", toldAt: job.toldAt || "", next: job.next || "", owner: job.owner || "", ask: job.ask || "", questionIdentity: job.questionIdentity || "", because: job.because || "",
       digest: job.digest || null, shots: frontShots(job.shots), links: job.links || [], files: job.files || [],
       threads: job.threads || [], detail: job.detail || "", decision: job.decision || null, task: job.task || "", domainRun: job.domainRun || "",

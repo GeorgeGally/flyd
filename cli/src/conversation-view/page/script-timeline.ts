@@ -90,7 +90,7 @@ export const TIMELINE_SCRIPT = `
     node.classList.toggle("needs", job.group === "needs");
     var body = node.firstChild;
     var line = frontLine(job);
-    var title = frontTitle(job.title);
+    var title = job.verbatim ? frontText(job.title) : frontTitle(job.title);
     var finished = job.group === "done";
     // What finished is told as a small plain message under what he asked, not as a card.
     node.classList.toggle("note", finished);
