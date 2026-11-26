@@ -28,9 +28,10 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
   <a class="site" id="site" hidden target="_blank" rel="noopener noreferrer"><span class="site-kind" id="site-kind"></span><span class="site-host" id="site-host"></span><span class="site-path" id="site-path"></span></a>
   <span class="when" id="when"></span>
   <span class="controls">
-    ${LEFT_BUTTON}${options.workCanvas ? '<a href="/work" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">work</a>' : ""}<a href="/whatsapp" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">people</a><button id="prefs-open" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="prefs">preferences</button>
+    ${LEFT_BUTTON}${options.workCanvas ? '<a href="/work" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">work</a>' : ""}<a href="/whatsapp" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">people</a><button id="tv-flip" type="button" role="switch" aria-checked="false">Artefacts</button><button id="prefs-open" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="prefs">preferences</button>
   </span>
 </header>
+<section class="tv" id="tv" hidden aria-label="Artefacts"><div class="tv-stage" id="tv-stage" aria-live="polite"></div></section>
 <div class="prefs" id="prefs" hidden role="dialog" aria-modal="true" aria-label="Preferences">
   <div class="prefs-page">
   <div class="prefs-top"><p class="prefs-title">Preferences</p><button id="prefs-close" type="button" aria-label="Close preferences">Done</button></div>

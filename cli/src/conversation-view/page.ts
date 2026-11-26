@@ -17,6 +17,7 @@ import { MACHINES_SCRIPT } from "./page/script-machines.js";
 import { MESSAGES_SCRIPT } from "./page/script-messages.js";
 import { REPLIES_SCRIPT } from "./page/script-replies.js";
 import { SESSION_SCRIPT } from "./page/script-session.js";
+import { SHOW_SCRIPT } from "./page/script-show.js";
 import { BOOT_SCRIPT } from "./page/script-boot.js";
 import { THREADS_SCRIPT } from "./page/script-threads.js";
 import { TODOS_SCRIPT } from "./page/script-todos.js";
@@ -63,6 +64,7 @@ const SCRIPT = joined([
   TODAY_SCRIPT,
   TIMELINE_SCRIPT,
   WEEK_SCRIPT,
+  SHOW_SCRIPT,
   BOOT_SCRIPT,
 ]);
 

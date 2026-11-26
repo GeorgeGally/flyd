@@ -759,6 +759,7 @@ export const BRIEF_SCRIPT = `
       }
     }
     fillBrief();
+    tvRedraw();
   }
   // How long ago each piece of work was done moves on with the clock, not only with updates.
   setInterval(function () {
