@@ -493,8 +493,10 @@ export const MESSAGES_SCRIPT = `
       var older = standing > 0 && index < standing;
       // The timeline's job messages (script-timeline.ts) stand where they were said: stepping past
       // them, rather than putting each message before them, leaves both where they already stand.
-      // Only an earlier message loaded above one (scrolling up) goes before it.
-      while (cursor && cursor !== el && cursor.classList.contains("work") && !saidAfter(cursor, el, older)) cursor = cursor.nextElementSibling;
+      // Only an earlier message loaded above one (scrolling up) goes before it. The hidden
+      // empty-state and starter boxes are not messages: a job said after them must not
+      // hold every later message of his above it.
+      while (cursor && cursor !== el && cursor !== working && (!cursor.classList.contains("msg") || (cursor.classList.contains("work") && !saidAfter(cursor, el, older)))) cursor = cursor.nextElementSibling;
       if (el !== cursor) main.insertBefore(el, cursor); else cursor = cursor.nextElementSibling;
       el.classList.toggle("aside-first", el.classList.contains("aside") && !(previous && previous.classList.contains("aside")));
       previous = el;
