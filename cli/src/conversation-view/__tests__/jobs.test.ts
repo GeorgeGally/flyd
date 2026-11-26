@@ -446,7 +446,9 @@ describe("jobsFrom", () => {
     const card = board.jobs.find((job) => job.group === "needs")!;
     expect(card.digest).toBeNull();
     expect(JSON.stringify(card)).not.toMatch(/thank-you|Departure Board/);
-    expect(card.ask).toMatch(/Artefacts view/);
+    // The chief of staff's own words, as written: its title and its question, nothing rewritten.
+    expect(card.title).toBe("Flyd: restore the Artefacts tab George misses");
+    expect(card.ask).toBe("choose which Artefacts view to bring back");
   });
 
   it("never borrows a reading that only shares the project's name", () => {

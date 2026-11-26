@@ -575,7 +575,9 @@ export function jobsFrom(input: {
     const identity = lead.questionIdentity && /^(?:hold|call):/.test(lead.questionIdentity) ? lead.questionIdentity : undefined;
     // Only a call is put to him by its own words: a run waiting on him says so by its record, whatever its line says.
     const wantsAnswer = lead.group === "needs" && Boolean(identity) && !/^(?:ready for you|report ready)$/i.test(state);
-    const raw = input.cardWords && lead.raw ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line, shownAnswers ? answers!.options.map((option) => shownAnswers[option]!) : undefined, { ...(identity ? { identity } : {}), wantsAnswer }) : undefined;
+    // A call or decision the chief of staff put to him is shown in its own words, as written: Flyd never rewrites it.
+    const verbatim = Boolean(lead.raw?.keep && lead.group === "needs" && lead.decision?.question && lead.because.startsWith("Fleet "));
+    const raw = input.cardWords && lead.raw && !verbatim ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line, shownAnswers ? answers!.options.map((option) => shownAnswers[option]!) : undefined, { ...(identity ? { identity } : {}), wantsAnswer }) : undefined;
     // A call that only tells him something is a notice, not a need: it is told as done, never filed under Needs you or Todo.
     // So is one whose stored reading says nothing is wanted from him.
     const reading = raw ? input.cardWords!.get(raw.key) : undefined;
@@ -596,7 +598,7 @@ export function jobsFrom(input: {
       id: bucket.id,
       group,
       state: notice ? STATE.done : shownState,
-      title: named ? named.title : bucket.title,
+      title: verbatim ? lead.raw!.title || bucket.title : named ? named.title : bucket.title,
       project: bucket.project,
       at,
       ...(toldAt ? { toldAt } : {}),
@@ -604,7 +606,7 @@ export function jobsFrom(input: {
       // The question is said once: a next line that only repeats it is left out.
       next: words ? (group === "needs" ? "" : words.body) : sameWords(lead.next, lead.ask) ? "" : shownLine(lead.next, group),
       owner: notice ? "" : lead.owner,
-      ask: notice ? "" : words ? (group === "needs" ? words.body : "") : lead.ask && forHim(plainSaid(lead.ask)),
+      ask: notice ? "" : verbatim ? lead.ask : words ? (group === "needs" ? words.body : "") : lead.ask && forHim(plainSaid(lead.ask)),
       ...(lead.questionIdentity ? { questionIdentity: lead.questionIdentity } : {}),
       because: lead.because,
       shots: shots.slice(0, 4),
