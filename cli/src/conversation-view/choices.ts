@@ -5,8 +5,9 @@ import { capitalise, clip, inline, SALUTATION, sentences } from "./summaries.js"
 import type { ConversationMessage } from "./types.js";
 
 // A reply that ends by asking him something, read as a choice he can make
-// with one tap: the question in a sentence, and its options. A yes-or-no
-// question is Yes / No; one that offers a numbered set ("Want me to add all
+// with one tap: the question in a sentence, and its options. Options come
+// only from the question itself, never a Yes / No it did not offer; one that
+// offers a numbered set ("Want me to add all
 // three?") is all of them, any one of them, or none; "A or B?" is A and B; a
 // list under "Which do you want?" is one button per item. An open question
 // has no options, only his own words. A list whose items are themselves
@@ -396,8 +397,8 @@ function ordered(answers: NamedAnswers): NamedAnswers {
 
 /**
  * The small fixed set of answers a decision put to him names, from the first
- * of these words that names any: a question with its options (a yes-or-no
- * question is Yes / No), or Flyd's own "say merge" wording. An open question,
+ * of these words that names any: a question with its own options, or Flyd's
+ * own "say merge" wording. An open question,
  * several questions at once, or a pick-any-number list names none: those are
  * his own words to give. Pure.
  */
