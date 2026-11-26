@@ -723,7 +723,7 @@ export const BRIEF_SCRIPT = `
       event.stopPropagation();
       cardDismiss(artefactGoneKey(card));
       renderArtefacts(lastArtefacts);
-      if (typeof frontChatRedraw === "function") frontChatRedraw();
+      if (typeof frontDrawJobs === "function" && frontUpdate) { frontDrawn.jobs = ""; frontDrawJobs(Array.from(frontJobs.values())); }
     });
     li.appendChild(close);
     return li;
