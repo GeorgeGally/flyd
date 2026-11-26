@@ -170,8 +170,9 @@ describe("jobsFrom", () => {
       expect(board.jobs).toHaveLength(1);
       expect(board.jobs[0]!.threads).toContainEqual({ id: session.id, title: session.title, at: session.updatedAt, kind: "conversation" });
       expect(board.pending).toMatchObject([{ hash, text }]);
+      // The project's report is not the item's own: the card never reads it as its words.
       const withDigest = jobsFrom({ ...base, digests: [digest] });
-      expect(withDigest.jobs[0]!.digest).toEqual({ changed: digest.changed, needed: digest.needed });
+      expect(withDigest.jobs[0]!.digest).toBeNull();
       expect(withDigest.pending).toEqual([]);
     }
   });
@@ -351,7 +352,7 @@ describe("jobsFrom", () => {
       needed: "George needs to answer the three questions: Opinion section back-fill or drop, Reports heading wording, and whether to keep or restore V5 date captions.",
       at: "2026-10-26T10:00:00.000Z", model: "claude-haiku-5-5", inputTokens: 10, outputTokens: 8, usd: 0,
     };
-    const board = jobsFrom({ projects: [project()], reports: [{ project: "Cap5", title: "Lab", text }], digests: [digest], runs: [run({ status: "needs_decision", question: "Still open: his picks for the other five sections - v01 hero buttons, v03 deals on phones." })], now: NOW });
+    const board = jobsFrom({ projects: [project()], digests: [digest], runs: [run({ status: "needs_decision", report: text, question: "Still open: his picks for the other five sections - v01 hero buttons, v03 deals on phones." })], now: NOW });
     const job = board.jobs[0]!;
     expect(job.digest).toEqual({
       changed: "I have three open questions about the Review and Opinion section, the Reports band heading, and V5 tombstones.",
@@ -369,7 +370,7 @@ describe("jobsFrom", () => {
       needed: "Say merge, and I'll merge both waiting Flyd updates and restart Flyd; I recommend it.",
       at: "2026-10-26T10:00:00.000Z", model: "m", inputTokens: 0, outputTokens: 0, usd: 0,
     };
-    const said = jobsFrom({ projects: [project()], reports: [{ project: "Cap5", title: "Board", text }], digests: [digest], runs: [run({ status: "needs_decision", question: "Waiting on your go-ahead." })], now: NOW }).jobs[0]!;
+    const said = jobsFrom({ projects: [project()], digests: [digest], runs: [run({ status: "needs_decision", report: text, question: "Waiting on your go-ahead." })], now: NOW }).jobs[0]!;
     expect(said).toMatchObject({ group: "needs", domainRun: "run-1", choices: ["Merge"], recommended: "Merge", labels: { Merge: "Go ahead" } });
     const asked = jobsFrom({ runs: [run({ status: "needs_decision", question: "Should I merge now or wait?" })], now: NOW }).jobs[0]!;
     expect(asked.choices).toEqual(["Merge now", "Wait"]);
@@ -433,6 +434,19 @@ describe("jobsFrom", () => {
     const card = board.jobs.find((job) => job.title === "Flyd")!;
     expect(card.digest?.changed).toBe("The Week page shows details when you hover a bar.");
     expect(JSON.stringify(card)).not.toContain("WhatsApp is still unlinked, so its card stays.");
+  });
+
+  it("tells a held decision only its own words, never a finished lab's reading on the same project", () => {
+    const lab = "I would take version 4, Departure Board, forward, but none of the five shows the real thank-you page picture. ".repeat(4);
+    const call = { id: "call:artefacts", kind: "call", headline: "Flyd: restore the Artefacts tab George misses", why: "", project: "Flyd", at: "2026-10-26T11:00:00.000Z",
+      decision: { question: "choose which Artefacts view to bring back", choices: [] }, questionIdentity: "hold:artefacts" };
+    const show = { ...screen, calls: [call] } as unknown as ShowScreen;
+    const reading = { hash: digestHash(lab), project: "Flyd", changed: "I recommend Departure Board, but none of the five uses your thank-you page picture.", needed: "Send me the real thank-you page picture so I can finish it.", at: "2026-10-26T11:30:00.000Z", model: "m", inputTokens: 0, outputTokens: 0, usd: 0 };
+    const board = jobsFrom({ projects: [project({ id: "flyd", name: "Flyd", kind: "product" })], show, reports: [{ project: "Flyd", title: "Design lab", text: lab }], digests: [reading], now: NOW });
+    const card = board.jobs.find((job) => job.group === "needs")!;
+    expect(card.digest).toBeNull();
+    expect(JSON.stringify(card)).not.toMatch(/thank-you|Departure Board/);
+    expect(card.ask).toMatch(/Artefacts view/);
   });
 
   it("never borrows a reading that only shares the project's name", () => {

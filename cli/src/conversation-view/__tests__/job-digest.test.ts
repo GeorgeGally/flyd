@@ -16,7 +16,7 @@ afterEach(() => { vi.restoreAllMocks(); });
 
 describe("job digests", () => {
   it("reads a fenced JSON reading and keeps only an http link", () => {
-    const parsed = digestFromModel('```json\n{"changed":"Tier three is gone.","means":"One offer.","needed":"Send it.","link":"javascript:alert(1)"}\n```', source("hello"), usage, at);
+    const parsed = digestFromModel('```json\n{"changed":"Tier three is gone.","means":"One offer.","needed":"Send it.","link":"javascript:alert(1)"}\n```', source("The deck: tier three is gone."), usage, at);
     expect(parsed).toMatchObject({ changed: "Tier three is gone.", needed: "Send it." });
     expect(parsed).not.toHaveProperty("means");
     expect(parsed!.link).toBeUndefined();
@@ -48,7 +48,7 @@ describe("job digests", () => {
   });
 
   it("keeps a new reading said to him even when the model writes about him", () => {
-    const parsed = digestFromModel(JSON.stringify({ changed: "George's lab has three open questions.", needed: "George needs to pick the Reports heading.", link: "" }), source("cap5"), usage, at);
+    const parsed = digestFromModel(JSON.stringify({ changed: "George's lab has three open questions.", needed: "George needs to pick the Reports heading.", link: "" }), source("The cap5 lab asks about the Reports heading."), usage, at);
     expect(parsed).toMatchObject({ changed: "Your lab has three open questions.", needed: "You need to pick the Reports heading." });
   });
 
@@ -65,3 +65,13 @@ describe("job digests", () => {
     expect(scheduleDigest([source("stored already")], { path: pathFor("none.json") })).toBeUndefined();
   });
 });
+
+describe("a reading about its own item", () => {
+  it("drops a reading that shares none of its item's words", () => {
+    const source = { hash: "h", title: "Flyd: restore the Artefacts tab", text: "Choose which Artefacts view to bring back: Made tab or the full-screen TV." };
+    const usage = { model: "m", inputTokens: 0, outputTokens: 0, usd: 0 };
+    expect(digestFromModel(JSON.stringify({ changed: "Send me the real thank-you page picture.", needed: "Nothing" }), source, usage, "t")).toBeNull();
+    expect(digestFromModel(JSON.stringify({ changed: "The Artefacts tab can come back.", needed: "Pick which view." }), source, usage, "t")).not.toBeNull();
+  });
+});
+

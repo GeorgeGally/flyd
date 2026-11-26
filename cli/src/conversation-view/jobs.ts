@@ -863,10 +863,13 @@ function cardMedia(bucket: Bucket, lead: Signal): { shots: Job["shots"]; links: 
  * The reading for the card's lead item. A lead with its own report reads only
  * that report's digest: a project card leading on the Week page PR never shows
  * the WhatsApp card's reading because both are Flyd work. A lead without one
- * reads the project's own reports, never another item's, and never a reading
- * that only shares the project's name. Pure.
+ * reads the project's own reports only when it is the project's own card; a
+ * held decision or a run with no report of its own reads none, never another
+ * item's, and never a reading that only shares the project's name. Pure.
  */
 function newestDigest(digests: JobDigest[], bucket: Bucket, lead: Signal): JobDigest | undefined {
+  // An item of its own (a held decision, a run, a staff line) is told only by its own report: a project's other readings are other items' words.
+  if (!lead.reportHash && (lead.group === "needs" || lead.raw || lead.decision || lead.questionIdentity)) return undefined;
   const owned = new Set(bucket.signals.flatMap((signal) => (signal.reportHash ? [signal.reportHash] : [])));
   const hashes = lead.reportHash
     ? new Set([lead.reportHash])

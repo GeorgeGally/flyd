@@ -89,6 +89,8 @@ export function digestFromModel(text: string, source: DigestSource, usage: { mod
   const changed = plain(record.changed);
   const needed = plain(record.needed);
   if (!changed && !needed) return null;
+  // A reading must be about the item it was given: one that shares none of its words is a guess, not a reading.
+  if (!aboutSource(`${changed} ${needed}`, source)) return null;
   const rawLink = clip(record.link) || source.link || "";
   const link = /^https?:\/\//i.test(rawLink) ? rawLink : undefined;
   return {
@@ -102,6 +104,18 @@ export function digestFromModel(text: string, source: DigestSource, usage: { mod
     outputTokens: usage.outputTokens,
     usd: usage.usd,
   };
+}
+
+const COMMON = new Set("about after again also been before being could does done each first from have here into just like make more need needs next nothing only over said send should some still than that their them then there these they this those very want what when where which will with work would your yours".split(" "));
+const wordsOf = (text: string) => new Set((text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}-]{3,}/gu) ?? []).map((word) => word.replace(/(?:ies|es|s)$/, "")).filter((word) => word.length >= 4 && !COMMON.has(word)));
+
+/** Whether a line shares at least one telling word with the item's own title and text. Pure. */
+export function aboutSource(line: string, source: Pick<DigestSource, "title" | "text">): boolean {
+  const said = wordsOf(line);
+  if (!said.size) return false;
+  const own = wordsOf(`${source.title} ${source.text}`);
+  for (const word of said) if (own.has(word)) return true;
+  return false;
 }
 
 function estimate(model: string, input: string, output: string): { model: string; inputTokens: number; outputTokens: number; usd: number } {
