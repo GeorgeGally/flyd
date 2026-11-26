@@ -257,8 +257,8 @@ describe("an old call firstmate still confirms open", () => {
     expect(fleet.calls.map((row) => [row.task, row.quiet === true])).toEqual([["dir-controls-lab-choice", true]]);
     expect(decided.map((change) => [change.taskId, change.quiet])).toEqual([["dir-controls-lab-choice", true]]);
     expect(islandStatusOf({ working: false }, fleet, boardOf(fleet, Date.now())).reply).toBeUndefined();
-    // It never rings again, but an unanswered ask stays on Needs you where he can still answer it.
-    expect(boardOf(fleet, Date.now()).map((job) => job.group)).toEqual(["needs"]);
+    // It never rings again, and a quiet (old) call is not put to him on Needs you either.
+    expect(boardOf(fleet, Date.now()).map((job) => job.group)).not.toContain("needs");
   });
 
   it("asks him as usual while it is still fresh", async () => {

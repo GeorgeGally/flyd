@@ -151,7 +151,7 @@ describe("jobsFrom", () => {
   });
 
   it("offers an answer only to a domain run that can still take one", () => {
-    const board = jobsFrom({ runs: [run({ id: "open", status: "needs_decision", phase: "checking" }), run({ id: "finished", status: "needs_decision", phase: "done" }), run({ id: "plain", status: "needs_decision" })], now: NOW });
+    const board = jobsFrom({ runs: [run({ id: "open", outcome: "Revise the deck", status: "needs_decision", phase: "checking" }), run({ id: "finished", outcome: "Pick the cover", status: "needs_decision", phase: "done" }), run({ id: "plain", outcome: "Choose the font", status: "needs_decision" })], now: NOW });
     const answer = (id: string) => board.jobs.find((job) => job.id === `run:${id}`)?.domainRun;
     expect(["open", "finished", "plain"].map(answer)).toEqual(["open", undefined, "plain"]);
     expect(board.jobs.find((job) => job.id === "run:finished")?.group).toBe("needs");
@@ -220,8 +220,8 @@ describe("jobsFrom", () => {
     const groupOf = (board: ReturnType<typeof jobsFrom>, id: string) => board.jobs.find((job) => job.threads.some((thread) => thread.id === id))?.group;
     const board = jobsFrom({
       runs: [
-        ready({ id: "fresh-pr", artifacts: [pr], settled: "2026-10-26T02:00:00.000Z" }),
-        ready({ id: "fresh", settled: "2026-10-26T02:00:00.000Z" }),
+        ready({ id: "fresh-pr", outcome: "Ship the pricing page", artifacts: [pr], settled: "2026-10-26T02:00:00.000Z" }),
+        ready({ id: "fresh", outcome: "Revise the deck", settled: "2026-10-26T02:00:00.000Z" }),
         // Settled two days ago; a later message bumped its update time, which does not restart the day.
         ready({ id: "old-pr", artifacts: [pr], settled: "2026-10-24T11:00:00.000Z", updatedAt: "2026-10-26T11:30:00.000Z" }),
         ready({ id: "old", project: "Other", settled: "2026-10-24T11:00:00.000Z" }),
