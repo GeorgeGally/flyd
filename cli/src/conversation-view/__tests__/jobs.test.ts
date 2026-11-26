@@ -164,7 +164,8 @@ describe("jobsFrom", () => {
     const report = { project: "Cap5", title: "Project report", text };
     const digest = { hash, project: "Cap5", changed: "The report changed.", means: "Review it.", needed: "Choose.", at: "2026-10-26T10:00:00Z", model: "test", inputTokens: 0, outputTokens: 0, usd: 0 };
     const worker = { ...screen, underway: [{ id: "live:worker", kind: "live", headline: "Revise", why: "", task: "worker", project: "Cap5" }] } as unknown as ShowScreen;
-    for (const [input, asks] of [[{ show: worker }, false], [{ runs: [run()] }, false], [{ runs: [run({ status: "needs_decision" })] }, true]] as const) {
+    const cases: Array<[Partial<Parameters<typeof jobsFrom>[0]>, boolean]> = [[{ show: worker }, false], [{ runs: [run()] }, false], [{ runs: [run({ status: "needs_decision" })] }, true]];
+    for (const [input, asks] of cases) {
       const base = { projects: [project()], sessions: [session], reports: [report], ...input, now: NOW };
       const board = jobsFrom(base);
       expect(board.jobs).toHaveLength(1);
