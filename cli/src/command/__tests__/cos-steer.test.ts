@@ -107,6 +107,25 @@ describe("tell_work", () => {
     expect(readObjective(objective)!.flydNotes).toContain("looks good, ship it");
   });
 
+  it("delivers an answer naming a design run to that run even while crew work waits for /land", async () => {
+    const objective = underWay("Design the footer", "creative");
+    const design = `${objective}-r1`;
+    mutateDomainRun(design, (current) => current && { ...current, status: "needs_decision" });
+    const reportId = `${objective}:crew:footer-fix:ready`;
+    mutateObjective(objective, (current) => current && { ...current, status: "needs_george", runs: ["crew:footer-fix", design],
+      plan: [
+        { key: "r1", team: "coding", outcome: "Fix the footer", doneWhen: ["done"], state: "dispatched", attempt: 1, validFor: 0, ref: "crew:footer-fix" },
+        { key: "r2", team: "creative", outcome: "Design the footer", doneWhen: ["done"], state: "dispatched", attempt: 1, validFor: 0, ref: design },
+      ],
+      waitingOn: { reportId, kind: "run", question: "Fix the footer is ready for your /land; it has not been merged yet.", at: new Date().toISOString() } });
+    const { sent, send } = recorder();
+    const outcome = await tellWork({ objectiveId: objective, runId: design, message: "go with the serif", kind: "decision" }, send);
+    expect(outcome).toMatchObject({ delivered: true });
+    expect(outcome.note).toBeUndefined();
+    expect(sent).toEqual([{ run: design, kind: "decision", body: "go with the serif" }]);
+    expect(readObjective(objective)!.flydNotes).not.toContain("go with the serif");
+  });
+
   it("does not apply an answer to a different, newer objective question", async () => {
     const objective = underWay("Fix the footer", "coding");
     mutateObjective(objective, (current) => current && { ...current, status: "needs_george", waitingOn: { reportId: "new-question", kind: "run", question: "Which colour?", at: new Date().toISOString() } });

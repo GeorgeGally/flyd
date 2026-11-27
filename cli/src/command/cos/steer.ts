@@ -337,7 +337,7 @@ export async function tellWork(
   }
   const runs = steerableRuns(objective);
   // Crew work ready to land waits on his /land: an answer to it is kept on the objective, never lands or sends anything.
-  if (waiting?.kind === "run" && kind === "decision" && planOf(objective).some((run) => run.ref?.startsWith("crew:") && !isGone(run) && waiting.reportId === crewReadyReportId(objective.id, run.ref))) {
+  if (waiting?.kind === "run" && kind === "decision" && !runs.some((run) => run.id === input.runId) && planOf(objective).some((run) => run.ref?.startsWith("crew:") && !isGone(run) && waiting.reportId === crewReadyReportId(objective.id, run.ref))) {
     mutateObjective(objective.id, (current) => current && { ...current, flydNotes: [current.flydNotes, `Later from George on the work ready to land: ${message}`].filter(Boolean).join("\n") });
     return { delivered: true, objectiveId: objective.id, note: "Landing still happens through /land; nothing was merged." };
   }
