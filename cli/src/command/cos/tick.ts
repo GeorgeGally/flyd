@@ -18,7 +18,7 @@ import { dispatchBrief, type Dispatch, type Dispatched, type SentBrief } from ".
 import { intakeObjective, readRun, type Complete } from "./intake.js";
 import { cosEnabled, listObjectives, mutateObjective, readObjective } from "./objectives.js";
 import { flushPendingCorrections } from "./steer.js";
-import { awaitsDecision, backTo, isActive, isGone, isValid, maxActive, planFromBrief, planOf, planRequestId, releasable, requeue, sinks } from "./plan.js";
+import { awaitsDecision, backTo, crewReadyReportId, isActive, isGone, isValid, maxActive, planFromBrief, planOf, planRequestId, releasable, requeue, sinks } from "./plan.js";
 import { WAIT_ANSWERS, type Adaptation, type CosReport, type CosReportKind, type Objective, type PlannedRun, type RunBrief, type WaitKind } from "./types.js";
 
 // The Chief of Staff's tick (on by default; FLYD_COS=0 rolls it back). Called from the command tick, and
@@ -343,7 +343,7 @@ async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, 
     if (run.reviewed === key) return;
     if (task.status === "ready" && task.objectiveId === objective.id) {
       const outcome = `${shortWords(run.outcome)} is ready for your /land; it has not been merged yet.`;
-      const made = { ...plainReport(objective, "decision", outcome, key), detail: task.summary ?? "", evidenceRefs: [linkOf(ref)] };
+      const made = { ...plainReport(objective, "decision", outcome, key), id: crewReadyReportId(objective.id, ref), detail: task.summary ?? "", evidenceRefs: [linkOf(ref)] };
       await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "run", question: outcome });
       if (readObjective(objective.id)?.reportIds.includes(made.id)) changeRun(objective.id, run.key, () => ({ reviewed: key }));
       return;

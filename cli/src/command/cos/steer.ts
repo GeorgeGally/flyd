@@ -3,7 +3,7 @@ import { readDomainRun } from "../store.js";
 import { isSettled } from "../run-state.js";
 import type { DomainId, DomainRun } from "../types.js";
 import { listObjectives, mutateObjective, readObjective } from "./objectives.js";
-import { awaitsDecision, backTo, downstreamOf, isGone, planOf, requeue, sinks } from "./plan.js";
+import { awaitsDecision, backTo, crewReadyReportId, downstreamOf, isGone, planOf, requeue, sinks } from "./plan.js";
 import { WAIT_ANSWERS, type Adaptation, type Objective, type PlannedRun, type Waiting } from "./types.js";
 
 // Steering and status (split plan Phase 4; on unless FLYD_COS=0). `tell_work` replaces the in-turn fast path: the Chief
@@ -337,7 +337,7 @@ export async function tellWork(
   }
   const runs = steerableRuns(objective);
   // Crew work ready to land waits on his /land: an answer to it is kept on the objective, never lands or sends anything.
-  if (waiting?.kind === "run" && kind === "decision" && !runs.length && planOf(objective).some((run) => run.ref?.startsWith("crew:") && !isGone(run))) {
+  if (waiting?.kind === "run" && kind === "decision" && planOf(objective).some((run) => run.ref?.startsWith("crew:") && !isGone(run) && waiting.reportId === crewReadyReportId(objective.id, run.ref))) {
     mutateObjective(objective.id, (current) => current && { ...current, flydNotes: [current.flydNotes, `Later from George on the work ready to land: ${message}`].filter(Boolean).join("\n") });
     return { delivered: true, objectiveId: objective.id, note: "Landing still happens through /land; nothing was merged." };
   }
