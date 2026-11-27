@@ -511,16 +511,16 @@ esac
     return { source, home, answered };
   }
 
-  it("sends Flyd-window follow-ups through Flyd when the Chief of Staff is enabled", async () => {
+  it("sends Flyd-window messages through Flyd when the Chief of Staff is enabled, and keeps a legacy task's note on its inbox", async () => {
     vi.stubEnv("FLYD_COS", "1");
     const { source, home, answered } = setup("FIRSTMATE");
     const first = await source.send("s1", "Fix the footer", [], [], "firstmate");
     const second = await source.sendDecision("About the artefact: make it blue", [], undefined, "s1");
     expect(first.id).toMatch(/^ask:/);
-    expect(second.id).toMatch(/^ask:/);
-    await until(() => answered.length === 2 ? true : undefined);
-    expect(answered).toEqual(["Fix the footer", "About the artefact: make it blue"]);
-    expect(existsSync(join(home, "state", "inbox"))).toBe(false);
+    expect(second.id).toMatch(/^note:/);
+    await until(() => answered.length === 1 ? true : undefined);
+    expect(answered).toEqual(["Fix the footer"]);
+    expect(existsSync(join(home, "state", "inbox"))).toBe(true);
   });
 
   it("moves the project badge across Flyd and firstmate turns, keeps it through projectless ones and after a reload", async () => {

@@ -595,6 +595,26 @@ describe("ClaudeCodeTranscriptSource with an inbox", () => {
     expect(readdirSync(join(home, "state", "inbox")).filter((name) => name.endsWith(".note"))).toHaveLength(2);
   });
 
+  it("keeps notes about legacy Firstmate tasks on the inbox and hands only objective-owned work to Flyd's desk", async () => {
+    vi.stubEnv("FLYD_COS", "1");
+    const project = join(dir, "project");
+    mkdirSync(project);
+    writeFileSync(join(project, "s1.jsonl"), captain("hello") + "\n");
+    const runs = join(process.env.FLYD_COMMAND_DIR!, "runs");
+    mkdirSync(runs, { recursive: true });
+    writeFileSync(join(runs, "domain-owned-note.json"), JSON.stringify({ id: "domain-owned-note", createdAt: "2026-11-27T00:00:00Z", request: { objectiveId: "obj-note" }, transport: { kind: "firstmate", requestId: "obj-note-r1" } }));
+    const inboxed: string[] = [];
+    const inbox = { send: async (text: string) => (inboxed.push(text), { id: "note:1", timestamp: "x" }), notes: () => [], image: () => null };
+    const asked: Array<string | undefined> = [];
+    const desk = { ask: async (_text: string, _images?: unknown, _session?: string, _files?: unknown, _scope?: unknown, target?: string) => (asked.push(target), { id: "ask:1", timestamp: "x" }) } as unknown as FlydDesk;
+    const source = new ClaudeCodeTranscriptSource({ projectDir: project, inbox, desk: { desk, complete: async () => "FIRSTMATE" } });
+    await source.sendDecision("Answer to pending decision legacy-task", [], undefined, "s1");
+    await source.sendDecision("About the artefact \"Footer\"\nTask: legacy-task\n\nmake it blue", [], undefined, "s1", "legacy-task");
+    await source.sendDecision("make it blue", [], undefined, "s1", "domain-owned-note");
+    expect(inboxed).toEqual(["Answer to pending decision legacy-task", "About the artefact \"Footer\"\nTask: legacy-task\n\nmake it blue"]);
+    expect(asked).toEqual(["domain-owned-note"]);
+  });
+
   it("marks only messages that start with a real skill or command", async () => {
     const project = join(dir, "project");
     mkdirSync(project);

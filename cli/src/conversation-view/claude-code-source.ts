@@ -1,4 +1,6 @@
 import { cosEnabled } from "../command/cos/enabled.js";
+import { readObjective } from "../command/cos/objectives.js";
+import { readDomainRun } from "../command/store.js";
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
@@ -259,6 +261,11 @@ export interface Desk {
   brief?: (text: string, recent: ConversationMessage[]) => Promise<string | undefined>;
 }
 
+/** Whether the Chief of Staff owns this work: an objective, or a domain run opened for one. */
+function objectiveOwned(id: string): boolean {
+  return Boolean(readObjective(id) || readDomainRun(id)?.request.objectiveId);
+}
+
 export class ClaudeCodeTranscriptSource implements ConversationSource {
   readonly assistantLabel: string;
   private readonly projectDir: string;
@@ -371,7 +378,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
 
   async sendDecision(text: string, images?: ImageUpload[], _decision?: { decisionId: string; taskId: string }, sessionId?: string, targetTaskId?: string): Promise<SentMessage> {
     if (!this.inbox) throw new Error("This conversation is read-only");
-    if (cosEnabled() && this.desk) return this.desk.desk.ask(text, images, sessionId, [], undefined, targetTaskId);
+    if (cosEnabled() && this.desk && targetTaskId && objectiveOwned(targetTaskId)) return this.desk.desk.ask(text, images, sessionId, [], undefined, targetTaskId);
     return this.inbox.send(text, images);
   }
 

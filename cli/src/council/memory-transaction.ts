@@ -71,8 +71,7 @@ function recover(journalPath: string, paths: MemoryPaths): void {
 
 /**
  * Serializes upgraded writers and rolls an interrupted write forward. A running older Core,
- * third-party writer, or manual editor does not take this lock: exclude them before migration
- * or correction. Readers can observe an in-progress multi-file write until recovery completes.
+ * third-party writer, or manual editor does not take this lock: exclude them before migration. Readers can observe an in-progress multi-file write until recovery completes.
  */
 export function withMemoryTransaction<T>(paths: MemoryPaths, run: (commit: (writes: Write[]) => void) => T): T {
   const dir = dirname(paths.memory);

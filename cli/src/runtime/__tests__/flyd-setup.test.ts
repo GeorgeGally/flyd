@@ -141,6 +141,7 @@ describe("Flyd's own setup", () => {
       "which providers do you have configured",
       "is your chief of staff running?",
       "what is the chain of command between Flyd and Firstmate?",
+      "is flyd's chief of staff on",
     ]) expect(isFlydSetupQuestion(question), question).toBe(true);
     for (const message of [
       "what's the weather in bangkok tonight",
@@ -157,6 +158,8 @@ describe("Flyd's own setup", () => {
       "can you use the settings from my last project",
       "what model do you have in mind for this",
       "what features do you have planned for gnm",
+      "have the chief of staff fix the gallery header",
+      "ask the chief of staff to look into the chain of command docs",
     ]) {
       expect(isFlydSetupQuestion(message), message).toBe(false);
     }

@@ -8,7 +8,6 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, extname, join, relative, sep } from "node:path";
 import { FLYD_DIR, PLANS_DIR } from "../lib/config.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
-import { memoryPaths, readConsistentMemoryText } from "../council/memory-store.js";
 import { syncFleetFollowups } from "../runtime/fleet-followups.js";
 import { readPlans, type Plan } from "../lib/plans.js";
 import { reachesGeorge, type GeorgeKind } from "../lib/reaches-george.js";
@@ -2493,7 +2492,7 @@ export class ArtefactFeed {
         this.readFleet(fresh),
         ArtefactFeed.text(backlog),
         ArtefactFeed.text(archive),
-        memory === memoryPaths().memory ? Promise.resolve().then(() => readConsistentMemoryText() ?? "").catch(() => "") : ArtefactFeed.text(memory),
+        ArtefactFeed.text(memory),
         ArtefactFeed.text(news),
         ArtefactFeed.text(taste),
       ]);

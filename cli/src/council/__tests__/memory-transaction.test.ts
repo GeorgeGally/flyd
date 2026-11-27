@@ -1,43 +1,16 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { applyMemoryOps, correctMemoryEntries, entryId, memoryCorrectionRevision, memoryPaths, readConsistentMemoryText, type MemoryPaths } from "../memory-store.js";
+import { applyMemoryOps, memoryPaths, readMemoryEntries, searchDailyNotes, type MemoryPaths } from "../memory-store.js";
 
 let home: string;
 let paths: MemoryPaths;
 beforeEach(() => { home = mkdtempSync(join(tmpdir(), "flyd-memory-tx-")); paths = memoryPaths(home); });
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 
-describe("memory correction transaction", () => {
-  it("changes only explicitly identified lines, retains sources, and does not retire unrelated stale entries", () => {
-    const original = "# User-authored heading\n\n## Decisions\nA note kept exactly.\n- Flyd is chief of staff <!--a:2020-01-01-->\n- Unrelated old decision <!--p:2020-01-01-->\n";
-    writeFileSync(paths.memory, original);
-    const oldId = entryId("Flyd is chief of staff");
-    writeFileSync(paths.sources, JSON.stringify({ [oldId]: ["original-evidence"], untouched: ["other"] }));
-    writeFileSync(paths.archive, "Earlier archive.\n");
-    const revision = memoryCorrectionRevision(paths);
-    const result = correctMemoryEntries({ expectedRevision: revision, paths, now: new Date("2026-11-27T12:00:00Z"), source: "user:role-correction", corrections: [{ oldText: "Flyd is chief of staff", newText: "Flyd is the PA; a separate chief of staff coordinates teams" }] });
-    expect(result.updated).toBe(1);
-    expect(readFileSync(paths.memory, "utf8")).toBe(original.replace("Flyd is chief of staff <!--a:2020-01-01-->", "Flyd is the PA; a separate chief of staff coordinates teams <!--a:2026-11-27-->"));
-    const sources = JSON.parse(readFileSync(paths.sources, "utf8"));
-    expect(sources[oldId]).toEqual(["original-evidence"]);
-    expect(sources[entryId("Flyd is the PA; a separate chief of staff coordinates teams")]).toEqual(["original-evidence", "user:role-correction"]);
-    expect(sources.untouched).toEqual(["other"]);
-    expect(readFileSync(paths.archive, "utf8")).toContain("Flyd is chief of staff");
-    expect(memoryCorrectionRevision(paths)).toBe(result.revision);
-  });
-
-  it("refuses stale revisions without changing any target", () => {
-    writeFileSync(paths.memory, "# Memory\n\n## Facts\n- Original <!--a:2026-11-20-->\n");
-    const revision = memoryCorrectionRevision(paths);
-    writeFileSync(paths.memory, "# Memory\n\n## Facts\n- Another edit <!--a:2026-11-20-->\n");
-    expect(() => correctMemoryEntries({ expectedRevision: revision, paths, source: "user:turn", corrections: [{ oldText: "Original", newText: "Corrected" }] })).toThrow(/stale/);
-    expect(readFileSync(paths.memory, "utf8")).toContain("Another edit");
-    expect(existsSync(paths.archive)).toBe(false);
-  });
-
+describe("memory writer transaction", () => {
   it("preserves a damaged source index instead of overwriting its attribution", () => {
     const original = "# Memory\n\n## Facts\n- Original <!--a:2026-11-20-->\n";
     writeFileSync(paths.memory, original);
@@ -56,12 +29,11 @@ describe("memory correction transaction", () => {
       { path: paths.sources, before: null, after: "{\"changed\":[\"source\"]}\n" },
       { path: paths.archive, before: null, after: "Previous entry\n" },
     ] }));
-    expect(readConsistentMemoryText(paths)).toBe(updated);
-    expect(readFileSync(paths.sources, "utf8")).toBe("{\"changed\":[\"source\"]}\n");
+    applyMemoryOps([], { paths });
+    expect(JSON.parse(readFileSync(paths.sources, "utf8"))).toEqual({ changed: ["source"] });
+    expect(readFileSync(paths.memory, "utf8")).toContain("Changed");
     expect(readFileSync(paths.archive, "utf8")).toBe("Previous entry\n");
     expect(existsSync(join(home, ".memory-transaction.json"))).toBe(false);
-    memoryCorrectionRevision(paths);
-    expect(readFileSync(paths.archive, "utf8")).toBe("Previous entry\n");
   });
 
   it("stops recovery before writing anything when an external edit conflicts", () => {
@@ -73,6 +45,17 @@ describe("memory correction transaction", () => {
     expect(() => applyMemoryOps([], { paths })).toThrow(/outside edit/);
     expect(readFileSync(paths.memory, "utf8")).toBe("An independent edit\n");
     expect(existsSync(paths.archive)).toBe(false);
+    expect(existsSync(join(home, ".memory-transaction.json"))).toBe(true);
+  });
+
+  it("reads memory and daily notes as plain files, even while a writer's journal is stuck on an outside edit", () => {
+    writeFileSync(paths.memory, "# Memory\n\n## Facts\n- Hand edited fact <!--a:2026-11-20-->\n");
+    mkdirSync(paths.dailyDir, { recursive: true });
+    writeFileSync(join(paths.dailyDir, "2026-11-26.md"), "- talked about the gallery header\n");
+    writeFileSync(join(home, ".memory-transaction.json"), JSON.stringify({ version: 1, writes: [{ path: paths.memory, before: "Before\n", after: "After\n" }] }));
+    expect(readMemoryEntries(paths, false).map((entry) => entry.text)).toEqual(["Hand edited fact"]);
+    expect(searchDailyNotes("gallery header", paths)).toEqual([expect.stringContaining("gallery header")]);
+    expect(existsSync(join(home, ".memory-writer-lock.sqlite3"))).toBe(false);
     expect(existsSync(join(home, ".memory-transaction.json"))).toBe(true);
   });
 

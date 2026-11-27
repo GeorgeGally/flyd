@@ -50,8 +50,9 @@ import { listDomainRuns, readDomainRun } from "../command/store.js";
 import { isOpen, isSettled } from "../command/run-state.js";
 import { sendRunMessage } from "../command/messages.js";
 import { tellWork } from "../command/cos/steer.js";
-import { listObjectives } from "../command/cos/objectives.js";
-import { cosRequestIds } from "../conversation-view/cos-jobs.js";
+import { listObjectives, mutateObjective } from "../command/cos/objectives.js";
+import type { DomainRun } from "../command/types.js";
+import { cosOwnedNames, cosRequestIds } from "../conversation-view/cos-jobs.js";
 import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun, STAFF_COORDINATION_POLICY } from "../intelligence/executive/firstmate-decision.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision, takeBackSettledDecision } from "../intelligence/executive/decision-step.js";
@@ -178,9 +179,44 @@ function openInBrowser(url: string): void {
   execFile(command, [url], () => {});
 }
 
-/** Raw Firstmate wake reports have no objective lineage; direct replies remain available. */
-export function firstmateWakeMaySurface(wake: boolean | undefined, requests: ReadonlySet<string> | null): boolean {
-  return !wake || (requests !== null && requests.size === 0);
+/**
+ * His answer about objective-owned work goes through its objective: told to the work while it can hear it,
+ * recorded on the objective once the work settled, never sent as new work. Returns the evidence of where it went.
+ */
+export async function answerObjectiveRun(run: Pick<DomainRun, "id" | "request">, message: string): Promise<string> {
+  const objectiveId = run.request.objectiveId!;
+  const sent = await tellWork({ objectiveId, runId: run.id, kind: "decision", message });
+  if (sent.delivered) return `objective:${objectiveId}`;
+  if (sent.reason !== "no_active_work" && sent.reason !== "not_steerable") throw new Error(sent.ask || "The Chief of Staff could not deliver that answer to the work");
+  const recorded = mutateObjective(objectiveId, (current) => current && { ...current, flydNotes: [current.flydNotes, `Later from George (decision on ${run.id}): ${message}`].filter(Boolean).join("\n") });
+  if (!recorded) throw new Error("Flyd could not record that answer on its work");
+  return `objective:${objectiveId}`;
+}
+
+/** Said in place of a Firstmate wake report while the Chief of Staff's work cannot be read. */
+export const WAKE_OWNER_UNAVAILABLE = "A coding report came in, but Flyd can't confirm just now whether the Chief of Staff owns that work, so it is held back until it can.";
+
+const escapeName = (name: string) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** A Firstmate wake report that names objective-owned work stays with the Chief of Staff; one that cannot be checked says so. */
+export function firstmateWakeOwner(text: string, owned: ReadonlySet<string> | null): "shown" | "objective" | "unverified" {
+  if (owned === null) return "unverified";
+  return [...owned].some((name) => new RegExp(`(?<![\\w-])${escapeName(name)}(?![\\w-])`).test(text)) ? "objective" : "shown";
+}
+
+/** Firstmate's messages as the threads read them: wake reports about objective-owned work are kept backstage. */
+export function withoutCosWakes(messages: ConversationMessage[], owned: ReadonlySet<string> | null): ConversationMessage[] {
+  return messages.flatMap((message) => {
+    if (!message.wake) return [message];
+    const owner = firstmateWakeOwner(message.text, owned);
+    return owner === "objective" ? [] : owner === "unverified" ? [{ ...message, text: WAKE_OWNER_UNAVAILABLE }] : [message];
+  });
+}
+
+function cosOwnedNamesForView(): ReadonlySet<string> | null {
+  try {
+    return cosOwnedNames(listDomainRuns(undefined, true), listObjectives(undefined, true));
+  } catch { return null; }
 }
 
 function cosRequestsForView(): ReadonlySet<string> | null {
@@ -199,12 +235,13 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, t
       sessions: () => firstmate.listSessions(),
       read: async (id: string) => {
         const snapshot = await firstmate.readHistory(id);
-        notePlay(snapshot.messages);
-        return snapshot;
+        const messages = withoutCosWakes(snapshot.messages, cosOwnedNamesForView());
+        notePlay(messages);
+        return { ...snapshot, messages };
       },
       image: (session: string, id: string) => firstmate.image(session, id),
       // A reply to what he said is never kept back; a wake's report passes the check every relay passes.
-      shows: (message: ConversationMessage) => !message.wake || (firstmateWakeMaySurface(true, cosRequestsForView()) && relayMayShow(inFlydsVoice(message.text))),
+      shows: (message: ConversationMessage) => !message.wake || message.text === WAKE_OWNER_UNAVAILABLE || relayMayShow(inFlydsVoice(message.text)),
       revision: () => firstmate.exchanges().map((exchange) => `${exchange.question.id}:${exchange.answer?.id ?? ""}`).join(","),
     }] : []),
   ];
@@ -218,7 +255,7 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, t
   const read = new Set<string>();
   const notePlay = (messages: ConversationMessage[]) => {
     for (const message of messages) {
-      if (message.role !== "assistant" || read.has(message.id) || (message.wake && !firstmateWakeMaySurface(true, cosRequestsForView()))) continue;
+      if (message.role !== "assistant" || read.has(message.id) || message.text === WAKE_OWNER_UNAVAILABLE) continue;
       read.add(message.id);
       try {
         // What landed or needs him rings once, a project at a time; only a line he saw whole counts as told, the rest waits for his next briefing.
@@ -332,8 +369,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         const run = listDomainRuns().find((item) => item.id === taskId && item.transport.kind === "firstmate" && item.request.domain === "coding");
         if (run) {
           if (run.request.objectiveId) {
-            const sent = await tellWork({ objectiveId: run.request.objectiveId, runId: run.id, kind: "decision", message });
-            if (!sent.delivered) throw new Error("The Chief of Staff could not deliver that answer to the work");
+            await answerObjectiveRun(run, message);
           } else {
             const sent = await sendRunMessage({ run, kind: "decision", body: message, from: "flyd" });
             if (!sent.delivered) throw new Error("Flyd could not deliver that answer to the work");
@@ -361,15 +397,14 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       if (run) {
         const message = update ? `George's follow-up on his answer to: ${decision.question}\n\n${answer.trim()}` : `George's answer to: ${decision.question}\n\n${answer.trim()}`;
         if (run.request.objectiveId) {
-          const sent = await tellWork({ objectiveId: run.request.objectiveId, runId: run.id, kind: "decision", message });
-          if (!sent.delivered) throw new Error("The Chief of Staff could not deliver that decision to the active work");
+          evidenceRef = await answerObjectiveRun(run, message);
         } else {
           const sent = await sendRunMessage({ run, kind: "decision", body: message, from: "flyd" });
           if (!sent.delivered) throw new Error("Flyd could not deliver that decision to the active work");
+          const receipt = sent.run?.messages?.find((item) => item.kind === "decision" && item.body === message && item.deliveredAt);
+          if (!receipt) throw new Error("Flyd could not verify delivery of that decision");
+          evidenceRef = `domain-message:${receipt.id}`;
         }
-        const receipt = readDomainRun(run.id)?.messages?.find((item) => item.kind === "decision" && item.body === message && item.deliveredAt);
-        if (!receipt) throw new Error("Flyd could not verify delivery of that decision");
-        evidenceRef = `domain-message:${receipt.id}`;
       } else {
         if (!inbox.available()) throw new Error("There is no connected coding employee to receive that decision");
         // No run of his is open for it: his answer goes as a run of its own, his words as its original message.

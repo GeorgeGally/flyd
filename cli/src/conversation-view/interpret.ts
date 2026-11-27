@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { readConsistentMemoryText } from "../council/memory-store.js";
+import { memoryPaths } from "../council/memory-store.js";
 import { gateOutgoing, relayMayShow } from "../council/reply-review.js";
 import { plainSaid } from "../lib/backstage.js";
 import { stripCommitIds } from "../runtime/honesty-check.js";
@@ -91,7 +91,7 @@ function profileOrNull(): string | null {
 
 function memoryOrNull(): string | null {
   try {
-    return readConsistentMemoryText();
+    return readFileSync(memoryPaths().memory, "utf8");
   } catch {
     return null;
   }

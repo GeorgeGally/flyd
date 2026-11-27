@@ -1,6 +1,7 @@
 import type { DomainRun } from "../command/types.js";
 import type { CosReport, Objective } from "../command/cos/types.js";
 import { planRequestId } from "../command/cos/plan.js";
+import { runNames } from "../command/run-closure.js";
 import { existsSync } from "node:fs";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { jobRunFromDomain, type JobRun } from "./jobs.js";
@@ -74,4 +75,10 @@ export function cosRequestIds(runs: DomainRun[], objectives: Objective[]): Set<s
     .filter((run) => run.team === "coding" && run.attempt > 0 && ["dispatching", "dispatched", "unknown"].includes(run.state) && !run.ref?.startsWith("crew:"))
     .map((run) => planRequestId(objective.id, run)));
   return new Set([...known, ...inFlight]);
+}
+
+/** Every name objective-owned Firstmate work is known by: its objective, its run, its request and its inbox note. */
+export function cosOwnedNames(runs: DomainRun[], objectives: Objective[]): Set<string> {
+  const owned = runs.filter((run) => run.request.objectiveId && run.transport.kind === "firstmate");
+  return new Set([...cosRequestIds(runs, objectives), ...owned.flatMap((run) => [...runNames(run), run.request.objectiveId!])]);
 }

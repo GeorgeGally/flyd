@@ -325,7 +325,7 @@ export async function flydSetupReport(now = new Date()): Promise<string> {
 
 const SETUP = String.raw`(?:models?|llms?|config(?:uration|ured)?|settings?|providers?|features?|capabilities)`;
 const SELF_SETUP = [
-  /\b(?:chief of staff|chain of command)\b/i,
+  /\b(?:your|ur|flyd'?s)\s+(?:own\s+)?(?:chief of staff|chain of command)\b|^\s*(?:is|are|does|do|who|what|how|which|has)\b[^.!?]*\b(?:chief of staff|chain of command)\b[^.!?]*\?/i,
   new RegExp(String.raw`\bflyd\b[\s\S]*\b(?:${SETUP}|running on|runs? on|powered by)\b|\b${SETUP}\b[\s\S]*\bflyd\b`, "i"),
   new RegExp(String.raw`\b(?:your|ur)\s+(?:own\s+)?${SETUP}\b`, "i"),
   new RegExp(String.raw`\b${SETUP}(?:\s+\w+){0,2}?\s+(?:are|do|did|have|is)\s+(?:you|u)(?:\s+(?:use|using|run|running|on|powered|built)\b|\s+(?:have|got)(?:\s+(?:configured|set up|enabled|installed|turned on|available)\b|\s*(?:[?.!]|$))|\s*(?:[?.!]|$))`, "i"),

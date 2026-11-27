@@ -1,4 +1,5 @@
-import { readConsistentMemoryText } from "../council/memory-store.js";
+import { readFileSync } from "node:fs";
+import { memoryPaths } from "../council/memory-store.js";
 import { describeProject, liveProjects, type Project } from "../council/projects.js";
 import { tastePromptText } from "../council/taste.js";
 import { readUserProfile } from "../lib/user-profile.js";
@@ -34,6 +35,14 @@ export function projectNamed(text: string, projects: Project[]): Project | undef
   }));
 }
 
+function read(file: string): string {
+  try {
+    return readFileSync(file, "utf8");
+  } catch {
+    return "";
+  }
+}
+
 /** What Flyd knows that may bear on his words; each source fails soft to nothing. */
 export function briefSources(text: string): BriefSources {
   let profile: string | null = null;
@@ -56,7 +65,7 @@ export function briefSources(text: string): BriefSources {
   }
   return {
     profile,
-    memory: (() => { try { return readConsistentMemoryText() ?? ""; } catch { return ""; } })(),
+    memory: read(memoryPaths().memory),
     ...(project ? { project: { about: describeProject(project), taste } } : {}),
   };
 }
