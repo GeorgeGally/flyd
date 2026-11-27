@@ -2,12 +2,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, uptime } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, briefPrompt, buildPrompt, critiquePrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readContext, readLab, shootWithChrome, startDesignRun, writeLab, toldInChat, type DesignMateDeps } from "../design-mate.js";
 import { FLYD_DIR } from "../../lib/config.js";
 import { DesignModelError } from "../design-claude.js";
 import { DESIGN_LAB_DONE_WHEN, designStartLine, isDesignLabRun, labAwaitingReview } from "../design.js";
 import { dispatchDomainFollowup } from "../followup.js";
+import { followupObjectiveId, readObjective } from "../cos/objectives.js";
 import { dueReport } from "../report.js";
 import { notifyRun } from "../scheduler.js";
 import { listDomainRuns, readDomainRun, saveDomainRun } from "../store.js";
@@ -476,6 +477,20 @@ describe("Design Mate", () => {
     const run = dispatchDesignMate({ originalMessage: "a lab", intendedOutcome: "A lab", doneWhen: ["three versions"] }, labs);
     expect(readDomainRun(run.id)).toMatchObject({ status: "failed", report: { state: "due" } });
     expect(run.failure).toMatch(/^The design lab stopped before it was ready: its folder could not be made/);
+  });
+
+  it("adopts an objective's board follow-up on replay when the adoption was lost before it was written", async () => {
+    vi.stubEnv("FLYD_COS", "1");
+    vi.stubEnv("FLYD_LABS_DIR", labs);
+    const lab = await driveDesignRun(dispatchDesignMate({ originalMessage: "do a lab", intendedOutcome: "Right column lab", doneWhen: ["three versions"], objectiveId: "obj-board-parent" }, labs), staff([9]));
+    await answerFromBoard(lab, { notes: ["try a warmer palette"], ids: [] });
+    const followup = listDomainRuns().find((run) => run.request.parentRequestId === lab.id)!;
+    const objectiveId = followup.request.objectiveId!;
+    expect(objectiveId).toBe(followupObjectiveId(followup.id));
+    rmSync(join(process.env.FLYD_COMMAND_DIR!, "objectives", `${objectiveId}.json`));
+    await answerFromBoard(lab, { notes: ["try a warmer palette"], ids: [] });
+    expect(listDomainRuns().filter((run) => run.request.parentRequestId === lab.id)).toHaveLength(1);
+    expect(readObjective(objectiveId)).toMatchObject({ status: "working", runs: [followup.id] });
   });
 
   it("builds the version George marks final on the board, and takes notes alone into another round", async () => {

@@ -1433,8 +1433,8 @@ export async function answerFromBoard(run: DomainRun, feedback: BoardFeedback): 
     ...(feedback.notes.length ? ["His notes on the board:", ...feedback.notes.map((note) => `- ${note}`)] : []),
   ].join("\n");
   const owned = Boolean(run.request.objectiveId) && cosEnabled();
-  // Objective work answered here is followed up under an objective too, so it needs a request id to adopt it by.
-  const id = feedback.ids.length ? `lab-${createHash("sha256").update(`${run.id}\0${feedback.ids.join(",")}`).digest("hex").slice(0, 32)}` : owned ? `lab-${randomUUID()}` : undefined;
+  // Objective work answered here is followed up under an objective too, so it needs a request id a replay adopts it by.
+  const id = feedback.ids.length || owned ? `lab-${createHash("sha256").update(`${run.id}\0${feedback.ids.length ? feedback.ids.join(",") : words}`).digest("hex").slice(0, 32)}` : undefined;
   const objectiveId = owned && id ? followupObjectiveId(id) : undefined;
   const next = await designFollowup(run, words, { pick: version?.n ?? null, ...(id ? { requestId: id } : {}), ...(objectiveId ? { objectiveId } : {}) });
   // The Chief of Staff reviews and reports the follow-up once; it never reaches George around the objective.

@@ -511,12 +511,14 @@ esac
     return { source, home, answered };
   }
 
-  it("sends Flyd-window messages through Flyd when the Chief of Staff is enabled, and keeps a legacy task's note on its inbox", async () => {
+  it("sends new Flyd-window messages through Flyd when the Chief of Staff is enabled, and keeps a reply to Firstmate and a legacy task's note on its inbox", async () => {
     vi.stubEnv("FLYD_COS", "1");
     const { source, home, answered } = setup("FIRSTMATE");
-    const first = await source.send("s1", "Fix the footer", [], [], "firstmate");
+    const first = await source.send("s1", "Fix the footer");
+    const reply = await source.send("s1", "yes, merge it", [], [], "firstmate");
     const second = await source.sendDecision("About the artefact: make it blue", [], undefined, "s1");
     expect(first.id).toMatch(/^ask:/);
+    expect(reply.id).toMatch(/^note:/);
     expect(second.id).toMatch(/^note:/);
     await until(() => answered.length === 1 ? true : undefined);
     expect(answered).toEqual(["Fix the footer"]);

@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
 import { effectiveLegacyClaim, effectiveLegacyText, isGovernedLegacyFact, readEffectiveKnowledge } from "../cognition/effective-knowledge.js";
 import type { EffectiveKnowledge } from "../cognition/effective-knowledge.js";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { memoryFile, withMemoryTransaction } from "./memory-transaction.js";
-import { join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 
 // Tiered, curated memory (after firstmate's stow tiers and Letta's core vs
@@ -117,11 +116,19 @@ export function readMemoryEntries(paths = memoryPaths(), effective = true, snaps
   });
 }
 
-function parseSources(raw: string | null): Record<string, string[]> {
-  if (raw === null) return {};
-  const parsed: unknown = JSON.parse(raw);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || Object.values(parsed).some((value) => !Array.isArray(value) || value.some((item) => typeof item !== "string"))) throw new Error("Memory source index is invalid");
-  return Object.fromEntries(Object.entries(parsed));
+function atomicWrite(path: string, content: string): void {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const temporary = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporary, content, { encoding: "utf8", mode: 0o600 });
+  renameSync(temporary, path);
+}
+
+function readSources(paths: MemoryPaths): Record<string, string[]> {
+  try {
+    return JSON.parse(readFileSync(paths.sources, "utf8")) as Record<string, string[]>;
+  } catch {
+    return {};
+  }
 }
 
 function daysBetween(fromDay: string, toDay: string): number {
@@ -160,20 +167,12 @@ export interface ApplyReceipt {
  * memory cannot grow without bound when curation stalls.
  */
 export function applyMemoryOps(ops: MemoryOp[], options: { now?: Date; paths?: MemoryPaths } = {}): ApplyReceipt {
+  const now = options.now ?? new Date();
   const paths = options.paths ?? memoryPaths();
-  return withMemoryTransaction(paths, (commit) => applyMemoryOpsLocked(ops, options.now ?? new Date(), paths, commit));
-}
-
-function applyMemoryOpsLocked(ops: MemoryOp[], now: Date, paths: MemoryPaths, commit: (writes: Array<{ path: string; before: string | null; after: string }>) => void): ApplyReceipt {
   const today = localDay(now);
-  const memoryBefore = memoryFile(paths.memory);
-  const sourcesBefore = memoryFile(paths.sources);
-  const archiveBefore = memoryFile(paths.archive);
-  const dailyPath = join(paths.dailyDir, `${today}.md`);
-  const dailyBefore = memoryFile(dailyPath);
-  const entries = memoryBefore === null ? [] : parseMemory(memoryBefore);
+  const entries = readMemoryEntries(paths,false);
   const knowledge = readEffectiveKnowledge();
-  const sources = parseSources(sourcesBefore);
+  const sources = readSources(paths);
   const receipt: ApplyReceipt = { added: 0, updated: 0, reinforced: 0, archived: 0, notes: 0, rejected: [] };
   const archived: Array<{ entry: MemoryEntry; reason: string }> = [];
   const notes: string[] = [];
@@ -271,20 +270,20 @@ function applyMemoryOpsLocked(ops: MemoryOp[], now: Date, paths: MemoryPaths, co
     receipt.archived += 1;
   }
 
-  const writes = [
-    { path: paths.memory, before: memoryBefore, after: renderMemory(entries) },
-    { path: paths.sources, before: sourcesBefore, after: `${JSON.stringify(sources, null, 2)}\n` },
-  ];
+  atomicWrite(paths.memory, renderMemory(entries));
+  atomicWrite(paths.sources, `${JSON.stringify(sources, null, 2)}\n`);
   if (archived.length) {
-    const appended = [
+    mkdirSync(dirname(paths.archive), { recursive: true, mode: 0o700 });
+    appendFileSync(paths.archive, [
       `\n## ${now.toISOString()} archivist`,
       ...archived.map(({ entry, reason }) => `- ${entry.text} — ${entry.section}, ${entry.tier}, last confirmed ${entry.date}; ${reason}`),
       "",
-    ].join("\n");
-    writes.push({ path: paths.archive, before: archiveBefore, after: (archiveBefore ?? "") + appended });
+    ].join("\n"), { encoding: "utf8", mode: 0o600 });
   }
-  if (notes.length) writes.push({ path: dailyPath, before: dailyBefore, after: (dailyBefore ?? "") + `${notes.join("\n")}\n` });
-  commit(writes);
+  if (notes.length) {
+    mkdirSync(paths.dailyDir, { recursive: true, mode: 0o700 });
+    appendFileSync(join(paths.dailyDir, `${today}.md`), `${notes.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
+  }
   return receipt;
 }
 
