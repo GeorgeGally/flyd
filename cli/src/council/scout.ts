@@ -18,6 +18,7 @@ import { prepareScoutCandidates } from "./scout-editorial.js";
 import { verifiedMustKnow } from "./scout-evidence.js";
 import { writeEditorialShadow } from "./scout-eval.js";
 import { groupScoutStories, previouslyCovered, noteworthyUpdate } from "./scout-stories.js";
+import { isBareRelease } from "./scout-selection.js";
 import { recordScoutMetrics, recordScoutResearchHealth, recordSourceHealth, type ScoutSourceHealth } from "./scout-metrics.js";
 
 // The Scout: what's happening in the world that George would want to know —
@@ -162,6 +163,12 @@ const SEED_RSS: Array<[string, string, string]> = [
   ["Internet Archive Blogs", "https://blog.archive.org/feed/", "Internet Archaeology"],
   ["The Public Domain Review", "https://publicdomainreview.org/rss.xml", "Obscure Media"],
   ["Open Culture", "https://www.openculture.com/feed", "Obscure Media"],
+  ["We Make Money Not Art", "https://we-make-money-not-art.com/feed/", "Media Art"],
+  ["Neural", "https://neural.it/feed/", "Media Art"],
+  ["CLOT Magazine", "https://www.clotmag.com/feed/", "Media Art"],
+  ["Processing Foundation", "https://medium.com/feed/processing-foundation", "Creative Coding"],
+  ["Adafruit", "https://blog.adafruit.com/feed/", "Hardware Hacking"],
+  ["Evil Mad Scientist", "https://www.evilmadscientist.com/feed/", "Hardware Hacking"],
 ];
 
 /** Niche communities added beside Hermes's 35; they share the polite Reddit rotation. */
@@ -941,7 +948,7 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
     const older = existingEditions.find((entry) => noteworthyUpdate(candidate, entry));
     return older ? { ...candidate, updatedFrom: older.title } : candidate;
   });
-  const eligible = editorialMode() !== "on" ? updated : unseenCandidates(updated, dir);
+  const eligible = (editorialMode() !== "on" ? updated : unseenCandidates(updated, dir)).filter((candidate) => !isBareRelease(candidate.title));
   const fresh = editorialMode() !== "on" ? eligible.slice(0, EDITION_CANDIDATES)
     : prepareScoutCandidates(eligible, readFeedback(dir), now, EDITION_CANDIDATES);
   const maxItems = editorialMode() !== "on" ? LEGACY_BRIEF_MAX : BRIEF_MAX;
@@ -969,7 +976,8 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
     const shadowCandidates = [...candidates, ...discoveryCandidates(dir, now, true)];
     const shadowFresh = prepareScoutCandidates(
       unseenCandidates(groupScoutStories(interleaveBySource(shadowCandidates))
-        .filter((item) => !previouslyCovered(item, existingEditions) || existingEditions.some((entry) => noteworthyUpdate(item, entry))), dir),
+        .filter((item) => !previouslyCovered(item, existingEditions) || existingEditions.some((entry) => noteworthyUpdate(item, entry))), dir)
+        .filter((item) => !isBareRelease(item.title)),
       readFeedback(dir), now, EDITION_CANDIDATES,
     );
     const shadowRanked = shadowFresh.length
@@ -1053,8 +1061,8 @@ export async function watchScout(deps: ScoutDependencies): Promise<EditionItem[]
   const fresh = groupScoutStories(interleaveBySource(unseenCandidates(candidates, dir, watched))).slice(0, 80);
   // Everything examined is remembered so the watch never re-reads the same item.
   appendJsonl(join(dir, "watched.jsonl"), fresh.map((candidate) => ({ url: candidate.url, date: today })));
-  // …and kept for the next edition, which ranks from it.
-  poolCandidates(fresh, dir, now);
+  // …and kept for the next edition, which ranks from it; a bare release line is never a story.
+  poolCandidates(fresh.filter((candidate) => !isBareRelease(candidate.title)), dir, now);
   if (fresh.length === 0) return [];
 
   const nominatedMusts = parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "watch"))), fresh, 2).filter((item) => item.kind === "must");
