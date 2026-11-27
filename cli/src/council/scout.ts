@@ -1058,11 +1058,12 @@ export async function watchScout(deps: ScoutDependencies): Promise<EditionItem[]
   sources = recordFailures(sources, gathered, now);
   writeSources(sources, dir);
   const watched = new Set(readJsonl<{ url: string }>(join(dir, "watched.jsonl")).map((item) => item.url));
-  const fresh = groupScoutStories(interleaveBySource(unseenCandidates(candidates, dir, watched))).slice(0, 80);
+  const examined = groupScoutStories(interleaveBySource(unseenCandidates(candidates, dir, watched))).slice(0, 80);
   // Everything examined is remembered so the watch never re-reads the same item.
-  appendJsonl(join(dir, "watched.jsonl"), fresh.map((candidate) => ({ url: candidate.url, date: today })));
-  // …and kept for the next edition, which ranks from it; a bare release line is never a story.
-  poolCandidates(fresh.filter((candidate) => !isBareRelease(candidate.title)), dir, now);
+  appendJsonl(join(dir, "watched.jsonl"), examined.map((candidate) => ({ url: candidate.url, date: today })));
+  // …and, unless it is a bare release line, kept for the next edition and ranked for a must-know.
+  const fresh = examined.filter((candidate) => !isBareRelease(candidate.title));
+  poolCandidates(fresh, dir, now);
   if (fresh.length === 0) return [];
 
   const nominatedMusts = parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "watch"))), fresh, 2).filter((item) => item.kind === "must");
