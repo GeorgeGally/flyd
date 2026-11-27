@@ -18,7 +18,6 @@ import { prepareScoutCandidates } from "./scout-editorial.js";
 import { verifiedMustKnow } from "./scout-evidence.js";
 import { writeEditorialShadow } from "./scout-eval.js";
 import { groupScoutStories, previouslyCovered, noteworthyUpdate } from "./scout-stories.js";
-import { isBareRelease } from "./scout-selection.js";
 import { recordScoutMetrics, recordScoutResearchHealth, recordSourceHealth, type ScoutSourceHealth } from "./scout-metrics.js";
 
 // The Scout: what's happening in the world that George would want to know —
@@ -948,7 +947,7 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
     const older = existingEditions.find((entry) => noteworthyUpdate(candidate, entry));
     return older ? { ...candidate, updatedFrom: older.title } : candidate;
   });
-  const eligible = (editorialMode() !== "on" ? updated : unseenCandidates(updated, dir)).filter((candidate) => !isBareRelease(candidate.title));
+  const eligible = editorialMode() !== "on" ? updated : unseenCandidates(updated, dir);
   const fresh = editorialMode() !== "on" ? eligible.slice(0, EDITION_CANDIDATES)
     : prepareScoutCandidates(eligible, readFeedback(dir), now, EDITION_CANDIDATES);
   const maxItems = editorialMode() !== "on" ? LEGACY_BRIEF_MAX : BRIEF_MAX;
@@ -976,8 +975,7 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
     const shadowCandidates = [...candidates, ...discoveryCandidates(dir, now, true)];
     const shadowFresh = prepareScoutCandidates(
       unseenCandidates(groupScoutStories(interleaveBySource(shadowCandidates))
-        .filter((item) => !previouslyCovered(item, existingEditions) || existingEditions.some((entry) => noteworthyUpdate(item, entry))), dir)
-        .filter((item) => !isBareRelease(item.title)),
+        .filter((item) => !previouslyCovered(item, existingEditions) || existingEditions.some((entry) => noteworthyUpdate(item, entry))), dir),
       readFeedback(dir), now, EDITION_CANDIDATES,
     );
     const shadowRanked = shadowFresh.length
@@ -1058,11 +1056,10 @@ export async function watchScout(deps: ScoutDependencies): Promise<EditionItem[]
   sources = recordFailures(sources, gathered, now);
   writeSources(sources, dir);
   const watched = new Set(readJsonl<{ url: string }>(join(dir, "watched.jsonl")).map((item) => item.url));
-  const examined = groupScoutStories(interleaveBySource(unseenCandidates(candidates, dir, watched))).slice(0, 80);
+  const fresh = groupScoutStories(interleaveBySource(unseenCandidates(candidates, dir, watched))).slice(0, 80);
   // Everything examined is remembered so the watch never re-reads the same item.
-  appendJsonl(join(dir, "watched.jsonl"), examined.map((candidate) => ({ url: candidate.url, date: today })));
-  // …and, unless it is a bare release line, kept for the next edition and ranked for a must-know.
-  const fresh = examined.filter((candidate) => !isBareRelease(candidate.title));
+  appendJsonl(join(dir, "watched.jsonl"), fresh.map((candidate) => ({ url: candidate.url, date: today })));
+  // …and kept for the next edition, which ranks from it.
   poolCandidates(fresh, dir, now);
   if (fresh.length === 0) return [];
 
