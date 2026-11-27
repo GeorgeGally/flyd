@@ -190,3 +190,7 @@ authoritative path. This change does not rewrite historical private entries.
 - `FLYD_SELF_REVIEW=0` disables collection, verdict recording and review
   passes. The deterministic before-display checks still hold placeholder
   notifications and return internal implementation calls to FirstMate.
+
+## Chief of Staff execution mandate
+
+The CoS and its specialist teams follow [`cos-unreasonable-execution-standard.md`](cos-unreasonable-execution-standard.md): deep exploration, root-cause investigation, risk-adaptive adversarial testing and evidence-backed acceptance. This governs work **behind** Flyd, not the length, tone or frequency of Flyd's communication. Preserve this document's one-voice, user-decision and interruption rules. An internal team claiming completion is not sufficient evidence; the CoS must evaluate receipts and explicitly qualify unverified work.
