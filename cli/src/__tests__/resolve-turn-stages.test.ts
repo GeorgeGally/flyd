@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The resolution model is the one network call on this path; capture what it
 // is asked and answer with a fixed resolution.
@@ -47,9 +47,11 @@ function receipts() {
 }
 
 beforeEach(() => {
+  vi.stubEnv("FLYD_COS", "1");
   modelCalls.length = 0;
   resetResolutionTurnCounters();
 });
+afterEach(() => vi.unstubAllEnvs());
 
 describe("overlay general questions go through chat's turn stages", () => {
   it("reads the turn like chat, hands the answer its plan and skill, and records them on the receipt", async () => {
@@ -147,7 +149,7 @@ describe("the shared stages", () => {
       expect(brief).toContain("- the date");
     }
     const plan = planTurn({ route: "answer", source: "jev" })!;
-    expect(turnBriefParts({ plan, skill, fastNote: null, surface: "chat" })[0]).toContain("pass_on_question");
+    expect(turnBriefParts({ plan, skill, fastNote: null, surface: "chat" })[0]).toContain("hand_off");
     expect(turnBriefParts({ plan, skill, fastNote: { id: "a1", text: "NOTE-7" }, surface: "overlay" })).toEqual([
       expect.stringContaining("This turn is an answer."),
       expect.stringContaining("SKILL-KNOW-HOW-42"),

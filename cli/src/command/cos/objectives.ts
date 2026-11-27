@@ -7,10 +7,7 @@ import type { Objective } from "./types.js";
 // Objectives: one JSON file each under ~/.flyd/command/objectives/, written only through the command store's
 // lock (the Phase 2 mutation helper), each write bumping `revision`.
 
-/** Whether the Chief of Staff runs delegated work (split plan; off until Phase 5). */
-export function cosEnabled(): boolean {
-  return process.env.FLYD_COS === "1";
-}
+export { cosEnabled } from "./enabled.js";
 
 function objectivePath(id: string, dir = commandDir()): string {
   if (!/^obj-[a-zA-Z0-9-]{1,80}$/.test(id)) throw new Error("Invalid objective id");
@@ -25,13 +22,17 @@ export function readObjective(id: string, dir = commandDir()): Objective | null 
   }
 }
 
-export function listObjectives(dir = commandDir()): Objective[] {
+export function listObjectives(dir = commandDir(), strict = false): Objective[] {
   const path = join(dir, "objectives");
   if (!existsSync(path)) return [];
   return readdirSync(path)
     .filter((name) => name.endsWith(".json"))
     .flatMap((name) => {
-      try { return [JSON.parse(readFileSync(join(path, name), "utf8")) as Objective]; } catch { return []; }
+      try {
+        const objective = JSON.parse(readFileSync(join(path, name), "utf8")) as Objective;
+        if (strict && (!objective || typeof objective.id !== "string" || `${objective.id}.json` !== name || typeof objective.createdAt !== "string" || !Array.isArray(objective.runs) || !Array.isArray(objective.reportIds) || (objective.plan !== undefined && !Array.isArray(objective.plan)))) throw new Error(`Invalid objective ${name}`);
+        return [objective];
+      } catch (error) { if (strict) throw error; return []; }
     })
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
@@ -62,6 +63,40 @@ export function openObjective(input: Pick<Objective, "words" | "flydNotes" | "or
   return mutateObjective(id, () => objective, dir)!;
 }
 
+/** The objective a team's own follow-up run is adopted into: one per follow-up request, so a replay finds it. */
+export function followupObjectiveId(requestId: string): string {
+  return `obj-followup-${createHash("sha256").update(requestId).digest("hex").slice(0, 24)}`;
+}
+
+/**
+ * George answered objective work on its team's own surface (a design board), and the team started the follow-up run
+ * itself. That run is adopted by an objective of its own, already working, so the Chief of Staff reviews it and
+ * reports once instead of the run reaching George around it. The earlier objective is left as it was; the new one
+ * points back at it and at the run it follows. Idempotent: the same follow-up adopts once.
+ */
+export function adoptFollowupRun(input: {
+  objectiveId: string;
+  parentObjectiveId: string;
+  parentRunId: string;
+  runId: string;
+  words: string;
+  brief: Objective["brief"] & object;
+  project?: Objective["project"];
+}, dir = commandDir(), now = new Date()): Objective {
+  const saved = mutateObjective(input.objectiveId, (existing) => {
+    if (existing) return null;
+    const at = now.toISOString();
+    return {
+      id: input.objectiveId, revision: 0, createdAt: at, updatedAt: at, origin: { surface: "view" },
+      words: input.words, flydNotes: `George's follow-up on the team's own surface to earlier work (objective ${input.parentObjectiveId}).`,
+      contextRefs: [`objective:${input.parentObjectiveId}`, `domain-run:${input.parentRunId}`],
+      ...(input.project ? { project: input.project } : {}),
+      brief: input.brief, status: "working", runs: [input.runId], reportIds: [], progressAt: at,
+    };
+  }, dir);
+  if (!saved) throw new Error("Could not adopt the follow-up run into an objective");
+  return saved;
+}
 
 /**
  * CoS records an already-performed, independently sourced READ-ONLY research

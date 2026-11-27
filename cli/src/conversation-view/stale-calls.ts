@@ -137,7 +137,7 @@ export async function gatherStaleEvidence(
 /** The question Flyd's model answers about one old call. Pure. */
 export function stalePrompt(evidence: StaleEvidence): string {
   return [
-    "You are Flyd, George's chief of staff. His engineering staff left a decision waiting on him. Before it interrupts him,",
+    "You are Flyd, George's personal assistant. His engineering staff left a decision waiting on him. Before it interrupts him,",
     "decide whether his own work has already moved past it, so asking would waste his time.",
     "",
     `The ask (task ${evidence.task}): ${evidence.ask}`,

@@ -139,6 +139,10 @@ describe("Flyd's own setup", () => {
       "show me your settings",
       "what config do you have?",
       "which providers do you have configured",
+      "is your chief of staff running?",
+      "what is the chain of command between Flyd and Firstmate?",
+      "is flyd's chief of staff on",
+      "what does the chief of staff do?",
     ]) expect(isFlydSetupQuestion(question), question).toBe(true);
     for (const message of [
       "what's the weather in bangkok tonight",
@@ -155,8 +159,26 @@ describe("Flyd's own setup", () => {
       "can you use the settings from my last project",
       "what model do you have in mind for this",
       "what features do you have planned for gnm",
+      "have the chief of staff fix the gallery header",
+      "is the chief of staff done with the footer fix?",
+      "is the chief of staff on the footer fix?",
+      "is the chief of staff running the gallery job?",
+      "is your chief of staff done with the footer fix?",
+      "how is the chief of staff getting on with the gallery?",
+      "what did the chief of staff decide about the hero images?",
+      "ask the chief of staff to look into the chain of command docs",
     ]) {
       expect(isFlydSetupQuestion(message), message).toBe(false);
     }
+  });
+
+  it("reports the chief of staff's actual state and role", async () => {
+    vi.stubEnv("FLYD_COS", "0");
+    expect(await flydSetupReport()).toContain("Chief of Staff: disabled");
+    vi.stubEnv("FLYD_COS", "1");
+    const report = await flydSetupReport();
+    expect(report).toContain("Chief of Staff: enabled");
+    expect(report).toContain("Flyd → Chief of Staff → domain bosses");
+    expect(report).toContain("personal assistant, CEO, life coach, guru and mentor in one");
   });
 });

@@ -397,8 +397,10 @@ printf '{"id":"%s","saved":true,"acknowledged":false,"outcome":"queued"}\\n' "$3
     // Flyd's own note closing an overtaken decision is not something he said either.
     writeFileSync(join(target, "150-f.note"), "id=150-f\nat=2026-10-05T20:05:00Z\nsource=text\nrequest_id=flyd-close-gnm-sell-step-pick\n--\nFlyd's own note, not George's: the pending decision looks overtaken.\n");
     writeFileSync(join(target, "200-b.note"), "id=200-b\nat=2026-10-05T20:10:00Z\nsource=text\nrequest_id=domain-d9b0f61c\n--\nFLYD DOMAIN REQUEST\nFlyd is mediating this coding request for George.\n");
+    writeFileSync(join(target, "250-cos.note"), "id=250-cos\nat=2026-10-05T20:15:00Z\nsource=text\nrequest_id=obj-abc-123-r1\n--\nChief of staff brief.\n");
     mkdirSync(join(target, "handled"), { recursive: true });
     writeFileSync(join(target, "handled", "300-c.note"), "id=300-c\nat=2026-10-05T20:20:00Z\nsource=text\nrequest_id=domain-d9b0f61c:decision:abc\n--\nFLYD DECISION FOR ACTIVE DOMAIN RUN domain-d9b0f61c\n");
+    writeFileSync(join(target, "handled", "350-cos.note"), "id=350-cos\nat=2026-10-05T20:22:00Z\nsource=text\nrequest_id=obj-abc-123-r1:decision:abc\n--\nInternal CoS answer.\n");
     mkdirSync(join(target, ".replies"), { recursive: true });
     writeFileSync(join(target, ".replies", "300-c"), "id=300-c\nat=2026-10-05T20:25:00Z\n--\n{\"status\":\"completed\",\"brief\":\"Merged.\"}\n");
     const inbox = new FirstmateInbox({ home, script: join(dir, "missing.sh") });
@@ -593,6 +595,35 @@ describe("ClaudeCodeTranscriptSource with an inbox", () => {
     expect(readdirSync(join(home, "state", "inbox")).filter((name) => name.endsWith(".note"))).toHaveLength(2);
   });
 
+  it("keeps notes about legacy Firstmate tasks on the inbox and hands only objective-owned work to Flyd's desk", async () => {
+    vi.stubEnv("FLYD_COS", "1");
+    const project = join(dir, "project");
+    mkdirSync(project);
+    writeFileSync(join(project, "s1.jsonl"), captain("hello") + "\n");
+    const runs = join(process.env.FLYD_COMMAND_DIR!, "runs");
+    mkdirSync(runs, { recursive: true });
+    writeFileSync(join(runs, "domain-owned-note.json"), JSON.stringify({ id: "domain-owned-note", createdAt: "2026-11-27T00:00:00Z", request: { objectiveId: "obj-note" }, transport: { kind: "firstmate", requestId: "obj-note-r1", externalId: "1792372415-noteAb" } }));
+    const firstmate = join(dir, "firstmate-home");
+    mkdirSync(join(firstmate, "data"), { recursive: true });
+    writeFileSync(join(firstmate, "data", "backlog.md"), "- [ ] gallery-header - Fix the gallery header\n  From Flyd inbox request 1792372415-noteAb\n- [ ] legacy-task - The footer\n");
+    vi.stubEnv("FLYD_FIRSTMATE_HOME", firstmate);
+    const inboxed: string[] = [];
+    const inbox = { send: async (text: string) => (inboxed.push(text), { id: "note:1", timestamp: "x" }), notes: () => [], image: () => null };
+    const asked: Array<string | undefined> = [];
+    const desk = { ask: async (_text: string, _images?: unknown, _session?: string, _files?: unknown, _scope?: unknown, target?: string) => (asked.push(target), { id: "ask:1", timestamp: "x" }) } as unknown as FlydDesk;
+    const source = new ClaudeCodeTranscriptSource({ projectDir: project, inbox, desk: { desk, complete: async () => "FIRSTMATE" } });
+    await source.sendDecision("Answer to pending decision legacy-task", [], undefined, "s1");
+    await source.sendDecision("About the artefact \"Footer\"\nTask: legacy-task\n\nmake it blue", [], undefined, "s1", "legacy-task");
+    await source.sendDecision("make it blue", [], undefined, "s1", "domain-owned-note");
+    await source.sendDecision("make the header navy", [], undefined, "s1", "gallery-header");
+    expect(inboxed).toEqual(["Answer to pending decision legacy-task", "About the artefact \"Footer\"\nTask: legacy-task\n\nmake it blue"]);
+    expect(asked).toEqual(["domain-owned-note", "domain-owned-note"]);
+    writeFileSync(join(runs, "broken.json"), "{");
+    await expect(source.sendDecision("make it red", [], undefined, "s1", "legacy-task")).rejects.toThrow(/can't confirm/);
+    expect(inboxed).toHaveLength(2);
+    rmSync(join(runs, "broken.json"));
+  });
+
   it("marks only messages that start with a real skill or command", async () => {
     const project = join(dir, "project");
     mkdirSync(project);
@@ -611,6 +642,7 @@ describe("ClaudeCodeTranscriptSource with an inbox", () => {
   });
 
   it("adds Flyd's brief when it hands his words to firstmate, never to a slash command or what Flyd answers itself", async () => {
+    vi.stubEnv("FLYD_COS", "0");
     const project = join(dir, "project");
     mkdirSync(project);
     writeFileSync(join(project, "s1.jsonl"), captain("hello") + "\n");

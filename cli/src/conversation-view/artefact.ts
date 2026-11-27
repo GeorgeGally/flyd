@@ -64,6 +64,10 @@ export interface ArtefactRow {
   status?: string;
   /** Firstmate's task id, so its screenshots and full title can be found. */
   task?: string;
+  /** Exact originating inbox request, when Firstmate's snapshot records it. */
+  requestId?: string;
+  /** Whether this raw row belongs to Chief of Staff work could not be confirmed: shown, never decided, settled or followed up by Flyd. */
+  ownershipUnconfirmed?: boolean;
   /** When the task last reported, as an ISO time. */
   at?: string;
   /** When a call was raised, from the backlog: unlike `at`, a status line never moves it. */
@@ -116,6 +120,8 @@ export interface FleetArtefact {
   generated?: string;
   /** A plain reason the snapshot could not be read; never a made-up feed. Internal only: never shown. */
   unavailable?: string;
+  /** Firstmate could not reliably read one or more request bindings. */
+  provenanceIncomplete?: boolean;
   /** Captain holds: calls only he can make. */
   calls: ArtefactRow[];
   /** Work moving right now. */
@@ -317,6 +323,9 @@ export function parseBearings(raw: unknown): FleetArtefact {
   const data = raw as Record<string, unknown>;
   const schema = str(data.schema);
   if (schema && !schema.startsWith("fm-bearings")) return FLEET_UNAVAILABLE(`unexpected schema ${schema}`);
+  const provenanceFields = ["in_flight", "decisions_open", "gates", "landed"];
+  const provenanceRows = provenanceFields.flatMap((key) => rows(data[key]));
+  const provenanceMissing = (Boolean(schema) && provenanceFields.some((key) => !Array.isArray(data[key]))) || provenanceRows.some((row) => !("request_id" in row) || (row.request_id !== null && typeof row.request_id !== "string"));
   const recorded = new Map(rows(data.recorded_prs).map((row) => [str(row.id), httpUrl(row.url)]));
   const flight = rows(data.in_flight).map((row) => {
     const doing = str(row.doing);
@@ -330,6 +339,7 @@ export function parseBearings(raw: unknown): FleetArtefact {
       row: {
         label: str(row.name) || str(row.id),
         ...(str(row.id) ? { task: str(row.id) } : {}),
+        ...(str(row.request_id) ? { requestId: str(row.request_id) } : {}),
         ...(doing ? { detail: plainStep(doing) } : {}),
         ...(str(row.repo) ? { repo: str(row.repo) } : {}),
         ...(url ? { url } : {}),
@@ -357,8 +367,9 @@ export function parseBearings(raw: unknown): FleetArtefact {
   const HELD: Record<string, string> = { failed: "failed", unknown: "no word", paused: "paused", parked: "paused", blocked: "paused" };
   return {
     ...(str(data.generated) ? { generated: str(data.generated) } : {}),
+    ...(provenanceMissing || rows(data.omitted).some((item) => str(item.surface).startsWith("request provenance")) ? { provenanceIncomplete: true } : {}),
     changes,
-    calls: rows(data.decisions_open).map((row) => ({ label: str(row.summary) || str(row.id), ...(str(row.id) ? { task: str(row.id) } : {}) })).filter((row) => row.label),
+    calls: rows(data.decisions_open).map((row) => ({ label: str(row.summary) || str(row.id), ...(str(row.id) ? { task: str(row.id) } : {}), ...(str(row.request_id) ? { requestId: str(row.request_id) } : {}) })).filter((row) => row.label),
     live: inState("working").map((entry) => entry.row),
     ready: finished.filter((row) => row.status !== "merged"),
     landed: [
@@ -370,6 +381,7 @@ export function parseBearings(raw: unknown): FleetArtefact {
           return {
             label: str(row.what) || str(row.id),
             ...(str(row.id) ? { task: str(row.id) } : {}),
+            ...(str(row.request_id) ? { requestId: str(row.request_id) } : {}),
             ...(repo ? { repo } : {}),
             ...(url ? { url } : {}),
             status: "landed",
@@ -384,11 +396,37 @@ export function parseBearings(raw: unknown): FleetArtefact {
         return {
           label: str(row.title) || str(row.id),
           ...(str(row.id) ? { task: str(row.id) } : {}),
+          ...(str(row.request_id) ? { requestId: str(row.request_id) } : {}),
           status: blocked && blocked !== "-" ? `blocked by ${blocked}` : "queued",
         };
       })
       .filter((row) => row.label),
   };
+}
+
+/**
+ * Rows exactly bound to Chief of Staff work are withheld (its objective reports instead). Every other row stays; one whose
+ * ownership cannot be confirmed (no request binding while objective work is active, a secondmate child, a row this read
+ * did not see, or an unreadable objective record) is marked so, never dropped and never blanks the board.
+ */
+export function withoutCosFleet(fleet: FleetArtefact, requests: ReadonlySet<string> | null, authoritative: FleetArtefact = fleet): { fleet: FleetArtefact; tasks: Set<string> } {
+  const owned = requests ?? new Set<string>();
+  const tasks = new Set(FLEET_FIELDS.flatMap((field) => fleet[field].flatMap((row) => row.requestId && owned.has(row.requestId) && row.task ? [row.task] : [])));
+  // Bearings prefixes secondmate child IDs with "home/"; their request ownership is not yet available.
+  const known = new Set(FLEET_FIELDS.flatMap((field) => authoritative[field].flatMap((row) => row.task ? [row.task] : [])));
+  const complete = !fleet.provenanceIncomplete && !authoritative.provenanceIncomplete;
+  const confirmed = (row: ArtefactRow) => requests !== null && (!requests.size || Boolean(row.requestId)
+    || Boolean(complete && row.task && known.has(row.task) && !row.task.includes("/")));
+  const withheld = (row: ArtefactRow) => Boolean(row.requestId && owned.has(row.requestId)) || Boolean(row.task && tasks.has(row.task));
+  return { fleet: { ...fleet, ...Object.fromEntries(FLEET_FIELDS.map((field) => [field, fleet[field].filter((row) => !withheld(row)).map((row) => confirmed(row) ? row : { ...row, ownershipUnconfirmed: true })])),
+    ...(fleet.changes ? { changes: fleet.changes.filter((change) => !change.taskId || !tasks.has(change.taskId)) } : {}) }, tasks };
+}
+
+/** Only the rows whose ownership is confirmed, for anything Flyd decides, settles or follows up on its own. */
+function confirmedFleet(fleet: FleetArtefact): FleetArtefact {
+  const unconfirmed = new Set(FLEET_FIELDS.flatMap((field) => fleet[field].flatMap((row) => row.ownershipUnconfirmed && row.task ? [row.task] : [])));
+  return { ...fleet, ...Object.fromEntries(FLEET_FIELDS.map((field) => [field, fleet[field].filter((row) => !row.ownershipUnconfirmed)])),
+    ...(fleet.changes ? { changes: fleet.changes.filter((change) => !change.taskId || !unconfirmed.has(change.taskId)) } : {}) };
 }
 
 export interface BacklogEntry {
@@ -790,6 +828,7 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
       const plain = plainQuestionFor(row.question ?? row.label, tasks);
       const detail = row.detail ? plainQuestionFor(row.detail, tasks) : null;
       if (plain) return [{ ...row, title: row.title ?? row.label, label: plain, ...(row.question ? { question: plain } : {}), detail: detail ?? undefined }];
+      if (row.ownershipUnconfirmed) return [{ ...row, title: row.title ?? row.label }];
       const { question: _question, detail: _detail, choices: _choices, ...held } = row;
       return [{ ...held, label: `A call on ${row.repo ?? "your work"} is waiting; Flyd is getting it restated.` }];
     }
@@ -1397,9 +1436,10 @@ function withoutProject(label: string, names: string[]): string {
 function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeOptions): ShowItem | undefined {
   const item = loopbackRowItem(kind, id, row, options);
   if (!item) return undefined;
+  const detail = [item.detail ? publicBoardUrl(item.detail) : "", row.ownershipUnconfirmed ? "ownership unconfirmed" : ""].filter(Boolean).join(" · ");
   return {
     ...item,
-    ...(item.detail ? { detail: publicBoardUrl(item.detail) } : {}),
+    ...(detail ? { detail } : {}),
     ...(item.links ? { links: item.links.map((link) => namedBoardLink(link, row.boardNames)) } : {}),
   };
 }
@@ -1824,11 +1864,11 @@ function alive(pid: number): boolean {
  * a timed-out run stays in flight and the next read can never start beside it.
  * Rejects with why it failed, carrying no command line.
  */
-function runFleetScript(script: string, timeoutMs: number): Promise<string> {
+function runFleetScript(script: string, timeoutMs: number, complete: boolean): Promise<string> {
   return new Promise((resolve, reject) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(script, ["--json", "--all-in-flight"], { detached: true, stdio: ["ignore", "pipe", "pipe"] });
+      child = spawn(script, ["--json", "--all-in-flight", ...(complete ? ["--all-decisions", "--all-queued", "--all-landed"] : [])], { detached: true, stdio: ["ignore", "pipe", "pipe"] });
     } catch (error) {
       reject(error);
       return;
@@ -2020,6 +2060,8 @@ export class ArtefactFeed {
       voice?: ArtefactVoice;
       /** Every FirstMate change must receive a Core decision before it can reach a surface. */
       decideChanges?: (changes: FirstmateChange[]) => Promise<ExecutiveDecisionRecord[]>;
+      /** Requests already represented by an objective, from their exact durable transport ids. */
+      cosRequests?: () => ReadonlySet<string> | null;
       /** Reads whether old calls were overtaken; without it every call is shown. */
       overtaken?: OvertakenCheck;
       /** Asks firstmate whether each call is still open, and names its lifecycle (hold-check.ts); without it the snapshot is trusted. */
@@ -2238,13 +2280,16 @@ export class ArtefactFeed {
     this.lastGood(started);
     const timeout = this.options.timeoutMs ?? fleetReadTimeout(this.good?.durationMs);
     try {
-      const raw = bearingsJson(await runFleetScript(script, timeout));
+      const ownership = this.options.cosRequests?.();
+      const raw = bearingsJson(await runFleetScript(script, timeout, ownership === null || (ownership?.size ?? 0) > 0));
       const fleet = parseBearings(raw);
       if (fleet.unavailable) throw new Error(fleet.unavailable);
       this.keepGood(raw, Date.now(), Date.now() - started);
+      const requestIds = this.options.cosRequests?.();
+      const eligible = confirmedFleet(withoutCosFleet(fleet, requestIds === undefined ? new Set() : requestIds).fleet);
       if (!process.env.VITEST) {
         try {
-          syncFleetFollowups(fleet.held.flatMap((row) => row.task ? [{ id: row.task, task: row.label, status: row.status ?? "" }] : []));
+          syncFleetFollowups(eligible.held.flatMap((row) => row.task ? [{ id: row.task, task: row.label, status: row.status ?? "" }] : []));
         } catch (error) {
           console.warn(`[view] fleet follow-ups not filed: ${reason(error)}`);
         }
@@ -2323,7 +2368,7 @@ export class ArtefactFeed {
     if (prune) for (const [key, entry] of merged) if (now - entry.seenAt > LEDGER_KEEP_MS) merged.delete(key);
     this.ledger.clear();
     for (const [key, entry] of merged) this.ledger.set(key, entry);
-    return { ...this.ledgerFleet(incoming.generated), changes: incoming.changes };
+    return { ...this.ledgerFleet(incoming.generated), changes: incoming.changes, ...(incoming.provenanceIncomplete ? { provenanceIncomplete: true } : {}) };
   }
 
   /** The accumulated list as the fleet the screen reads, this read's rows first, ledger-only rows after. */
@@ -2477,8 +2522,11 @@ export class ArtefactFeed {
       }
       // Done rows move to the archive; the live backlog wins for a task in both.
       const entries = new Map([...parseBacklog(archiveText), ...parseBacklog(backlogText)]);
+      const requestIds = this.options.cosRequests?.();
+      const requests = requestIds ?? new Set<string>();
+      const provenanceUncertain = requestIds === null || (requests.size > 0 && (bearings.provenanceIncomplete === true || fleetReadFailed));
       // Flyd's own runs whose task the record closed stop asking before anything is decided or drawn.
-      if (this.options.settleRuns && !bearings.unavailable) {
+      if (this.options.settleRuns && !bearings.unavailable && !provenanceUncertain) {
         try {
           await this.options.settleRuns(entries);
         } catch (error) {
@@ -2499,23 +2547,29 @@ export class ArtefactFeed {
       const withRecent: FleetArtefact = { ...bearings, landed: [...bearings.landed, ...landedRows(recent, extras, (repo) => Boolean(urls?.urlFor(repo)))] };
       // The screen is an accumulating list, persisted: a refresh adds or updates rows, and a read that fails drops nothing.
       this.loadLedger();
-      const merged = this.mergeLedger(withRecent, Date.now(), !bearings.unavailable);
+      const merged = this.mergeLedger(withRecent, Date.now(), !bearings.unavailable && !provenanceUncertain);
       const content = bearings.unavailable && !FLEET_FIELDS.some((field) => merged[field].length) ? FLEET_UNAVAILABLE("unreadable") : merged;
+      const owned = withoutCosFleet(provenanceUncertain ? { ...content, provenanceIncomplete: true } : content, requestIds === null ? null : requests, bearings);
       // Every call is checked before it can reach him: is it still open (firstmate's own predicate, and its subject not
       // already landed), was it overtaken (the staff are told to close it), did he retire it, and is it still a current
       // decision (the 3-day rule). The staff hear about overtaken calls even when the 3-day rule then hides them.
-      const allQuestions = enrichFleet(content, entries, extras, Date.now(), { sourceDetail: Boolean(this.options.decideChanges), keepStaleCalls: true });
+      const allQuestions = enrichFleet(owned.fleet, entries, extras, Date.now(), { sourceDetail: Boolean(this.options.decideChanges), keepStaleCalls: true });
       const live = await this.withLiveHolds(allQuestions, bearings.unavailable ? undefined : bearings);
       const enriched = pinnedQuestions(withCurrentCalls(this.withoutRetired(await this.withoutOvertaken(live, entries)), Date.now()));
       const decided = this.options.decideChanges
-        ? projectFleetDecisions(enriched, await this.options.decideChanges(firstmateChangesFromFleet(enriched)).catch((error: unknown) => {
+        ? projectFleetDecisions(enriched, await this.options.decideChanges(firstmateChangesFromFleet(confirmedFleet(enriched))).catch((error: unknown) => {
           console.warn(`[view] executive decision step failed: ${reason(error)}`);
           return [];
-        }), heldForAttention())
+        }), heldForAttention().filter((row) => {
+          const run = row.task ? readDomainRun(row.task) : null;
+          return !run?.transport.requestId || !requests.has(run.transport.requestId);
+        }))
         : enriched;
       // Every worker the staff is running, not only the twenty the snapshot lists.
       const running = decided.unavailable ? [] : this.staffLive(withRecent);
-      if (running.length) decided.live = [...decided.live, ...running];
+      if (running.length) {
+        decided.live = [...decided.live, ...running.filter((row) => !row.task || !owned.tasks.has(row.task)).map((row) => requestIds === null || requests.size ? { ...row, ownershipUnconfirmed: true } : row)];
+      }
       decided.calls = decided.calls.map((row) => ({ ...row, title: row.title ?? row.label, label: callHeadline(row.label, row.task ? entries.get(row.task)?.title : undefined) }));
       for (const row of decided.calls) {
         const entry = row.ledgerOnly ? undefined : this.ledger.get(ledgerKey("calls", row) ?? "");
@@ -2527,9 +2581,10 @@ export class ArtefactFeed {
       // Flyd's own words for each row, after the executive has decided what may show: its wording
       // never changes what reaches George, only how it reads (no commit subjects, no task ids).
       const { fleet, unsaid } = voice ? this.voiced(voice, decided) : { fleet: decided, unsaid: [] };
+      const visibleEntries = new Map([...entries].filter(([task]) => !owned.tasks.has(task)));
       this.inputs = {
         fleet: this.withBoards(fleet),
-        ...(bearings.unavailable ? {} : { landedByDay: landedByDay(entries, Date.now()), landedWeek: weekLandedRows(entries, Date.now()) }),
+        ...(bearings.unavailable || decided.unavailable ? {} : { landedByDay: landedByDay(visibleEntries, Date.now()), landedWeek: weekLandedRows(visibleEntries, Date.now()) }),
         memories: memoryHighlights(memoryText),
         news: newsHighlights(newsRaw),
         taste: tasteHighlights(tasteText),
@@ -2599,7 +2654,7 @@ export class ArtefactFeed {
   private async withoutOvertaken(fleet: FleetArtefact, entries: Map<string, BacklogEntry>): Promise<FleetArtefact> {
     const check = this.options.overtaken;
     if (!check || fleet.unavailable) return fleet;
-    const calls = fleet.calls.filter((row) => !row.ledgerOnly).map((row) => ({ row, call: callId(row) }));
+    const calls = fleet.calls.filter((row) => !row.ledgerOnly && !row.ownershipUnconfirmed).map((row) => ({ row, call: callId(row) }));
     for (const call of this.overtaken.keys()) if (!calls.some((item) => item.call === call)) this.overtaken.delete(call);
     const verdicts = await Promise.all(calls.map(async ({ row, call }) => {
       if (!row.task) return undefined;

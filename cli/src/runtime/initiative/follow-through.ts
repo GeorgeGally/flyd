@@ -1,3 +1,4 @@
+import { cosEnabled } from "../../command/cos/enabled.js";
 import { IntelligenceEventStore, type StoredEvent } from "../../intelligence/event-store.js";
 import {
   INITIATIVE_CURATED_CONTRACT, INITIATIVE_MANDATE_CONTRACT,
@@ -117,7 +118,7 @@ export function reconcileInitiativeObjectives(deps: FollowThroughDeps = {}): num
 
 export async function runInitiativeFollowThrough(deps: FollowThroughDeps = {}): Promise<FollowThroughResult> {
   const summary: FollowThroughResult = { reviewed: 0, accepted: 0, reported: 0, published: 0, held: [] };
-  if (!(deps.cosEnabled ?? (() => process.env.FLYD_COS === "1"))()) {
+  if (!(deps.cosEnabled ?? (() => cosEnabled()))()) {
     summary.held.push("cos_not_enabled");
     return summary;
   }

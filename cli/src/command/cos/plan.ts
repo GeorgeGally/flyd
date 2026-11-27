@@ -47,6 +47,11 @@ export function planRequestId(objectiveId: string, run: Pick<PlannedRun, "key" |
   return run.attempt > 1 ? `${objectiveId}-${run.key}-${run.attempt}` : `${objectiveId}-${run.key}`;
 }
 
+/** The report a crew run ready for his /land is put to him under: one per objective and crew task. */
+export function crewReadyReportId(objectiveId: string, ref: string): string {
+  return `${objectiveId}:${ref}:ready`;
+}
+
 /** The objective's plan; one written before plans existed (one dispatched run) reads as that one run. */
 export function planOf(objective: Objective): PlannedRun[] {
   if (objective.plan) return objective.plan;

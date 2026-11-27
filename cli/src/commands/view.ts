@@ -49,6 +49,11 @@ import { LiveStaffSession, readStaffView } from "../command/fleet-monitor.js";
 import { listDomainRuns, readDomainRun } from "../command/store.js";
 import { isOpen, isSettled } from "../command/run-state.js";
 import { sendRunMessage } from "../command/messages.js";
+import { tellWork } from "../command/cos/steer.js";
+import { listObjectives, mutateObjective, readObjective } from "../command/cos/objectives.js";
+import type { Objective } from "../command/cos/types.js";
+import type { DomainRun } from "../command/types.js";
+import { cosRequestIds, namesOwnedWork, readCosOwners, recentObjectiveWork } from "../conversation-view/cos-jobs.js";
 import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun, STAFF_COORDINATION_POLICY } from "../intelligence/executive/firstmate-decision.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision, takeBackSettledDecision } from "../intelligence/executive/decision-step.js";
@@ -101,7 +106,7 @@ export const answerAsFlyd: Answerer = async (question, history, onStep, turn) =>
   const memory = await retrieveAgentMemory(question, turn ? { excludeConversationSessionId: turn.source.sessionId } : {}).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
   const article = turn ? await articleForTurn(turn.source.sessionId, question) : undefined;
   let deferred = false;
-  const text = await respondToConversation({ onAnswerContent, ...(turn ? { onDeferred: () => { deferred = true; }, source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact, onMutation: turn.onMutation, ...(turn.askUser ? { askUser: turn.askUser } : {}), ...(turn.outside ? { outside: true } : {}), ...(turn.attached ? { attached: turn.attached } : {}), ...(turn.scope ? { chatScope: turn.scope } : {}) } : {}), ...(article ? { article } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: FORM_PROMPT });
+  const text = await respondToConversation({ onAnswerContent, ...(turn ? { onDeferred: () => { deferred = true; }, source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact, onMutation: turn.onMutation, ...(turn.askUser ? { askUser: turn.askUser } : {}), ...(turn.outside ? { outside: true } : {}), ...(turn.attached ? { attached: turn.attached } : {}), ...(turn.attachmentRefs?.length ? { attachmentRefs: turn.attachmentRefs } : {}), ...(turn.targetTaskId ? { targetTaskId: turn.targetTaskId } : {}), ...(turn.scope ? { chatScope: turn.scope } : {}) } : {}), ...(article ? { article } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: FORM_PROMPT });
   if (deferred) return { deferred: true };
   // Quiet design companionship: already-curated, sourced references become
   // an ambient card, never a second spoken answer or a new remote search.
@@ -175,6 +180,46 @@ function openInBrowser(url: string): void {
   execFile(command, [url], () => {});
 }
 
+/**
+ * His answer about objective-owned work goes through its objective: told to the work while it can hear it,
+ * recorded on the objective once the work settled, never sent as new work. Returns the evidence of where it went.
+ */
+export async function answerObjectiveRun(run: Pick<DomainRun, "id" | "request">, message: string): Promise<string> {
+  const objectiveId = run.request.objectiveId!;
+  const sent = await tellWork({ objectiveId, runId: run.id, kind: "decision", message });
+  if (sent.delivered) return `objective:${objectiveId}`;
+  const settled = (objective: Objective | null) => objective?.status === "done" || objective?.status === "cancelled";
+  if (!settled(readObjective(objectiveId))) throw new Error(sent.ask || "The Chief of Staff could not deliver that answer to the work");
+  const recorded = mutateObjective(objectiveId, (current) => settled(current) ? { ...current!, flydNotes: [current!.flydNotes, `Later from George (decision on ${run.id}): ${message}`].filter(Boolean).join("\n") } : null);
+  if (!settled(recorded)) throw new Error("Flyd could not record that answer on its work");
+  return `objective:${objectiveId}`;
+}
+
+/** Said in place of a Firstmate wake report while the Chief of Staff's work cannot be read. */
+export const WAKE_OWNER_UNAVAILABLE = "A coding report came in, but Flyd can't confirm just now whether the Chief of Staff owns that work, so it is held back until it can.";
+
+/** A Firstmate wake report that names objective-owned work stays with the Chief of Staff; one that cannot be checked says so. */
+export function firstmateWakeOwner(text: string, owned: ReadonlyMap<string, string> | null): "shown" | "objective" | "unverified" {
+  if (owned === null) return "unverified";
+  return namesOwnedWork(text, owned) ? "objective" : "shown";
+}
+
+/** Firstmate's messages as the threads read them: wake reports about objective-owned work are kept backstage. */
+export function withoutCosWakes(messages: ConversationMessage[], owned: ReadonlyMap<string, string> | null): ConversationMessage[] {
+  return messages.flatMap((message) => {
+    if (!message.wake) return [message];
+    const owner = firstmateWakeOwner(message.text, owned);
+    return owner === "objective" ? [] : owner === "unverified" ? [{ ...message, text: WAKE_OWNER_UNAVAILABLE }] : [message];
+  });
+}
+
+function cosRequestsForView(): ReadonlySet<string> | null {
+  try {
+    const work = recentObjectiveWork(listDomainRuns(undefined, true), listObjectives(undefined, true));
+    return cosRequestIds(work.runs, work.objectives);
+  } catch { return null; }
+}
+
 /** The threads over everything he has said: Flyd's conversations, and firstmate's session transcripts beside them, read only. */
 function withThreads(source: ConversationSource, flyd: FlydConversationSource, transcript?: ClaudeCodeTranscriptSource): ConversationSource {
   const firstmateDir = resolveProjectDir(FIRSTMATE_PROJECT_DIR);
@@ -185,12 +230,13 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, t
       sessions: () => firstmate.listSessions(),
       read: async (id: string) => {
         const snapshot = await firstmate.readHistory(id);
-        notePlay(snapshot.messages);
-        return snapshot;
+        const messages = withoutCosWakes(snapshot.messages, readCosOwners());
+        notePlay(messages);
+        return { ...snapshot, messages };
       },
       image: (session: string, id: string) => firstmate.image(session, id),
       // A reply to what he said is never kept back; a wake's report passes the check every relay passes.
-      shows: (message: ConversationMessage) => !message.wake || relayMayShow(inFlydsVoice(message.text)),
+      shows: (message: ConversationMessage) => !message.wake || message.text === WAKE_OWNER_UNAVAILABLE || relayMayShow(inFlydsVoice(message.text)),
       revision: () => firstmate.exchanges().map((exchange) => `${exchange.question.id}:${exchange.answer?.id ?? ""}`).join(","),
     }] : []),
   ];
@@ -204,7 +250,7 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, t
   const read = new Set<string>();
   const notePlay = (messages: ConversationMessage[]) => {
     for (const message of messages) {
-      if (message.role !== "assistant" || read.has(message.id)) continue;
+      if (message.role !== "assistant" || read.has(message.id) || message.text === WAKE_OWNER_UNAVAILABLE) continue;
       read.add(message.id);
       try {
         // What landed or needs him rings once, a project at a time; only a line he saw whole counts as told, the rest waits for his next briefing.
@@ -280,7 +326,7 @@ export function feedChecks(inbox: Pick<FirstmateInbox, "available" | "home" | "s
  * The view's one feed, built from the options `flyd view` was started with (Flyd.app: `view --no-open --port <n>`):
  * whatever they are, it carries every safety check `feedChecks` builds.
  */
-export function viewFeed(options: ViewOptions, inbox: Pick<FirstmateInbox, "available" | "home" | "sendOwn">, feed: Pick<ConstructorParameters<typeof ArtefactFeed>[0] & object, "voice" | "decideChanges" | "workers">): ArtefactFeed {
+export function viewFeed(options: ViewOptions, inbox: Pick<FirstmateInbox, "available" | "home" | "sendOwn">, feed: Pick<ConstructorParameters<typeof ArtefactFeed>[0] & object, "voice" | "decideChanges" | "workers" | "cosRequests">): ArtefactFeed {
   return new ArtefactFeed({ home: inbox.home, ...feed, ...feedChecks(inbox) });
 }
 
@@ -317,10 +363,15 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         const message = `George takes back the answer Flyd gave for him by his standing rule ("${decision.settled.answer}") to: ${decision.settled.question}\n\nHis own answer: ${answer.trim()}`;
         const run = listDomainRuns().find((item) => item.id === taskId && item.transport.kind === "firstmate" && item.request.domain === "coding");
         if (run) {
-          const sent = await sendRunMessage({ run, kind: "decision", body: message, from: "flyd" });
-          if (!sent.delivered) throw new Error("Flyd could not deliver that answer to the work");
+          if (run.request.objectiveId) {
+            await answerObjectiveRun(run, message);
+          } else {
+            const sent = await sendRunMessage({ run, kind: "decision", body: message, from: "flyd" });
+            if (!sent.delivered) throw new Error("Flyd could not deliver that answer to the work");
+          }
         } else {
           if (!inbox.available()) throw new Error("There is no connected coding employee to receive that answer");
+          if (cosRequestsForView() === null) throw new Error("Flyd can't confirm who owns that work just now; your answer was not sent");
           await inbox.sendTaskNote(taskId, message);
         }
         takeBackSettledDecision(store, decisionId, answer);
@@ -331,16 +382,24 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         if (decision.resolution.answer === answer.trim()) return;
         throw new QuestionGone("That decision already has George's answer");
       }
-      const run = listDomainRuns().find((item) => item.id === taskId && item.transport.kind === "firstmate"
-        && item.request.domain === "coding" && (update || !isSettled(item.status)));
+      const runs = listDomainRuns();
+      // Objective work is answered through its objective even after its run settled: never as new work around it.
+      const run = runs.find((item) => item.id === taskId && item.transport.kind === "firstmate"
+        && item.request.domain === "coding" && (update || !isSettled(item.status) || Boolean(item.request.objectiveId)));
+      // Without a reading of which requests the Chief of Staff owns, an answer cannot safely open work of its own.
+      if (!run && cosRequestsForView() === null) throw new Error("Flyd can't confirm who owns that work just now; your answer was not sent");
       let evidenceRef: string;
       if (run) {
         const message = update ? `George's follow-up on his answer to: ${decision.question}\n\n${answer.trim()}` : `George's answer to: ${decision.question}\n\n${answer.trim()}`;
-        const sent = await sendRunMessage({ run, kind: "decision", body: message, from: "flyd" });
-        if (!sent.delivered) throw new Error("Flyd could not deliver that decision to the active work");
-        const receipt = sent.run?.messages?.find((item) => item.kind === "decision" && item.body === message && item.deliveredAt);
-        if (!receipt) throw new Error("Flyd could not verify delivery of that decision");
-        evidenceRef = `domain-message:${receipt.id}`;
+        if (run.request.objectiveId) {
+          evidenceRef = await answerObjectiveRun(run, message);
+        } else {
+          const sent = await sendRunMessage({ run, kind: "decision", body: message, from: "flyd" });
+          if (!sent.delivered) throw new Error("Flyd could not deliver that decision to the active work");
+          const receipt = sent.run?.messages?.find((item) => item.kind === "decision" && item.body === message && item.deliveredAt);
+          if (!receipt) throw new Error("Flyd could not verify delivery of that decision");
+          evidenceRef = `domain-message:${receipt.id}`;
+        }
       } else {
         if (!inbox.available()) throw new Error("There is no connected coding employee to receive that decision");
         // No run of his is open for it: his answer goes as a run of its own, his words as its original message.
@@ -422,7 +481,10 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true, source: "commands/view" }),
       jev: { ...(process.env.FLYD_JEV_MODEL ? { model: process.env.FLYD_JEV_MODEL } : {}) },
       executeInternalAction: async (action) => {
-        const run = listDomainRuns().find((item) => item.id === action.target && item.transport.kind === "firstmate"
+        const runs = listDomainRuns();
+        // Objective work is coordinated by the Chief of Staff, never by a fresh staff note from here.
+        if (runs.some((item) => item.id === action.target && item.request.objectiveId)) return { status: "unknown", evidenceRefs: [] };
+        const run = runs.find((item) => item.id === action.target && item.transport.kind === "firstmate"
           && item.request.domain === "coding" && isOpen(item.status));
         if (!run) {
           const observedTask = prepared.find((change) => change.taskId === action.target && change.authority?.some((grant) => grant.grantId === action.grantId));
@@ -447,6 +509,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     decideChanges,
     // Working reads every worker Core's staff watch sees, not the snapshot's first twenty.
     workers: () => readStaffView()?.snapshot.workers ?? [],
+    cosRequests: cosRequestsForView,
   });
   if (source !== flydSource) source = executiveConversationSource(source, decideChanges, resolveDecision);
   // His conversations by project: Flyd's own and firstmate's, read only.

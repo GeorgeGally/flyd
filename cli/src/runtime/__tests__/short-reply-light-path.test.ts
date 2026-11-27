@@ -3,6 +3,7 @@ import { respondToConversation } from "../conversation-responder.js";
 
 beforeEach(() => {
   vi.stubEnv("FLYD_ROOM", "0");
+  vi.stubEnv("FLYD_COS", "1");
   // The compatibility crew path, so nothing reaches a real FirstMate home.
   vi.stubEnv("FLYD_FIRSTMATE", "0");
 });
@@ -22,7 +23,7 @@ async function turn(message: string, route: "delegate" | "answer", history: Arra
       seen.iterations = maxIterations;
       seen.toolCallBudget = options?.toolCallBudget;
       seen.tools = tools.map((tool) => tool.name);
-      if (route === "delegate") seen.result = await onToolCall("start_coding_task", { repo: process.cwd(), outcome: "Fix the hero spacing", done_when: ["the hero spacing matches the rest"] });
+      if (route === "delegate") seen.result = await onToolCall("hand_off", { words: "Fix the hero spacing", notes: "the hero spacing matches the rest" });
       return "<final>On it.</final>";
     },
   });
@@ -34,10 +35,10 @@ describe("a short reply in the conversation", () => {
     const light = await turn(REPLY, "delegate");
     expect(light.iterations).toBe(2);
     expect(light.toolCallBudget).toBe(1);
-    expect(light.tools).toContain("start_coding_task");
+    expect(light.tools).toContain("hand_off");
     // The hand-off runs (recorded, as this is a read-only evaluation run), not skipped by the plan.
     expect(light.result).not.toMatch(/Skipped/);
-    expect(light.result).toMatch(/start_coding_task .*Fix the hero spacing/);
+    expect(light.result).toMatch(/hand_off .*Fix the hero spacing/);
   });
 
   it("gives a go-ahead to work Flyd just offered the full loop, so the approved work can run", async () => {

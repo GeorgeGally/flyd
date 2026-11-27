@@ -316,10 +316,27 @@ describe("a hand-over that was never confirmed", () => {
 });
 
 describe("a run handed to the crew", () => {
-  function crewTask(id: string, status: string): void {
+  function crewTask(id: string, status: string, objectiveId?: string): void {
     mkdirSync(join(home, "crew", "tasks"), { recursive: true });
-    writeFileSync(join(home, "crew", "tasks", `${id}.json`), JSON.stringify({ id, repo: "/tmp/r", outcome: "Fix the footer", branch: "b", baseBranch: "main", baseCommit: "c", worktree: "/tmp/w", status, log: "/tmp/l", createdAt: new Date().toISOString(), summary: "Footer fixed.", ...(status === "failed" ? { failure: "tests failed" } : {}) }));
+    writeFileSync(join(home, "crew", "tasks", `${id}.json`), JSON.stringify({ id, repo: "/tmp/r", outcome: "Fix the footer", branch: "b", baseBranch: "main", baseCommit: "c", worktree: "/tmp/w", status, log: "/tmp/l", createdAt: new Date().toISOString(), summary: "Footer fixed.", ...(objectiveId ? { objectiveId } : {}), ...(status === "failed" ? { failure: "tests failed" } : {}) }));
   }
+
+  it("reports an objective-owned crew result as awaiting landing, then reports its landing once", async () => {
+    const h = harness("{}");
+    const id = openObjective({ words: "fix the footer", flydNotes: "", origin: { surface: "chat" } }).id;
+    const plan: PlannedRun[] = [{ key: "r1", team: "coding", outcome: "Fix the footer", doneWhen: ["footer fixed"], state: "dispatched", attempt: 1, validFor: 0, ref: "crew:t5" }];
+    mutateObjective(id, (current) => current && { ...current, status: "working", plan, runs: ["crew:t5"] });
+    crewTask("t5", "ready", id);
+    await cosTick(h.deps);
+    await cosTick(h.deps);
+    expect([readObjective(id)?.status, h.said.length, planOf(readObjective(id)!)[0]?.state]).toEqual(["needs_george", 1, "dispatched"]);
+    expect(h.said[0]?.outcome).toContain("ready");
+    crewTask("t5", "landed", id);
+    await cosTick(h.deps);
+    await cosTick(h.deps);
+    expect([readObjective(id)?.status, h.said.length]).toEqual(["done", 2]);
+    h.store.close();
+  });
 
   it("settles with the crew task and closes its objective without telling him twice", async () => {
     const h = harness("{}");

@@ -39,7 +39,7 @@ const RECORDED = existsSync(RECORDINGS) ? loadJudgmentTraces(RECORDINGS) : [];
 // run that makes them): recorded mode must never report missing traces.
 const SUITES = [
   "front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl", "council.jsonl", "chat-turn.jsonl",
-  "skill-match.jsonl", "note-relevance.jsonl", "self-review.jsonl", "reply-artefact.jsonl",
+  "skill-match.jsonl", "note-relevance.jsonl", "self-review.jsonl", "reply-artefact.jsonl", "role-matters.jsonl",
   ...(LIVE || RECORDED.some((trace) => trace.predicateId === "answer_form") ? ["answer-form.jsonl"] : []),
   ...(LIVE || RECORDED.some((trace) => trace.predicateId === "communication_goal") ? ["communication.jsonl"] : []),
 ];
@@ -204,6 +204,8 @@ describe("System-1 replay bench", () => {
       expect(wrong, id).toEqual(id === "cos_placeholder" ? ["self-review-09"] : []);
     }
     expect(predicateReport(report, "cos_internal_decision").rows.every((r) => r.jev === r.label)).toBe(true);
+
+    expect(predicateReport(report, "matters_to_george").jev.wrong).toBe(0);
 
     // reply_artefact_kind: steps the rule leaves unclear (a step opening
     // "Order:", naming a menu path, a value "301 or 302", a menu called

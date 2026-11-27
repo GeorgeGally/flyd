@@ -183,7 +183,7 @@ export interface ConversationSource {
    */
   /** `scope`: where he wrote it from (a project, or the general chat), as the message box showed it. */
   send(sessionId: string, text: string, images?: ImageUpload[], files?: FileUpload[], to?: Recipient, scope?: ChatScope): Promise<SentMessage>;
-  sendDecision?(text: string, images?: ImageUpload[], decision?: { decisionId: string; taskId: string; question?: string; options?: string[] }, sessionId?: string): Promise<SentMessage>;
+  sendDecision?(text: string, images?: ImageUpload[], decision?: { decisionId: string; taskId: string; question?: string; options?: string[] }, sessionId?: string, targetTaskId?: string, owners?: ReadonlyMap<string, string>): Promise<SentMessage>;
   sendDecisionFollowUp?(text: string, decision: { decisionId: string; taskId: string }, sessionId?: string): Promise<SentMessage>;
   /** Skills and slash commands the captain can run by typing "/" (empty when the source has none). */
   commands(): Promise<Array<{ name: string; description: string }>>;

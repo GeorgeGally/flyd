@@ -1,3 +1,5 @@
+import { cosEnabled } from "../command/cos/enabled.js";
+import { readCosOwners } from "./cos-jobs.js";
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
@@ -334,10 +336,9 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       const last = this.exchanges().map((exchange) => exchange.question)
         .reduce<ConversationMessage | undefined>((newest, question) => (!newest || Date.parse(question.timestamp ?? "") > Date.parse(newest.timestamp ?? "") ? question : newest), undefined);
       const previous = last ? { owner: last.id.startsWith("ask:") ? "flyd" as const : "firstmate" as const, ...(last.timestamp ? { at: last.timestamp } : {}) } : undefined;
-      // A Flyd-owned conversation must always reach Flyd's shared responder: with CoS enabled,
-      // the responder delegates code and cross-domain work through hand_off. A deliberately
-      // addressed FirstMate message or a slash command remains the explicit staff surface.
-      const route = to ?? (process.env.FLYD_COS === "1" && !command && !carriesCommand(text)
+      // A reply keeps its recipient; with CoS enabled, other ordinary messages reach Flyd's responder
+      // and slash commands keep their explicit staff destination.
+      const route = to ?? (cosEnabled() && !command && !carriesCommand(text)
         ? "flyd"
         : await routeMessage(
         { text, files: files?.length ?? 0, ...(command ? { command: command.name } : {}), recent: this.latest.get(sessionId) ?? [], sessionId, ...(previous ? { previous } : {}) },
@@ -369,8 +370,14 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return this.inbox.send(text, images, command?.name, files, undefined, sessionId);
   }
 
-  async sendDecision(text: string, images?: ImageUpload[]): Promise<SentMessage> {
+  async sendDecision(text: string, images?: ImageUpload[], _decision?: { decisionId: string; taskId: string }, sessionId?: string, targetTaskId?: string, known?: ReadonlyMap<string, string>): Promise<SentMessage> {
     if (!this.inbox) throw new Error("This conversation is read-only");
+    if (cosEnabled() && this.desk && targetTaskId) {
+      const owners = known ?? readCosOwners();
+      if (!owners) throw new Error("Flyd can't confirm who owns that work just now; your note was not sent");
+      const owner = owners.get(targetTaskId);
+      if (owner) return this.desk.desk.ask(text, images, sessionId, [], undefined, owner);
+    }
     return this.inbox.send(text, images);
   }
 

@@ -213,6 +213,7 @@ interface AskRecord {
   handedOffEnded?: true;
   /** Where he asked it: a project's conversation or the general chat, kept so asking it again reads it the same way. */
   scope?: ChatScope;
+  targetTaskId?: string;
   understanding?: TurnUnderstanding;
   /** Status lines that only said something was happening, and the concrete status George was shown instead. */
   statusSubstitutions?: Array<{ raw: string; shown: string }>;
@@ -222,7 +223,7 @@ interface AskRecord {
 /** The turn handed its answer to work in hand: it lands in the conversation when ready, so nothing is shown meanwhile. */
 export interface AnswerDeferred { deferred: true }
 
-export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void; onMutation(): void; askUser?(prompt: string): Promise<boolean | "always">; outside?: boolean; attached?: string; scope?: ChatScope }) => Promise<string | AnswerBody | AnswerDeferred>;
+export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void; onMutation(): void; askUser?(prompt: string): Promise<boolean | "always">; outside?: boolean; attached?: string; attachmentRefs?: string[]; scope?: ChatScope; targetTaskId?: string }) => Promise<string | AnswerBody | AnswerDeferred>;
 
 /** What the screenshots he attached to a question show, in words, for Flyd's turn, which takes words only. */
 export type Seer = (question: string, images: ImageUpload[], onStep?: (step: string, tool?: InFlightTool) => void) => Promise<string>;
@@ -473,12 +474,12 @@ export class FlydDesk {
   }
 
   /** Takes the question and starts answering it; the answer lands in a later `exchanges()`. */
-  ask(text: string, images: ImageUpload[] = [], sessionId = "conversation", files: FileUpload[] = [], scope?: ChatScope): SentMessage {
+  ask(text: string, images: ImageUpload[] = [], sessionId = "conversation", files: FileUpload[] = [], scope?: ChatScope, targetTaskId?: string): SentMessage {
     const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
     const documents = checkDocuments(files);
     const kept = this.keepImages(id, images);
     const filed = this.keepFiles(id, documents);
-    const record: AskRecord = { id, sessionId, at: new Date().toISOString(), text: text.trim(), ...(kept.length ? { images: kept } : {}), ...(filed.length ? { files: filed.map((file) => file.name) } : {}), ...(scope ? { scope } : {}) };
+    const record: AskRecord = { id, sessionId, at: new Date().toISOString(), text: text.trim(), ...(kept.length ? { images: kept } : {}), ...(filed.length ? { files: filed.map((file) => file.name) } : {}), ...(scope ? { scope } : {}), ...(targetTaskId ? { targetTaskId } : {}) };
     // "I meant CleanX" after a misheard "Kleenex": typed or spoken, Flyd learns his spelling.
     learnNameCorrection(record.text, this.recordsForSession(conversationOf(record)).at(-1)?.text, "chat");
     this.write(record);
@@ -564,6 +565,8 @@ export class FlydDesk {
         revision: 1, consentRef: `conversation:view:${sessionId}`, final: true as const, retention: "local_default" as const },
       ...(askUser ? { askUser } : {}),
       ...(scope ? { scope } : {}),
+      ...(record.targetTaskId ? { targetTaskId: record.targetTaskId } : {}),
+      ...((kept.length || filed.length) ? { attachmentRefs: [...kept.map((image) => join(this.dir, "images", image.slice(1))), ...filed.map((file) => file.path)] } : {}),
       ...(filed.length || earlierAnswered.some((earlier) => earlier.read?.length) ? { outside: true } : {}),
       turnNumber: earlier.length + 1,
       onInteraction: (interactionClass: "conversation" | "work_status" | "decision" | "deliverable") => { if (!live()) return; record = { ...record, interactionClass }; this.write(record); },

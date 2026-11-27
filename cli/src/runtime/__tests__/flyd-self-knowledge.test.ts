@@ -24,6 +24,7 @@ const CONFIGURED = {
 const SECRETS = { OPENAI_API_KEY: "sk-proj-Zx81testsecretvalue000111222", XAI_API_KEY: "xai-testsecret-aabbccddeeff00112233", OPENCODE_API_KEY: "oc_live_testsecret_9f8e7d6c5b4a" };
 
 beforeEach(() => {
+  vi.stubEnv("FLYD_COS", "1");
   for (const [name, value] of Object.entries({ ...CONFIGURED, ...SECRETS })) vi.stubEnv(name, value);
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -69,7 +70,7 @@ describe("Flyd asked about its own setup", () => {
     expect(answer).not.toMatch(/want me to|guessing|can't name|without reading the config/i);
     for (const secret of Object.values(SECRETS)) expect(answer).not.toContain(secret);
     // Its own setup is a tool away on any turn, its own code is open to it, and what it can't answer it passes on.
-    expect(offered).toEqual(expect.arrayContaining(["flyd", "read_file", "grep", "pass_on_question"]));
+    expect(offered).toEqual(expect.arrayContaining(["flyd", "read_file", "grep", "hand_off"]));
     expect(offered).not.toContain("start_coding_task");
     expect(steps).toContain("Checking my own setup");
   });
@@ -79,15 +80,15 @@ describe("Flyd asked about its own setup", () => {
       { role: "user", content: "what models is flyd using?" },
       { role: "assistant", content: LOGGED_REPLY },
     ]);
-    expect(given).toContain("This is your own setup, looked up live from your configuration just now");
+    expect(given).toContain("This is your setup, looked up from this process now");
     expect(given).toContain("gpt-realtime-2.1");
   });
 
   it("keeps its setup out of turns that aren't about itself, and still passes on what it can't answer", async () => {
     const { given, offered } = await ask("what's the weather in bangkok tonight");
     expect(given).not.toContain("Models, by job:");
-    expect(given).toContain("pass it on in this turn with pass_on_question");
-    expect(offered).toContain("pass_on_question");
+    expect(given).toContain("hand it off in this turn with hand_off");
+    expect(offered).toContain("hand_off");
     expect(offered).not.toContain("read_file");
   });
 });

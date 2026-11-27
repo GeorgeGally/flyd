@@ -18,11 +18,11 @@
 
 ## Correct run and feature flags
 
-**Now enabled by default** when `FLYD_COS=1`, Core runs Node **24.22.3+**, and the pinned package is resolvable. The Mac install step provisions the package automatically only when the selected Node meets this requirement; on Node 22 the legacy handler remains unchanged. To observe the actual outcome, restart Core and inspect its `[Flyd Core] CoS AgentRun recovery: ACTIVE|LEGACY` startup log.
+**Now enabled by default** when the CoS is on (the default; `FLYD_COS=0` rolls it back), Core runs Node **24.22.3+**, and the pinned package is resolvable. The Mac install step provisions the package automatically only when the selected Node meets this requirement; on Node 22 the legacy handler remains unchanged. To observe the actual outcome, restart Core and inspect its `[Flyd Core] CoS AgentRun recovery: ACTIVE|LEGACY` startup log.
 
 | Setting | Meaning |
 | --- | --- |
-| `FLYD_COS=1` | Existing CoS must be active |
+| `FLYD_COS` unset (not `0`) | Existing CoS must be active |
 | `FLYD_COS_DECISION_DSL=off` | Explicit immediate rollback to legacy CoS recovery |
 | `FLYD_COS_DECISION_DSL=shadow` | Existing CoS alone owns the decision; no shadow model call unless explicitly budgeted |
 | `FLYD_COS_DSL_SHADOW_CALLS=1` | Opts into an additional shadow model judgment and categorical comparison |

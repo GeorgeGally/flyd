@@ -252,7 +252,7 @@ export async function buildTaskPlanResponse(options: LiveTaskPlanOptions): Promi
 }
 
 /**
- * With the Chief of Staff on (FLYD_COS=1), a LIVE or invoked task is handed off like any other work: one objective
+ * With the Chief of Staff on (the default; FLYD_COS=0 rolls back), a LIVE or invoked task is handed off like any other work: one objective
  * carrying his exact words, no separate AgentTask, and the same staff and delivery as chat.
  */
 export async function handOffLiveTask(words: string, projectRoot: string | null | undefined, invocationId?: string): Promise<LiveTaskPlanResponse> {

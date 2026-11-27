@@ -30,6 +30,11 @@ const { dispatchKnowledgeDomain, syncLibrarianDomainRuns } = await import("../li
 describe("Librarian specialists", () => {
   beforeEach(() => { started.length = 0; saved.length = 0; });
 
+  it("gives both specialists the supplied evidence references", () => {
+    dispatchKnowledgeDomain({ originalMessage: "review this", intendedOutcome: "Review it", doneWhen: ["answered"], contextRefs: ["/tmp/brief.pdf"] });
+    expect(started.map((job) => job.task)).toEqual([expect.stringContaining("/tmp/brief.pdf"), expect.stringContaining("/tmp/brief.pdf")]);
+  });
+
   it("keeps every specialist of unattended knowledge work unattended, through the fact check", async () => {
     dispatchKnowledgeDomain({ originalMessage: "what changed", intendedOutcome: "what changed", doneWhen: ["answered"], background: true });
     await syncLibrarianDomainRuns();

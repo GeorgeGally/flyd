@@ -1,3 +1,4 @@
+import { cosEnabled } from "../command/cos/enabled.js";
 import { parsePreparationReading, type PreparationReading, type RemitSummary } from "./preparation-reading.js";
 import { evaluatePredicates, JEV_PINNED_MODEL, projectJevState } from "../cognition/system-one/jev.js";
 import { familyEgress, predicateThreshold, questionFor, questionFingerprint } from "../cognition/system-one/registry.js";
@@ -180,7 +181,7 @@ export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domai
 }
 
 function cosPlan(plan: TurnPlan | null): TurnPlan | null {
-  if (!plan || process.env.FLYD_COS !== "1") return plan;
+  if (!plan || !cosEnabled()) return plan;
   // With the Chief of Staff on, every route hands work over with hand_off, never managing it itself.
   return {
     ...plan,
@@ -212,7 +213,7 @@ function basePlan(reading: Pick<RouteReading, "route" | "source" | "domain"> | n
       };
     case "delegate":
       // With the Chief of Staff on, Flyd hands the work over whole: the CoS chooses the team and writes the brief.
-      if (process.env.FLYD_COS === "1") {
+      if (cosEnabled()) {
         return {
           route, source, cover, allows: new Set(), handoffs: new Set(["hand_off"]), budget: { iterations: 3, toolCalls: 2 }, hidden: null,
           instruction: "This is work to hand off now, not to do or research inline. Hand it to his Chief of Staff with hand_off in your first step: his exact words, and what you know that the brief needs (project, people, taste, urgency). Then acknowledge the accepted work only if useful, in one natural sentence of ownership (for example, \"I'll fix it.\"). Do not narrate delegation, management, or promise a future report. A message about work already under way goes to tell_work instead.",

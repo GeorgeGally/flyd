@@ -74,6 +74,12 @@ describe("transcript filter", () => {
     ]);
   });
 
+  it("marks machine-origin reports as backstage even when their wording is unfamiliar", () => {
+    const snapshot = conversationFromLines([injection("A delegated job changed", "agent"), assistantText("The worker says it finished.")]);
+    expect(snapshot.messages).toHaveLength(1);
+    expect(snapshot.messages[0]).toMatchObject({ role: "assistant", wake: true });
+  });
+
   it("never shows firstmate's own supervision and mirror machinery as the captain's words", () => {
     const lines = [
       captain("FIRSTMATE SUPERVISION WAKE: signal: /Users/x/state/flyd-a.status"),

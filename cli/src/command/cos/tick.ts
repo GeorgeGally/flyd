@@ -18,10 +18,10 @@ import { dispatchBrief, type Dispatch, type Dispatched, type SentBrief } from ".
 import { intakeObjective, readRun, type Complete } from "./intake.js";
 import { cosEnabled, listObjectives, mutateObjective, readObjective } from "./objectives.js";
 import { flushPendingCorrections } from "./steer.js";
-import { awaitsDecision, backTo, isActive, isGone, isValid, maxActive, planFromBrief, planOf, planRequestId, releasable, requeue, sinks } from "./plan.js";
+import { awaitsDecision, backTo, crewReadyReportId, isActive, isGone, isValid, maxActive, planFromBrief, planOf, planRequestId, releasable, requeue, sinks } from "./plan.js";
 import { WAIT_ANSWERS, type Adaptation, type CosReport, type CosReportKind, type Objective, type PlannedRun, type RunBrief, type WaitKind } from "./types.js";
 
-// The Chief of Staff's tick (split plan Phase 3, v8 Phase 6; behind FLYD_COS=1). Called from the command tick, and
+// The Chief of Staff's tick (on by default; FLYD_COS=0 rolls it back). Called from the command tick, and
 // kicked at once by hand_off. For each objective it:
 // - in intake: briefs it (one JSON query, kept on the objective) into a plan of runs;
 // - working: reconciles runs a dead process left `dispatching` (by request id, never blindly), reviews each run that
@@ -333,14 +333,21 @@ async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, 
     // A one-off job may have acted outside (booked, sent, bought): it is never run again on its own.
     return failed(objective, run, key, why, job.result ?? job.lastError ?? "", deps, store, false);
   }
-  // The compatibility crew tells George itself when its work is ready or fails; the objective settles with it, and a
-  // crew run is never sent again on its own: a failed one is his call.
+  // Older crew tasks deliver their own notices; new objective-owned tasks report through the CoS.
+  // A crew run is never sent again on its own after failure.
   if (ref.startsWith("crew:")) {
     const { readTask } = await import("../../crew/crew.js");
     const task = readTask(ref.slice(5));
     if (!task || task.status === "running" || task.status === "verifying") return;
     const key = `${ref}:${task.status}`;
     if (run.reviewed === key) return;
+    if (task.status === "ready" && task.objectiveId === objective.id) {
+      const outcome = `${shortWords(run.outcome)} is ready for your /land; it has not been merged yet.`;
+      const made = { ...plainReport(objective, "decision", outcome, key), id: crewReadyReportId(objective.id, ref), detail: task.summary ?? "", evidenceRefs: [linkOf(ref)] };
+      await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "run", question: outcome });
+      if (readObjective(objective.id)?.reportIds.includes(made.id)) changeRun(objective.id, run.key, () => ({ reviewed: key }));
+      return;
+    }
     if (task.status === "ready" || task.status === "landed") return completed(objective, run, key);
     if (task.status === "discarded") { changeRun(objective.id, run.key, () => ({ state: "cancelled", reviewed: key })); return; }
     return failed(objective, run, key, plainLine(task.failure ?? ""), task.summary ?? task.failure ?? "", deps, store, false);
@@ -684,7 +691,7 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
       detail: finals.map((run) => resultText(run.ref!, jobs, crew)).filter(Boolean).join("\n\n"), evidenceRefs: finals.map((run) => linkOf(run.ref!)),
     };
     const seen = finals.length === 1 && finals[0]!.ref && !finals[0]!.ref.includes(":") ? readDomainRun(finals[0]!.ref) : null;
-    const told = (seen && shownLine(seen)) || finals.every((run) => run.ref?.startsWith("crew:"));
+    const told = (seen && shownLine(seen)) || finals.every((run) => run.ref?.startsWith("crew:") && crew.some((task) => task.id === run.ref?.slice(5) && !task.objectiveId));
     await report(objective, made, deps, store, async () => told ? undefined : (deps.say ?? defaultSay)(made), "done", undefined, "I couldn't double-check it against what you asked for, so give it a look.");
     return;
   }
@@ -735,13 +742,13 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
     ...plainReport(objective, "done", `${workOf(objective)} is done.`, ""), id: reportId,
     detail: finals.map((run) => resultText(run.ref!, jobs, crew)).filter(Boolean).join("\n\n"), evidenceRefs: finals.map((run) => linkOf(run.ref!)),
   };
-  // The crew already told him its work is ready: recorded, never said twice.
-  const toldItself = finals.every((run) => run.ref?.startsWith("crew:"));
+  // Only a legacy crew task can have told him its work is ready itself.
+  const toldItself = finals.every((run) => run.ref?.startsWith("crew:") && crew.some((task) => task.id === run.ref?.slice(5) && !task.objectiveId));
   await report(objective, made, deps, store, async () => toldItself ? undefined : (deps.say ?? defaultSay)(made), "done");
 }
 
 /** The crew tasks behind any of these runs, for their results. */
-async function crewTasks(runs: PlannedRun[]): Promise<Array<{ id: string; summary?: string; diffStat?: string }>> {
+async function crewTasks(runs: PlannedRun[]): Promise<Array<{ id: string; summary?: string; diffStat?: string; objectiveId?: string }>> {
   if (!runs.some((run) => run.ref?.startsWith("crew:"))) return [];
   const { listTasks } = await import("../../crew/crew.js");
   return listTasks();
@@ -831,7 +838,7 @@ async function attend(id: string, deps: CosTickDeps, store: IntelligenceEventSto
   for (const run of out) {
     if (run.state !== "dispatched" || !run.ref) { cannotTell = "a team never confirmed it has the work"; continue; }
     if (run.ref.startsWith("job:")) { cannotTell = "a one-off job has been running for a day"; continue; }
-    if (run.ref.startsWith("crew:")) { parked = "the crew tells him itself when it is ready"; continue; }
+    if (run.ref.startsWith("crew:")) { parked = "the crew's outcome will be reviewed when it is ready"; continue; }
     const domain = readDomainRun(run.ref);
     if (!domain) { cannotTell = "a run's record is missing"; continue; }
     if (domain.status === "needs_decision") continue;
@@ -890,7 +897,7 @@ const defaultSay = async (made: CosReport): Promise<unknown> => (await import(".
 
 let ticking = false;
 
-/** One pass over the open objectives. A no-op unless FLYD_COS=1 (or a test passes its own deps). */
+/** One pass over the open objectives. A no-op when rolled back with FLYD_COS=0 (unless a test passes its own deps). */
 export async function cosTick(deps: CosTickDeps = {}): Promise<void> {
   if (ticking || (!cosEnabled() && !deps.dispatch)) return;
   ticking = true;

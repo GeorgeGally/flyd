@@ -21,7 +21,7 @@
     cd cli && npm run lint && npm test && npm run build
     cd ../mac-adapter && make run
 
-3. Confirm the **actual serving Core** and Mac adapter are current with `flyd doctor --json`. Check `FLYD_COS=1` if CoS follow-through is part of the pilot, and `flyd agenda list` for the active agenda. Do not infer runtime status from a shell Node version; AgentRun has its own live Core compatibility check.
+3. Confirm the **actual serving Core** and Mac adapter are current with `flyd doctor --json`. Check that `FLYD_COS` is not set to `0` if CoS follow-through is part of the pilot, and `flyd agenda list` for the active agenda. Do not infer runtime status from a shell Node version; AgentRun has its own live Core compatibility check.
 4. `flyd initiative doctor` must identify all source permissions and explicitly say live pilot is **unverified** until a person performs it. No feature should quietly enable private sensing.
 5. Baseline with `flyd initiative status` and `flyd initiative stats`. Record counts and any unknown spend/capability status; an empty new install is not a failure.
 

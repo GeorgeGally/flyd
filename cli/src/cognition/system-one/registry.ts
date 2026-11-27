@@ -398,24 +398,24 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
   // cos_wants_artefact gates at 0.7: on the bench its negatives sit at or
   // under 0.08 and a six-part status reads 0.74.
   ...([
-    ["cos_outcome_first", "`text` is something Flyd, George's chief of staff, put in front of him; `surface` says where (a chat reply, a notification, or an update relayed from work done for him) and `george_said` is what he had asked, if anything. Does the opening sentence of `text` tell George the outcome, the current state of things, or the answer he needs, rather than preamble, an acknowledgement, process, or what Flyd is about to do?", { true: "The first sentence carries the outcome, the answer, or the state of things.", false: "The first sentence is preamble, an acknowledgement, narration of process, or a promise of what comes next." }, 0.8],
-    ["cos_placeholder", "`text` is something Flyd, George's chief of staff, put in front of him; `surface` says where (a status line, a chat reply, a notification, or a relayed update). Does `text` only say that work is happening or about to happen (\"working on it\", \"looking into it\", \"remembering what I know\") without naming the concrete thing being done or what has happened?", { true: "Placeholder: says only that something is under way.", false: "Names the concrete step, the result, or real news." }, 0.8],
-    ["cos_internal_decision", "Flyd is George's chief of staff. Flyd and the people working for him settle how work gets done; George decides only what he wants, matters of his money, his name and the people he deals with, and irreversible outward actions. `text` is something Flyd put in front of him. Does `text` ask George to settle how something gets done: a choice between technical or process options (configuration, checks, retries, scheduling, tests, tooling, or how a helper runs its own work)?", { true: "It asks him to choose how the work is done: an implementation or process option that is not his to decide.", false: "It asks him nothing, or asks about what he wants (taste, content, priorities), his money, his name, people, or an outward or irreversible action such as publishing, sending, merging, deleting or paying." }, 0.8],
-    ["cos_wants_artefact", "`text` is something Flyd, George's chief of staff, sent him as plain text in a conversation. Would its content reach him better as a visual artefact he can scan (a table, comparison, board, chart, plan or set of cards) than as chat text?", { true: "The content is structured enough (several items, options, figures, or steps) that a visual artefact would serve him better.", false: "A short answer, a single fact, a brief status or a conversational reply: text is right." }, 0.7],
+    ["cos_outcome_first", "`text` is something Flyd, George's personal assistant, put in front of him; `surface` says where (a chat reply, a notification, or an update relayed from work done for him) and `george_said` is what he had asked, if anything. Does the opening sentence of `text` tell George the outcome, the current state of things, or the answer he needs, rather than preamble, an acknowledgement, process, or what Flyd is about to do?", { true: "The first sentence carries the outcome, the answer, or the state of things.", false: "The first sentence is preamble, an acknowledgement, narration of process, or a promise of what comes next." }, 0.8],
+    ["cos_placeholder", "`text` is something Flyd, George's personal assistant, put in front of him; `surface` says where (a status line, a chat reply, a notification, or a relayed update). Does `text` only say that work is happening or about to happen (\"working on it\", \"looking into it\", \"remembering what I know\") without naming the concrete thing being done or what has happened?", { true: "Placeholder: says only that something is under way.", false: "Names the concrete step, the result, or real news." }, 0.8],
+    ["cos_internal_decision", "Flyd is George's personal assistant. The chief of staff and the teams settle how work gets done; George decides only what he wants, matters of his money, his name and the people he deals with, and irreversible outward actions. `text` is something Flyd put in front of him. Does `text` ask George to settle how something gets done: a choice between technical or process options (configuration, checks, retries, scheduling, tests, tooling, or how a helper runs its own work)?", { true: "It asks him to choose how the work is done: an implementation or process option that is not his to decide.", false: "It asks him nothing, or asks about what he wants (taste, content, priorities), his money, his name, people, or an outward or irreversible action such as publishing, sending, merging, deleting or paying." }, 0.8],
+    ["cos_wants_artefact", "`text` is something Flyd, George's personal assistant, sent him as plain text in a conversation. Would its content reach him better as a visual artefact he can scan (a table, comparison, board, chart, plan or set of cards) than as chat text?", { true: "The content is structured enough (several items, options, figures, or steps) that a visual artefact would serve him better.", false: "A short answer, a single fact, a brief status or a conversational reply: text is right." }, 0.7],
   ] as const).map(([id, instructions, criteria, threshold]): PredicateDefinition => ({
     id, family: "self_review", type: "noul", instructions, criteria,
     threshold, use: "recorded", failureMode: "skip_mutation",
-    projection: SELF_REVIEW_PROJECTION, evaluatorVersion: `${id}.v1`, status: "production",
+    projection: SELF_REVIEW_PROJECTION, evaluatorVersion: `${id}.v2`, status: "production",
     consumer: "council/standard.ts judgeSaid: a decided answer that breaks the standard is recorded as a self-review shortfall (council/reply-review.ts) and feeds the daily improver; Jev's judgments never hold a message, while the deterministic screen (screenBeforeDisplay, scheduler returnedToBoss) catches some before display; asked only when FLYD_SELF_REVIEW_JEV=1 and never for email, Drive or WhatsApp content",
   })),
   {
     id: "cos_off_voice", family: "self_review", type: "noul",
-    instructions: "`text` is something Flyd, George's chief of staff, put in front of him (`surface` says where). Does `text` read like a bot, a git log, a ticket tracker or a project manager (stock phrases, commits, branches, merges, workers, runs, action items), or call him something other than \"sir\"?",
+    instructions: "`text` is something Flyd, George's personal assistant, put in front of him (`surface` says where). Does `text` read like a bot, a git log, a ticket tracker or a project manager (stock phrases, commits, branches, merges, workers, runs, action items), or call him something other than \"sir\"?",
     criteria: { true: "It reads like a bot, a git log, a ticket tracker or a project manager, or calls him Captain.", false: "Plain, specific, human words, even when brief or matter-of-fact." },
     // Asked against the whole SOUL.md, Jev read plain status lines as off-voice
     // (0.88); the concrete failures he named separate cleanly (>= 0.92 vs <= 0.73).
     threshold: 0.85, use: "recorded", failureMode: "skip_mutation",
-    projection: SELF_REVIEW_PROJECTION, evaluatorVersion: "cos_off_voice.v1", status: "production",
+    projection: SELF_REVIEW_PROJECTION, evaluatorVersion: "cos_off_voice.v2", status: "production",
     consumer: "council/standard.ts judgeSaid: a decided answer that breaks the standard is recorded as a self-review shortfall (council/reply-review.ts) and feeds the daily improver; Jev's judgments never hold a message, while the deterministic screen (screenBeforeDisplay, scheduler returnedToBoss) catches some before display; asked only when FLYD_SELF_REVIEW_JEV=1 and never for email, Drive or WhatsApp content",
   },
 
@@ -477,27 +477,27 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
 
   {
     id: "matters_to_george", family: "presentation", type: "noul",
-    instructions: "Flyd is George's chief of staff and decides what reaches his screen; it can only show him a handful of things. `item` is one candidate (`kind`, `headline`, `detail`, `project`, `status`, `age_hours`). `his_recent_words` are the last things George himself said, which show what he is busy with and cares about now. Would George, a busy founder, want this in front of him right now?",
+    instructions: "Flyd is George's personal assistant and decides what reaches his screen; it can only show him a handful of things. `item` is one candidate (`kind`, `headline`, `detail`, `project`, `status`, `age_hours`). `his_recent_words` are the last things George himself said, which show what he is busy with and cares about now. Would George, a busy founder, want this in front of him right now?",
     criteria: {
       true: "It is his: a decision only he can make about what he wants, his money, his name or the people he deals with; a finished result of something he asked for or is busy with; or a real problem with his work, sites or money that he must know about.",
       false: "Flyd should keep it: staff admin, tooling, sessions, permissions, scripts or process; work waiting on a routine step Flyd can take itself; something he has not been near for days that changes nothing for him today; a duplicate of something more important; or news with no consequence for him.",
     },
     threshold: 0.7, use: "gate", failureMode: "fallback_heuristic",
-    projection: ["kind", "headline", "detail", "project", "status", "age_hours", "his_recent_words"], evaluatorVersion: "matters_to_george.v1", status: "production",
+    projection: ["kind", "headline", "detail", "project", "status", "age_hours", "his_recent_words"], evaluatorVersion: "matters_to_george.v2", status: "production",
     consumer: "conversation-view/importance-judge.ts ImportanceJudge: an item judged false at or above the threshold leaves the big screen; until a judgment lands (or with Jev off or failing) the item shows as before",
   },
 
   {
     id: "executive_change_route", family: "executive", type: "choice",
-    instructions: "Flyd is George's chief of staff. `summary` is a model's evidence-grounded interpretation of a change from `source_kind` in state `source_state`; `question` and `options` are copied from the source when present; `goal_context` is the relevant existing goal and `evidence_refs` identify the source records. Which disposition best serves George? This is judgment only, never permission.",
+    instructions: "Flyd is George's personal and strategic assistant, supported by a separate chief of staff. `summary` is a model's evidence-grounded interpretation of a change from `source_kind` in state `source_state`; `question` and `options` are copied from the source when present; `goal_context` is the relevant existing goal and `evidence_refs` identify the source records. Which disposition best serves George? This is judgment only, never permission.",
     criteria: {
       ask_george: "A real decision belongs to George about his goals, priorities, money, name, people, taste, or an irreversible outward action; the question and its alternatives are grounded in the source.",
-      handle_internally: "A concrete, reversible internal follow-up to existing work is needed, and deterministic policy may separately authorize that exact capability and target.",
+      handle_internally: "A concrete, reversible internal follow-up to existing work is needed, such as checking a cancelled review when the goal is unfinished, and deterministic policy may separately authorize that exact capability and target.",
       backstage: "Routine progress, worker lifecycle, duplicate or stale state, or a verified/non-notable fact that does not change what George needs to do.",
       unclear: "The evidence, ownership, or options are incomplete or conflicting; do not infer permission or claim an outcome.",
     },
     threshold: 0.8, use: "choice", failureMode: "skip_mutation",
-    projection: EXECUTIVE_PROJECTION, evaluatorVersion: "executive_change_route.v1", status: "production",
+    projection: EXECUTIVE_PROJECTION, evaluatorVersion: "executive_change_route.v2", status: "production",
     consumer: "intelligence/executive/firstmate-decision.ts: semantic disposition evidence; deterministic authority policy alone allows internal effects",
   },
 

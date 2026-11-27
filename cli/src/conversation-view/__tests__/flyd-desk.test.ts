@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -267,12 +267,14 @@ describe("FlydDesk", () => {
   it("keeps his screenshots with the question, and what they show for the answer and every follow-up", async () => {
     const asked: Array<[string, unknown]> = [];
     const attached: Array<string | undefined> = [];
+    const attachmentRefs: string[][] = [];
     const desk = new FlydDesk({
       dir,
       see: async (question, images) => `[shows: a 404 page for ${question} (${images.length})]`,
       answer: async (question, history, _onStep, turn) => {
         asked.push([question, history]);
         attached.push(turn?.attached);
+        attachmentRefs.push(turn?.attachmentRefs ?? []);
         return "That is a 404 from the preview server.";
       },
     });
@@ -286,6 +288,7 @@ describe("FlydDesk", () => {
     expect(exchange!.question.text).toBe("is this normal?");
     expect(exchange!.question.images).toHaveLength(1);
     expect(desk.image(exchange!.question.images![0]!)?.mediaType).toBe("image/png");
+    expect(attachmentRefs[0]).toEqual([join(dir, "images", exchange!.question.images![0]!.slice(1))]);
     expect(desk.image("a../../etc/passwd")).toBeNull();
 
     // A follow-up, even from a desk read again after a restart, still knows what the screenshot showed.
@@ -459,6 +462,7 @@ describe("FlydDesk", () => {
 });
 
 describe("ClaudeCodeTranscriptSource as Flyd's window", () => {
+  beforeEach(() => vi.stubEnv("FLYD_COS", "0"));
   // Records `note -` and `reply` calls without waking anyone, writing the same
   // files firstmate's own bin/fm-inbox.sh writes.
   const FAKE_SCRIPT = `#!/usr/bin/env bash
@@ -506,6 +510,20 @@ esac
     });
     return { source, home, answered };
   }
+
+  it("sends new Flyd-window messages through Flyd when the Chief of Staff is enabled, and keeps a reply to Firstmate and a legacy task's note on its inbox", async () => {
+    vi.stubEnv("FLYD_COS", "1");
+    const { source, home, answered } = setup("FIRSTMATE");
+    const first = await source.send("s1", "Fix the footer");
+    const reply = await source.send("s1", "yes, merge it", [], [], "firstmate");
+    const second = await source.sendDecision("About the artefact: make it blue", [], undefined, "s1");
+    expect(first.id).toMatch(/^ask:/);
+    expect(reply.id).toMatch(/^note:/);
+    expect(second.id).toMatch(/^note:/);
+    await until(() => answered.length === 1 ? true : undefined);
+    expect(answered).toEqual(["Fix the footer"]);
+    expect(existsSync(join(home, "state", "inbox"))).toBe(true);
+  });
 
   it("moves the project badge across Flyd and firstmate turns, keeps it through projectless ones and after a reload", async () => {
     const projects = join(dir, "projects.json");
@@ -1147,7 +1165,7 @@ describe("supervision chatter never reaches Flyd's window", () => {
     expect((await view.listSessions()).map((session) => session.id)).toEqual(["main"]);
   });
 
-  it("relays firstmate's answers to its own wakes only when they bring a PR, ask his decision or report a failure, and every background-task report", async () => {
+  it("relays firstmate's answers to its own wakes and to background-task reports only when they bring a PR, ask his decision or report a failure", async () => {
     const project = join(dir, "project");
     mkdirSync(project);
     writeFileSync(join(project, "main.jsonl"), [
@@ -1182,7 +1200,8 @@ describe("supervision chatter never reaches Flyd's window", () => {
       "Sir, the settings screen is ready to merge: https://github.com/GeorgeGally/flyd/pull/90. PR 84 (https://github.com/GeorgeGally/flyd/pull/84) is still waiting on your merge.",
       "Sir, the Good Neighbours worker failed its build twice and stopped.",
       "Sir, the lab page has two layouts. Should I keep the grid or the list?",
-      "Sir, deployed and all tests pass; landed on main.",
+      // A background task's report is machine-origin, with no objective behind it: it meets the same bar as a wake
+      // (transcript-filter.ts). Finished work reaches him through its reviewed report instead.
     ]);
     // The island reads the same snapshot, so it names only what the window shows.
     expect(relays.map((message) => message.id)).toContain(statusOf(snapshot).reply?.id);

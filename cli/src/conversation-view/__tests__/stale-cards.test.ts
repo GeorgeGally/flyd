@@ -141,6 +141,17 @@ describe("E3 and E6: Flyd's own runs frozen at needs_decision", () => {
     expect(settleClosedRuns(row("x"), { dir }).map((item) => item.status)).toEqual(["cancelled"]);
   });
 
+  it("leaves a chief-of-staff-owned decision for its orchestrator to reconcile", () => {
+    const id = "domain-45b4d25a-3ac6-44f5-856a-f3207ef3fc24";
+    const base = run(id, { transport: { kind: "firstmate", requestId: id, externalId: "1794371015-rk7643" } });
+    const owned = { ...base, request: { ...base.request, objectiveId: "obj-one" } };
+    const entries = parseBacklog(["- [x] hftw-hero-images-show - HFTW lab (repo: hftw) (kind: scout)", "  Flyd domain-45b4d25a, inbox 1794371015-rk7643"].join("\n"));
+    const dir = mkdtempSync(join(tmpdir(), "cos-closure-"));
+    saveDomainRun(owned, dir);
+    expect(settleClosedRuns(entries, { dir })).toEqual([]);
+    expect(readDomainRun(id, dir)?.status).toBe("needs_decision");
+  });
+
   it("a run's unanswered ask ages out after three days", () => {
     const stuck = jobRunFromDomain(run("flyd-project-threads-1794406370827", { updatedAt: new Date(NOW - 4 * DAY).toISOString() }));
     const fresh = jobRunFromDomain(run("domain-fresh-question", { updatedAt: new Date(NOW - DAY).toISOString() }));

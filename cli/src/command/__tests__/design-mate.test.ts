@@ -1,12 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, uptime } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, briefPrompt, buildPrompt, critiquePrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, shootWithChrome, startDesignRun, writeLab, toldInChat, type DesignMateDeps } from "../design-mate.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, briefPrompt, buildPrompt, critiquePrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readContext, readLab, shootWithChrome, startDesignRun, writeLab, toldInChat, type DesignMateDeps } from "../design-mate.js";
+import { FLYD_DIR } from "../../lib/config.js";
 import { DesignModelError } from "../design-claude.js";
 import { DESIGN_LAB_DONE_WHEN, designStartLine, isDesignLabRun, labAwaitingReview } from "../design.js";
 import { dispatchDomainFollowup } from "../followup.js";
+import { followupObjectiveId, readObjective } from "../cos/objectives.js";
 import { dueReport } from "../report.js";
 import { notifyRun } from "../scheduler.js";
 import { listDomainRuns, readDomainRun, saveDomainRun } from "../store.js";
@@ -241,6 +243,17 @@ describe("Design Mate", () => {
     expect(seen.filter((call) => call.prompt.startsWith("You are a designer")).every((call) => call.prompt.includes("Deals: 12 open"))).toBe(true);
   });
 
+  it("gives the director a screenshot saved from George's conversation", () => {
+    const images = join(FLYD_DIR, "view", "images");
+    mkdirSync(images, { recursive: true });
+    const image = join(images, `test-${Date.now()}-${Math.random().toString(16).slice(2)}.png`);
+    writeFileSync(image, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64"));
+    try {
+      const run = dispatchDesignMate({ originalMessage: "redesign this", intendedOutcome: "Redesign", doneWhen: ["ready"], contextRefs: [image] }, labs);
+      expect(readContext(run.id, labs).shots).toEqual([image]);
+    } finally { rmSync(image, { force: true }); }
+  });
+
   it("clears the rejected lab's pages before building the new directions", async () => {
     const pages: string[][] = [];
     const deps = staff([9], [], [{ verdict: "reject", notes: ["Wrong direction."] }]);
@@ -466,6 +479,20 @@ describe("Design Mate", () => {
     expect(run.failure).toMatch(/^The design lab stopped before it was ready: its folder could not be made/);
   });
 
+  it("adopts an objective's board follow-up on replay when the adoption was lost before it was written", async () => {
+    vi.stubEnv("FLYD_COS", "1");
+    vi.stubEnv("FLYD_LABS_DIR", labs);
+    const lab = await driveDesignRun(dispatchDesignMate({ originalMessage: "do a lab", intendedOutcome: "Right column lab", doneWhen: ["three versions"], objectiveId: "obj-board-parent" }, labs), staff([9]));
+    await answerFromBoard(lab, { notes: ["try a warmer palette"], ids: [] });
+    const followup = listDomainRuns().find((run) => run.request.parentRequestId === lab.id)!;
+    const objectiveId = followup.request.objectiveId!;
+    expect(objectiveId).toBe(followupObjectiveId(followup.id));
+    rmSync(join(process.env.FLYD_COMMAND_DIR!, "objectives", `${objectiveId}.json`));
+    await answerFromBoard(lab, { notes: ["try a warmer palette"], ids: [] });
+    expect(listDomainRuns().filter((run) => run.request.parentRequestId === lab.id)).toHaveLength(1);
+    expect(readObjective(objectiveId)).toMatchObject({ status: "working", runs: [followup.id] });
+  });
+
   it("builds the version George marks final on the board, and takes notes alone into another round", async () => {
     const project = join(home, "project");
     const previous = process.env.FLYD_LABS_DIR;
@@ -569,6 +596,12 @@ describe("Design Mate", () => {
     expect(page).toContain("All animation uses GSAP");
     expect(page).toContain("GSAP only from cdnjs.cloudflare.com");
     expect(briefPrompt(run, [], "(none)", ["ab"])).toContain("All animation uses GSAP");
+  });
+
+  it("keeps attached evidence in the director and designer briefs", () => {
+    const run = dispatchDesignMate({ originalMessage: "a lab", intendedOutcome: "A lab", doneWhen: ["three versions"], contextRefs: ["/tmp/reference.png"] }, labs);
+    expect(briefPrompt(run, [], "(none)", ["ab"])).toContain("/tmp/reference.png");
+    expect(buildPrompt(run, { brief: "b", versions: [], round: 1, images: [], log: [] }, { n: 1, name: "Title card", idea: "Big type.", seed: "ab" }, "(none)")).toContain("/tmp/reference.png");
   });
 
   it("gives the team George's grid method, and the judge runs its final check", () => {

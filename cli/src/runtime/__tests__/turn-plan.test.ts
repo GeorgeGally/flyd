@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseRoom } from "../read-the-room.js";
 import { isShortReply, LIGHT_BUDGET, offCode, offRoute, planBrief, planBudget, planTurn, settleClarify, visibleTools, type TurnRoute } from "../turn-plan.js";
 import { readRoomStage } from "../turn-stages.js";
@@ -7,6 +7,9 @@ import { contractError } from "../tool-contracts.js";
 const tools = ["read_file", "bash", "edit_file", "write_file", "web_search", "remember", "todos", "background_task", "start_coding_task", "start_knowledge_task", "speaking_style"].map((name) => ({ name }));
 const jev = (route: TurnRoute, domain?: "coding" | "knowledge" | "creative" | "life" | "general") => ({ route, source: "jev" as const, domain });
 const names = (plan: ReturnType<typeof planTurn>) => visibleTools(tools, plan).map((tool) => tool.name);
+
+beforeEach(() => vi.stubEnv("FLYD_COS", "0"));
+afterEach(() => vi.unstubAllEnvs());
 
 describe("turn plan", () => {
   it("answers change nothing: change-only tools are out of sight and writes are gated", () => {

@@ -17,6 +17,7 @@ import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import { EXECUTIVE_DECISION_VERSION, persistExecutiveDecision } from "../../intelligence/executive/decision-step.js";
 import { outcomeReviews, OUTCOME_REVIEW_SOURCE } from "../../intelligence/outcomes/outcome-review.js";
 import { readDomainRun, saveDomainRun } from "../../command/store.js";
+import { mutateObjective, openObjective, readObjective } from "../../command/cos/objectives.js";
 import { artefactAsk } from "../replies.js";
 import { ArtefactFeed } from "../artefact.js";
 import { ConversationViewServer, replyCards, SnapshotDiffer } from "../server.js";
@@ -663,6 +664,7 @@ describe("ConversationViewServer", () => {
 
   afterEach(async () => {
     await server?.close();
+    vi.unstubAllEnvs();
     if (dir) rmSync(dir, { recursive: true, force: true });
     server = null;
     dir = null;
@@ -941,6 +943,41 @@ describe("ConversationViewServer", () => {
       } finally {
         if (previous === undefined) delete process.env.FLYD_COMMAND_DIR; else process.env.FLYD_COMMAND_DIR = previous;
       }
+    });
+
+    it("sends an objective-owned answer through Flyd instead of directly to the team", async () => {
+      const root = home("");
+      vi.stubEnv("FLYD_COMMAND_DIR", join(root, "command"));
+      vi.stubEnv("FLYD_COS", "1");
+      const id = "owned-answer";
+      saveDomainRun({ id, request: { id, domain: "knowledge", originalMessage: "Research", intendedOutcome: "Research the market", doneWhen: [], createdAt: "2026-10-09T00:00:00Z", objectiveId: "obj-example" }, owner: "Librarian", status: "needs_decision", createdAt: "2026-10-09T00:00:00Z", updatedAt: new Date().toISOString(), transport: { kind: "native", requestId: id } });
+      const { port, headers, source } = await serve(feedOf(root));
+      const sent = vi.fn(async () => ({ id: "sent", timestamp: new Date().toISOString() }));
+      Object.assign(source, { sendDecision: sent });
+      expect((await post(port, JSON.stringify({ domainRun: id, questionText: "Which one?", text: "The first" }), headers)).status).toBe(200);
+      expect(sent).toHaveBeenCalledWith("The first", [], undefined, undefined, id, expect.any(Map));
+      expect(readDomainRun(id)?.messages).toBeUndefined();
+      expect((await post(port, JSON.stringify({ decision: "decision-1", decisionTask: id, text: "The second" }), headers)).status).toBe(200);
+      expect(sent).toHaveBeenLastCalledWith("The second", [], undefined, undefined, id, expect.any(Map));
+      const objective = openObjective({ words: "Choose the footer", flydNotes: "", origin: { surface: "view" } });
+      expect((await post(port, JSON.stringify({ domainRun: objective.id, jobTitle: "Footer", text: "Blue" }), headers)).status).toBe(200);
+      expect(sent).toHaveBeenLastCalledWith("Blue", [], undefined, undefined, objective.id, expect.any(Map));
+      mutateObjective(objective.id, (current) => current && { ...current, status: "needs_george", waitingOn: { reportId: "question-1", kind: "intake", question: "Which colour?", at: new Date().toISOString() } });
+      expect((await post(port, JSON.stringify({ domainRun: objective.id, questionText: "Which colour?", text: "Green" }), headers)).status).toBe(200);
+      expect(readObjective(objective.id)).toMatchObject({ status: "intake", flydNotes: expect.stringContaining("Green") });
+      expect(sent).toHaveBeenCalledTimes(3);
+      const teamRun = (id: string) => ({ id, request: { id, domain: "knowledge" as const, originalMessage: "Footer", intendedOutcome: "Research", doneWhen: [], createdAt: "2026-10-09T00:00:00Z", objectiveId: objective.id }, owner: "Librarian", status: "working" as const, createdAt: "2026-10-09T00:00:00Z", updatedAt: "2026-10-09T00:00:00Z", transport: { kind: "native" as const, requestId: id } });
+      saveDomainRun(teamRun("choice-one"));
+      saveDomainRun(teamRun("choice-two"));
+      mutateObjective(objective.id, (current) => current && { ...current, status: "needs_george", runs: ["choice-one", "choice-two"], reportIds: ["report-choice"], waitingOn: { reportId: "report-choice", kind: "run", question: "Which direction?", at: new Date().toISOString() } });
+      Object.assign(server!, { cosReports: () => [{ id: "report-choice", objectiveId: objective.id, evidenceRefs: ["domain-run:choice-two"] }] });
+      expect((await post(port, JSON.stringify({ domainRun: objective.id, questionText: "Which direction?", text: "North" }), headers)).status).toBe(200);
+      expect(readDomainRun("choice-two")?.messages?.[0]).toMatchObject({ kind: "decision", body: "North" });
+      expect(readDomainRun("choice-one")?.messages).toBeUndefined();
+      vi.stubEnv("FLYD_COS", "0");
+      expect((await post(port, JSON.stringify({ domainRun: id, text: "The other" }), headers)).status).toBe(409);
+      expect(sent).toHaveBeenCalledTimes(3);
+      expect(readDomainRun(id)?.messages).toBeUndefined();
     });
 
     it("still refuses an answer with no words", async () => {

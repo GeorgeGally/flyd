@@ -255,7 +255,7 @@ function parseNote(file: string, imagesDir: string, filesDir: string): ParsedNot
   // own notes go under `flyd-…`. They are Flyd talking to firstmate, never
   // something he typed.
   const requestId = record.header.get("request_id") ?? "";
-  if (/^(?:domain|flyd)-/.test(requestId)) return null;
+  if (/^(?:domain|flyd)-/.test(requestId) || /^obj-[a-zA-Z0-9-]+-r\d+(?:-\d+)?(?::|$)/.test(requestId)) return null;
   const id = record.header.get("id");
   // Flyd's message on one of his runs is not his words; firstmate's reply to it is still that run's answer.
   const onRun = RUN_MESSAGE.exec(requestId)?.[1];
