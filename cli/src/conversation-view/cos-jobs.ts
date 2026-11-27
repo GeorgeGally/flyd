@@ -5,8 +5,9 @@ import { firstmateTasksOfRun, runNames, type TaskRecord } from "../command/run-c
 import { listObjectives } from "../command/cos/objectives.js";
 import { listDomainRuns } from "../command/store.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
-import { firstmateRecord } from "./retire.js";
-import { existsSync } from "node:fs";
+import { parseBacklog } from "./artefact.js";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { jobRunFromDomain, type JobRun } from "./jobs.js";
 
@@ -112,7 +113,16 @@ export function namesOwnedWork(text: string, owners: ReadonlyMap<string, string>
 /** Who owns objective work by every name it goes by, read now; null when the record cannot be read. */
 export function readCosOwners(home = firstmateHome()): ReadonlyMap<string, string> | null {
   try {
-    return cosOwners(listDomainRuns(undefined, true), listObjectives(undefined, true), firstmateRecord(home));
+    const record = (file: string) => {
+      try {
+        return readFileSync(join(home, "data", file), "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
+        throw error;
+      }
+    };
+    const entries = new Map([...parseBacklog(record("done-archive.md")), ...parseBacklog(record("backlog.md"))]);
+    return cosOwners(listDomainRuns(undefined, true), listObjectives(undefined, true), entries);
   } catch {
     return null;
   }

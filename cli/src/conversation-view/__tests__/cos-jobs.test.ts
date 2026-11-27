@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { Objective, CosReport } from "../../command/cos/types.js";
 import type { DomainRun } from "../../command/types.js";
 import { jobsFrom } from "../jobs.js";
-import { cosDecisionRun, cosJobRuns, cosRequestIds } from "../cos-jobs.js";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { cosDecisionRun, cosJobRuns, cosRequestIds, readCosOwners } from "../cos-jobs.js";
 
 const at = "2026-11-01T00:00:00Z";
 const now = Date.parse("2026-11-27T00:00:00Z");
@@ -78,5 +81,21 @@ describe("chief-of-staff jobs", () => {
     const finished = { ...report, kind: "done" as const, outcome: "The page is ready", detail: "Completed the page." };
     const board = jobsFrom({ runs: cosJobRuns([run], [done], [finished], now), now });
     expect(board.jobs[0]).toMatchObject({ group: "done", next: "The page is ready" });
+  });
+});
+
+describe("readCosOwners", () => {
+  it("binds Firstmate's own task to objective work, and reports ownership unavailable when the backlog cannot be read", () => {
+    const runs = join(process.env.FLYD_COMMAND_DIR!, "runs");
+    mkdirSync(runs, { recursive: true });
+    writeFileSync(join(runs, "domain-backlog-owned.json"), JSON.stringify({ id: "domain-backlog-owned", createdAt: at, request: { objectiveId: "obj-backlog" }, transport: { kind: "firstmate", requestId: "obj-backlog-r1", externalId: "1792372415-backlg" } }));
+    const home = mkdtempSync(join(tmpdir(), "flyd-cos-owners-"));
+    expect(readCosOwners(home)?.has("gallery-header")).toBe(false);
+    mkdirSync(join(home, "data"));
+    writeFileSync(join(home, "data", "backlog.md"), "- [ ] gallery-header - Fix the gallery header\n  From Flyd inbox request 1792372415-backlg\n");
+    expect(readCosOwners(home)?.get("gallery-header")).toBe("domain-backlog-owned");
+    const unreadable = mkdtempSync(join(tmpdir(), "flyd-cos-owners-"));
+    mkdirSync(join(unreadable, "data", "backlog.md"), { recursive: true });
+    expect(readCosOwners(unreadable)).toBeNull();
   });
 });
