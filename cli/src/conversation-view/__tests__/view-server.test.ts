@@ -950,7 +950,7 @@ describe("ConversationViewServer", () => {
       vi.stubEnv("FLYD_COMMAND_DIR", join(root, "command"));
       vi.stubEnv("FLYD_COS", "1");
       const id = "owned-answer";
-      saveDomainRun({ id, request: { id, domain: "knowledge", originalMessage: "Research", intendedOutcome: "Research the market", doneWhen: [], createdAt: "2026-10-09T00:00:00Z", objectiveId: "obj-example" }, owner: "Librarian", status: "needs_decision", createdAt: "2026-10-09T00:00:00Z", updatedAt: "2026-10-09T00:00:00Z", transport: { kind: "native", requestId: id } });
+      saveDomainRun({ id, request: { id, domain: "knowledge", originalMessage: "Research", intendedOutcome: "Research the market", doneWhen: [], createdAt: "2026-10-09T00:00:00Z", objectiveId: "obj-example" }, owner: "Librarian", status: "needs_decision", createdAt: "2026-10-09T00:00:00Z", updatedAt: new Date().toISOString(), transport: { kind: "native", requestId: id } });
       const { port, headers, source } = await serve(feedOf(root));
       const sent = vi.fn(async () => ({ id: "sent", timestamp: new Date().toISOString() }));
       Object.assign(source, { sendDecision: sent });
