@@ -1,4 +1,4 @@
-// What may reach George, as code. Flyd is his chief of staff (lib/soul.ts):
+// What may reach George, as code. Flyd is his personal assistant (lib/soul.ts):
 // five kinds of thing are worth his attention, and each reaches him as one
 // plain line. Everything else is Flyd's own to handle: a fault or a stale
 // reading is repaired or worked around, staff silence is chased quietly,

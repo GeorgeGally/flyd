@@ -97,6 +97,7 @@ export interface Job {
 
 export interface JobRun {
   id: string;
+  cosObjective?: boolean;
   status: string;
   transport?: DomainRun["transport"]["kind"];
   source?: DomainRun["request"]["source"];
@@ -111,6 +112,10 @@ export interface JobRun {
   settled?: string;
   question?: string;
   questionIdentity?: string;
+  /** A still-open CoS decision remains current until its objective resolves it. */
+  persistentDecision?: boolean;
+  options?: string[];
+  recommended?: string;
   report?: string;
   artifacts: string[];
   /** Where the work stands, as read once from its reply (lib/work-state.ts); from its status when it carries none. */
@@ -242,6 +247,9 @@ interface Signal {
   owner: string;
   ask: string;
   questionIdentity?: string;
+  persistentDecision?: boolean;
+  options?: string[];
+  recommended?: string;
   because: string;
   decision?: ShowItem["decision"];
   domainRun?: string;
@@ -293,8 +301,8 @@ function runSignalOf(run: JobRun, now: number): Signal | null {
   if (work === "needs_you") {
     if (run.source === "flyd") return null;
     // An ask left three days is stale: it is no longer his.
-    if (now - Date.parse(at) > ASK_KEEP_MS) return null;
-    return { ...placed("asks"), at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
+    if (!run.persistentDecision && now - Date.parse(at) > ASK_KEEP_MS) return null;
+    return { ...placed("asks"), at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, ...(run.persistentDecision ? { persistentDecision: true } : {}), ...(run.options?.length ? { options: run.options, recommended: run.recommended } : {}), because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
   }
   // Who on the staff does the work is Flyd's business: the card says only whether it is his move or Flyd's.
   if (run.status === "queued") return { ...placed("queued"), at, next: run.outcome || "Queued", owner: "Flyd", ask: "", because: `Run ${run.id} is queued` };
@@ -416,7 +424,7 @@ export function jobsFrom(input: {
     const signal = runSignal(run, now);
     if (!signal) continue;
     const name = run.project;
-    if (!name && signal.group === "done") continue;
+    if (!name && signal.group === "done" && !run.cosObjective) continue;
     const title = runTitle(run.outcome) || name || "Untitled run";
     const running = signal.group === "moving" && signal.state === STATE_WORDS.running;
     const bucket = (running || signal.group === "needs")
@@ -511,7 +519,7 @@ export function jobsFrom(input: {
 
   // An ask is his only while it is current: a quiet (old) call or an ask over three days old is never put to him.
   for (const bucket of buckets.values()) {
-    bucket.signals = bucket.signals.filter((signal) => signal.group !== "needs" || (!signal.quiet && !(now - Date.parse(signal.at) > ASK_KEEP_MS)));
+    bucket.signals = bucket.signals.filter((signal) => signal.group !== "needs" || (!signal.quiet && (signal.persistentDecision || !(now - Date.parse(signal.at) > ASK_KEEP_MS))));
   }
 
   for (const [key, active] of activeProjects) {
@@ -584,7 +592,7 @@ export function jobsFrom(input: {
     // A call that only tells him something is a notice, not a need: it is told as done, never filed under Needs you or Todo.
     // So is one whose stored reading says nothing is wanted from him.
     const reading = raw ? input.cardWords!.get(raw.key) : undefined;
-    const notice = lead.group === "needs" && !asks && (raw?.asks === false || Boolean(reading && NOTHING_WANTED.test(reading.body)));
+    const notice = lead.group === "needs" && !lead.persistentDecision && !asks && (raw?.asks === false || Boolean(reading && NOTHING_WANTED.test(reading.body)));
     // Needs you is decided by the record (an open call, a run's unresolved question), never by the words of a reading.
     const group: JobGroup = notice ? "done" : lead.group;
     const fallback = fallbackWords(bucket.name ?? "", group, state, raw?.asks !== false);
@@ -641,7 +649,7 @@ export function jobsFrom(input: {
   const current = jobs.filter((job) => {
     if (job.group !== "needs") return true;
     // A card with no project is told apart by its title, so two unregistered repos' generic asks both stay.
-    const words = `${job.project || job.title}|${(job.ask || job.next || job.title).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}`;
+    const words = `${job.domainRun?.startsWith("obj-") ? job.domainRun : job.project || job.title}|${(job.ask || job.next || job.title).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}`;
     if (asked.has(words)) return false;
     asked.add(words);
     return true;
@@ -656,6 +664,7 @@ export function jobsFrom(input: {
  * call that asks several things at once, or an open question, names none. Pure.
  */
 function answersOf(lead: Signal, digest: JobDigestView | null): NamedAnswers | null {
+  if (lead.options?.length) return { options: lead.options, ...(lead.recommended && lead.options.includes(lead.recommended) ? { recommended: lead.recommended } : {}) };
   const decision = lead.decision;
   if (decision) {
     if (decision.steps?.length || (decision.decisions?.length ?? 0) > 1) return null;

@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
+import { memoryPaths, readConsistentMemoryText } from "../council/memory-store.js";
 import { parseTaste, type TasteProfile, type TasteRule } from "../council/taste.js";
 import { projectId } from "../council/projects.js";
 import type { ConversationMessage } from "./types.js";
@@ -369,11 +370,13 @@ export class MemoryReader {
   refresh(): boolean {
     const taste = join(this.dir, "TASTE.md");
     const memory = join(this.dir, "MEMORY.md");
+    let memoryText: string;
+    try { memoryText = readConsistentMemoryText(memoryPaths(this.dir)) ?? ""; } catch { return false; }
     const stamp = [this.mtime(taste), this.mtime(memory), this.mtime(join(this.dir, "raw"))].join(":");
     if (stamp === this.stamp) return false;
     this.stamp = stamp;
     const profile = parseTaste(this.text(taste));
-    const entries = parseMemoryFile(this.text(memory));
+    const entries = parseMemoryFile(memoryText);
     const signatures = new Map<string, string>([
       ...profile.rules.map((rule): [string, string] => [`taste:${rule.id}`, `${rule.count}|${rule.text}`]),
       ...entries.map((entry): [string, string] => [entryId(entry), entry.text]),

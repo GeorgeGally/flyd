@@ -74,6 +74,14 @@ describe("crew", () => {
     expect(existsSync(task.worktree)).toBe(false);
   });
 
+  it("leaves an objective-owned result for the Chief of Staff to report", async () => {
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", objectiveId: "obj-example", launch: fakeCrewmate() });
+    const notify = vi.fn(async () => {});
+    const [done] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "all good" }), notify });
+    expect(done).toMatchObject({ status: "ready", objectiveId: "obj-example" });
+    expect(notify).not.toHaveBeenCalled();
+  });
+
   it("fails a crewmate that committed nothing or whose checks fail, and never lands it", async () => {
     await dispatchCrewTask({ repo, outcome: "Do nothing", launch: fakeCrewmate(false) });
     const notify = vi.fn(async () => undefined);

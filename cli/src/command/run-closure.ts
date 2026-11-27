@@ -70,7 +70,7 @@ export function runClosedInRecord(run: Pick<DomainRun, "id" | "transport" | "req
 
 /** A run still putting a question to George that firstmate's record could settle. */
 function asking(run: DomainRun): boolean {
-  return run.transport.kind === "firstmate" && run.status === "needs_decision" && !run.closedBy;
+  return run.transport.kind === "firstmate" && !run.request.objectiveId && run.status === "needs_decision" && !run.closedBy;
 }
 
 /**

@@ -2,16 +2,17 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { chatToolSet, flydMayRun } from "../../runtime/conversation-responder.js";
+import { chatToolSet, flydMayCall, flydMayRun } from "../../runtime/conversation-responder.js";
 import { handOffLiveTask } from "../../runtime/live-task-intake.js";
 import { planTurn } from "../../runtime/turn-plan.js";
+import { runAssistantTool } from "../../runtime/assistant-tools.js";
 import { listObjectives, mutateObjective, openObjective, readObjective } from "../cos/objectives.js";
 import type { Dispatch } from "../cos/dispatch.js";
 import { flushPendingCorrections, tellWork, workStatus } from "../cos/steer.js";
 import { cosTick } from "../cos/tick.js";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import type { sendRunMessage } from "../messages.js";
-import { createDomainRun } from "../store.js";
+import { createDomainRun, mutateDomainRun, readDomainRun } from "../store.js";
 import type { DomainId, DomainRun } from "../types.js";
 
 let home: string;
@@ -47,6 +48,78 @@ function recorder() {
 }
 
 describe("tell_work", () => {
+  it("does not guess which of two team runs a decision is for", async () => {
+    const objective = underWay("Fix the footer", "coding");
+    const first = readDomainRun(`${objective}-r1`)!;
+    const second = { ...first, id: `${objective}-r2`, request: { ...first.request, id: `${objective}-r2`, intendedOutcome: "Check the design" }, transport: { ...first.transport, requestId: `${objective}-r2` } };
+    createDomainRun(second);
+    mutateObjective(objective, (current) => current && { ...current, runs: [first.id, second.id] });
+    const { sent, send } = recorder();
+    expect(await tellWork({ objectiveId: objective, message: "yes", kind: "decision" }, send)).toMatchObject({ delivered: false, reason: "ambiguous" });
+    expect(sent).toEqual([]);
+  });
+
+  it("does not apply an answer to a different, newer objective question", async () => {
+    const objective = underWay("Fix the footer", "coding");
+    mutateObjective(objective, (current) => current && { ...current, status: "needs_george", waitingOn: { reportId: "new-question", kind: "run", question: "Which colour?", at: new Date().toISOString() } });
+    const { sent, send } = recorder();
+    expect(await tellWork({ objectiveId: objective, expectedReportId: "old-question", message: "yes", kind: "decision" }, send)).toMatchObject({ delivered: false, reason: "not_steerable" });
+    expect(sent).toEqual([]);
+  });
+
+  it("delivers a decision to the identified objective run and never a different run", async () => {
+    const objective = underWay("Fix the footer", "coding");
+    const { sent, send } = recorder();
+    expect(await tellWork({ objectiveId: objective, runId: `${objective}-r1`, message: "Use blue", kind: "decision" }, send))
+      .toEqual({ delivered: true, objectiveId: objective });
+    expect(sent).toEqual([{ run: `${objective}-r1`, kind: "decision", body: "Use blue" }]);
+    expect((await tellWork({ objectiveId: objective, runId: "wrong-run", message: "Use blue", kind: "decision" }, send)).delivered).toBe(false);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("retains a correction's attached evidence when steering existing work", async () => {
+    const objective = underWay("Fix the footer", "coding");
+    const { sent, send } = recorder();
+    expect((await tellWork({ objectiveId: objective, message: "Use this reference", contextRefs: ["/tmp/example.png"] }, send)).delivered).toBe(true);
+    expect(sent[0]?.body).toContain("Use this reference");
+    expect(sent[0]?.body).toContain("/tmp/example.png");
+  });
+
+  it("uses a known run identity to steer the right part of a multi-team objective", async () => {
+    const objective = underWay("Fix the footer", "coding");
+    const runId = `${objective}-r1`;
+    mutateObjective(objective, (current) => current && { ...current, plan: [
+      { key: "r1", team: "coding", outcome: "Fix the footer", doneWhen: ["done"], state: "dispatched", attempt: 1, validFor: 0, ref: runId },
+      { key: "r2", team: "creative", outcome: "Design the footer", doneWhen: ["done"], state: "queued", attempt: 0, validFor: 0 },
+    ] });
+    const { sent, send } = recorder();
+    expect((await tellWork({ objectiveId: objective, runId, message: "Make it blue" }, send)).delivered).toBe(true);
+    expect(sent).toEqual([{ run: runId, kind: "correction", body: "Make it blue" }]);
+    expect(readObjective(objective)?.corrections?.[0]?.run).toBe("r1");
+  });
+
+  it("routes an artefact correction to its recorded objective even when other work is open", async () => {
+    underWay("Fix a different footer", "coding");
+    const objective = openObjective({ words: "Research pricing", flydNotes: "", origin: { surface: "chat" } });
+    const id = `${objective.id}-r1`;
+    const at = new Date().toISOString();
+    createDomainRun({ id, owner: "Librarian", status: "working", createdAt: at, updatedAt: at,
+      transport: { kind: "native", requestId: id },
+      request: { id, domain: "knowledge", originalMessage: "Research pricing", intendedOutcome: "Research pricing", doneWhen: ["done"], createdAt: at, objectiveId: objective.id } });
+    mutateObjective(objective.id, (current) => current && { ...current, status: "working", runs: [id], brief: { team: "knowledge", outcome: "Research pricing", doneWhen: ["done"], decisions: { comesBack: [], settledByPolicy: [] } } });
+    const answer = await runAssistantTool("tell_work", { message: "Use EUR", kind: "correction" }, { targetTaskId: id, userMessage: "Use EUR" });
+    expect(answer).toContain("existing work has the instruction");
+    expect(readDomainRun(id)?.messages?.[0]).toMatchObject({ kind: "correction", body: "Use EUR" });
+    expect(readObjective(objective.id)?.corrections?.[0]?.text).toBe("Use EUR");
+  });
+  it("steers a directly identified objective without guessing among other objectives", async () => {
+    underWay("A different job", "coding");
+    const objective = underWay("Research pricing", "knowledge");
+    mutateDomainRun(`${objective}-r1`, (current) => current && { ...current, owner: "Librarian", transport: { kind: "native", requestId: current.id } });
+    const answer = await runAssistantTool("tell_work", { kind: "correction" }, { targetTaskId: objective, userMessage: "Make it blue" });
+    expect(answer).toContain("existing work has the instruction");
+    expect(readDomainRun(`${objective}-r1`)?.messages?.[0]).toMatchObject({ kind: "correction", body: "Make it blue" });
+  });
   it("delivers to the one matching objective, asks one question when two match, and forwards nothing unrelated", async () => {
     const { sent, send } = recorder();
     expect(await tellWork({ message: "make the header blue" }, send)).toEqual({ delivered: false, reason: "no_active_work" });
@@ -175,6 +248,7 @@ describe("Flyd with the Chief of Staff on", () => {
     for (const gone of ["edit_file", "write_file", "start_coding_task", "background_task", "domain_work", "crew"]) expect(names).not.toContain(gone);
     // Unattended runs are the work itself and keep their tools.
     expect(chatToolSet(null, true, false).map((tool) => tool.name)).toEqual(expect.arrayContaining(["edit_file", "write_file"]));
+    expect([flydMayCall("start_coding_task", true), flydMayCall("write_file", true), flydMayCall("hand_off", true), flydMayCall("start_coding_task", false)]).toEqual([false, false, true, true]);
     expect([flydMayRun("git status", true), flydMayRun("rm -rf dist", true), flydMayRun("echo hi > notes.txt", true), flydMayRun("rm -rf dist", false)]).toEqual([true, false, false, true]);
     const answer = planTurn({ route: "answer", source: "jev", domain: null })!;
     expect([[...answer.handoffs], answer.instruction.includes("hand it off in this turn with hand_off")]).toEqual([["hand_off", "tell_work"], true]);

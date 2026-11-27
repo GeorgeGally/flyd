@@ -355,12 +355,15 @@ export function firstmateRequestBody(request: DomainRequest): string {
     : "";
   return [
     "FLYD DOMAIN REQUEST",
-    "Flyd is mediating this coding request for George. Own the coding outcome as the domain boss: route it to the right project/workers, supervise it, verify it, and escalate only real decisions.",
+    request.objectiveId
+      ? "George → Flyd → Chief of Staff → Firstmate → coding workers. The Chief of Staff assigned this request and reviews your result; Flyd is George's personal assistant and presents the result. Own the coding outcome as the domain boss: route it to the right project/workers, supervise it, verify it, and escalate only real decisions."
+      : "Flyd is mediating this coding request for George. Own the coding outcome as the domain boss: route it to the right project/workers, supervise it, verify it, and escalate only real decisions.",
+    ...(request.objectiveId ? ["For each task created from this inbox note, use the supported --inbox-note binding and verify that Firstmate's request-provenance record links it to this note. Report missing or unsupported provenance rather than guessing which task belongs to this request."] : []),
     "",
     "ORIGINAL REQUEST — preserve this wording as authority:",
     request.originalMessage,
     "",
-    "FLYD INTERPRETATION:",
+    request.objectiveId ? "CHIEF OF STAFF BRIEF:" : "FLYD INTERPRETATION:",
     request.intendedOutcome,
     ...(request.skill ? [`USE SKILL: ${request.skill.name}`, "Follow this skill's process for this request:", request.skill.body] : []),
     request.parentRequestId ? `Follow-up to prior Flyd domain run: ${request.parentRequestId}` : "",
@@ -373,7 +376,7 @@ export function firstmateRequestBody(request: DomainRequest): string {
     "",
     "RETURN CONTRACT:",
     "When this request reaches a stable outcome or needs a real decision, publish a durable reply to this inbox note using fm-inbox.sh reply.",
-    "Flyd decides routine calls with George's delegated authority: merging finished, reviewed, green work, syncing or pushing it, the obvious follow-up build, wording and formatting. Do those and report completed; do not hand them back as questions.",
+    `${request.objectiveId ? "The Chief of Staff" : "Flyd"} decides routine calls with George's delegated authority: merging finished, reviewed, green work, syncing or pushing it, the obvious follow-up build, wording and formatting. Do those and report completed; do not hand them back as questions.`,
     "If implementation is verified but a step that needs George's own word remains (publication, deployment or going live, anything destructive, irreversible, costly or security-sensitive, or a genuine taste or strategy call), return status=needs_decision rather than completed.",
     "Return JSON when practical with: status (completed|needs_decision|failed), brief, recommendation {action,reasoning,confidence}, detailed_report, decisions_made, unresolved_questions, risks, evidence, artifacts, specialist_outputs, information_loss_risk.",
     "The detailed_report should retain material technical detail. Do not collapse specialist findings into only a short summary. Evidence/artifact pointers should survive so Flyd can inspect or ask follow-ups.",

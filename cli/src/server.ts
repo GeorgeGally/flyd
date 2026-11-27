@@ -1,3 +1,4 @@
+import { cosEnabled } from "./command/cos/enabled.js";
 import { learningRequest } from "./cognition/learning-service.js";
 import { recordResolutionReceipt, type ResolutionLike } from "./runtime/resolution-receipt.js";
 import { config } from "dotenv";
@@ -433,7 +434,7 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         const projectRoot = repoInfo.root || process.cwd();
 
         // With the Chief of Staff on, the task is handed off like chat work rather than tracked as its own AgentTask.
-        const response = process.env.FLYD_COS === '1'
+        const response = cosEnabled()
           ? await handOffLiveTask(parsed.intent, projectRoot, parsed.invocation_id)
           : await buildTaskPlanResponse({
           decision: taskDecision,
@@ -1899,7 +1900,7 @@ export async function startServer(port = 4815, host = "127.0.0.1", options: { so
       console.log(`[Flyd Core] Server listening on http://${host}:${port}`);
       // Report the actual Core Node/package gate, not an optimistic config
       // flag. The Mac may adopt an older Core until it is rebuilt/restarted.
-      if (process.env.FLYD_COS === "1") {
+      if (cosEnabled()) {
         try {
           const { agentRunActivationStatus } = await import("./command/cos/decision-workflows/recovery-runner.js");
           const dsl = await agentRunActivationStatus();

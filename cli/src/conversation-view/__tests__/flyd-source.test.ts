@@ -13,6 +13,13 @@ afterEach(() => {
 });
 
 describe("Flyd's standalone conversation source", () => {
+  it("keeps the task identity on a comment about an artefact", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-about-task-"));
+    let target = "";
+    const source = new FlydConversationSource({ desk: new FlydDesk({ dir, answer: async (_q, _h, _s, turn) => { target = turn?.targetTaskId ?? ""; return "Understood."; } }) });
+    await source.sendDecision("Make it blue", [], undefined, "window:about-test", "domain-123");
+    await vi.waitFor(() => expect(target).toBe("domain-123"));
+  });
   it("acknowledges the choice in plain language and offers iteration feedback only when requested", async () => {
     expect(decisionAcknowledgement("How should the lab proceed?", "another round")).toBe("we're doing another round");
     expect(decisionAcknowledgement("Which design?", "the second one")).toBe("we'll do the second one");

@@ -532,8 +532,10 @@ export function withProjectThreads(source: ConversationSource, threads: ProjectT
       const said = where.project === threads.project(sessionId) ? inThread(sessionId, text) : text;
       return sent(source.send(await target(sessionId), said, images, files, to, where));
     },
-    ...(source.sendDecision ? { sendDecision: async (text: string, images: ImageUpload[] = [], decision?: { decisionId: string; taskId: string }, sessionId?: string) =>
-      source.sendDecision!(text, images, decision, sessionId && isThread(sessionId) ? await target(sessionId) : sessionId) } : {}),
+    ...(source.sendDecision ? { sendDecision: async (text: string, images: ImageUpload[] = [], decision?: { decisionId: string; taskId: string }, sessionId?: string, targetTaskId?: string) => {
+      const targetSession = sessionId && isThread(sessionId) ? await target(sessionId) : sessionId;
+      return targetTaskId ? source.sendDecision!(text, images, decision, targetSession, targetTaskId) : source.sendDecision!(text, images, decision, targetSession);
+    } } : {}),
     ...(source.sendDecisionFollowUp ? { sendDecisionFollowUp: async (text: string, decision: { decisionId: string; taskId: string }, sessionId?: string) =>
       source.sendDecisionFollowUp!(text, decision, sessionId && isThread(sessionId) ? await target(sessionId) : sessionId) } : {}),
     commands: () => source.commands(),

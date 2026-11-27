@@ -30,6 +30,9 @@ import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.j
 import { syncTasteSkills } from "../council/taste-skills.js";
 import { applyProjectOps, projectsPath, readProjects } from "../council/projects.js";
 import { commandDir, listDomainRuns, readDomainRun } from "../command/store.js";
+import { cosEnabled } from "../command/cos/enabled.js";
+import { listObjectives, readObjective } from "../command/cos/objectives.js";
+import type { CosReport } from "../command/cos/types.js";
 import { activeDomainRuns, messageId, sendRunMessage } from "../command/messages.js";
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
@@ -49,6 +52,7 @@ import { condense, fitsAtAGlance, georgeMarkdown, staffLine, type GeorgeLine } f
 import { cardIntentOf } from "./card-intent.js";
 import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from "./show.js";
 import { editJob, jobRunFromDomain, jobsFrom, type Job, type JobReport } from "./jobs.js";
+import { cosDecisionRun, cosJobRuns, readCosReports } from "./cos-jobs.js";
 import { readDigests, scheduleDigest } from "./job-digest.js";
 import { exhaustedCardWords, readCardWords, scheduleCardWords } from "./card-words.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs, type ArtefactRow } from "./artefact.js";
@@ -2019,7 +2023,41 @@ export class ConversationViewServer {
         sendJson(res, 400, { error: "expected images as [{ mediaType, data }]" });
         return;
       }
+      const objective = readObjective(payload.domainRun);
+      if (objective) {
+        if (!cosEnabled()) {
+          sendJson(res, 409, { error: "This work is paused with the chief of staff. Your answer was not sent." });
+          return;
+        }
+        const waiting = objective.status === "needs_george" ? objective.waitingOn : undefined;
+        if (!waiting || !sameQuestion(payload.questionText, waiting.question)) {
+          await this.sendAbout(res, { title: payload.jobTitle ?? objective.words, task: objective.id, detail: payload.questionText }, payload.text, images as ImageUpload[], session);
+          return;
+        }
+        try {
+          const paths = new FirstmateInbox({ home: commandDir() }).saveImages(images as ImageUpload[]);
+          const { tellWork } = await import("../command/cos/steer.js");
+          const runId = cosDecisionRun(objective, this.cosReports());
+          const outcome = await tellWork({ objectiveId: objective.id, expectedReportId: waiting.reportId, kind: "decision", message: payload.text, ...(runId ? { runId } : {}), ...(paths.length ? { contextRefs: paths } : {}) });
+          if (!outcome.delivered) {
+            sendJson(res, 409, { error: outcome.ask || "Your answer could not be delivered to the right work yet." });
+            return;
+          }
+          sendJson(res, 200, { id: `objective:${objective.id}:${waiting.reportId}`, waiting: "Sent to Flyd" });
+        } catch {
+          sendJson(res, 502, { error: "Your answer could not be delivered. Please try again." });
+        }
+        return;
+      }
       const run = activeDomainRuns().find((active) => active.id === payload.domainRun && active.phase !== "done");
+      if (run?.request.objectiveId) {
+        if (!cosEnabled()) {
+          sendJson(res, 409, { error: "This work is paused with the chief of staff. Your answer was not sent." });
+          return;
+        }
+        await this.sendAbout(res, { title: payload.jobTitle ?? run.request.intendedOutcome, task: run.id, detail: payload.questionText }, payload.text, images as ImageUpload[], session);
+        return;
+      }
       // A run that has moved past the question still hears him; a closed one reaches its job as a normal message.
       if (!run) {
         await this.sendToJob(res, { title: payload.jobTitle ?? readDomainRun(payload.domainRun)?.request.intendedOutcome, task: payload.domainRun, question: payload.questionText }, payload.text, images as ImageUpload[], session);
@@ -2057,6 +2095,10 @@ export class ConversationViewServer {
         return;
       }
       const job = { title: payload.jobTitle, task: payload.decisionTask, question: payload.questionText };
+      if (typeof payload.decisionTask === "string" && readDomainRun(payload.decisionTask)?.request.objectiveId) {
+        await this.sendToJob(res, job, payload.text, images as ImageUpload[], session);
+        return;
+      }
       const call = await this.liveCall(payload.decision, payload.decisionTask, payload.questionText);
       const executive = Boolean(call?.executiveDecisionId);
       if (!call || !this.source.sendDecision) {
@@ -2102,6 +2144,10 @@ export class ConversationViewServer {
       const decisionId = typeof payload.decisionFollowUp === "string" ? payload.decisionFollowUp : "";
       const taskId = typeof payload.decisionTask === "string" ? payload.decisionTask : call?.task ?? "";
       const job = { title: payload.jobTitle ?? call?.label, task: taskId, question: payload.questionText ?? call?.question };
+      if (taskId && readDomainRun(taskId)?.request.objectiveId) {
+        await this.sendToJob(res, job, payload.text, images as ImageUpload[], session);
+        return;
+      }
       if (!decisionId || !taskId || !this.source.sendDecisionFollowUp || (images as ImageUpload[]).length) {
         await this.sendToJob(res, job, payload.text, images as ImageUpload[], session);
         return;
@@ -2242,8 +2288,13 @@ export class ConversationViewServer {
     const named = [`About the artefact "${title.replace(/\s+/g, " ")}"`, ...(task ? [`Task: ${task}`] : []), ...(url ? [`Page: ${url}`] : []), ...(line ? [`Line: ${line}`] : []), ...(detail ? [`Detail: ${detail}`] : [])].join("\n");
     try {
       const words = text.trim();
-      const note = words ? withCommandMarker(`${named}\n\n${words}`, await this.commandIn(words)) : named;
-      respond(200, { ...await this.source.sendDecision(note, images, undefined, session), waiting: "Sent." });
+      const owned = task ? Boolean(readDomainRun(task)?.request.objectiveId || readObjective(task)) : false;
+      if (owned && !cosEnabled()) {
+        respond(409, { error: "This work is paused with the chief of staff. Your message was not sent." });
+        return;
+      }
+      const note = owned ? words : words ? withCommandMarker(`${named}\n\n${words}`, await this.commandIn(words)) : named;
+      respond(200, { ...await this.source.sendDecision(note, images, undefined, session, task), waiting: "Sent." });
     } catch (error) {
       respond(502, { error: error instanceof Error ? error.message : String(error) });
     }
@@ -2281,6 +2332,14 @@ export class ConversationViewServer {
     const task = named(job.task);
     const question = named(job.question);
     const run = task ? activeDomainRuns().find((active) => active.phase !== "done" && (active.id === task || active.transport.requestId === task || active.transport.externalId === task)) : undefined;
+    if (run?.request.objectiveId) {
+      if (!cosEnabled()) {
+        this.sendJobResult(res, 409, { error: "This work is paused with the chief of staff. Your message was not sent." }, receipt);
+        return;
+      }
+      await this.sendAbout(res, { title: named(job.title) ?? run.request.intendedOutcome, task: run.id, ...(question ? { detail: question } : {}) }, text, images, session, receipt);
+      return;
+    }
     if (run) {
       try {
         const paths = new FirstmateInbox({ home: commandDir() }).saveImages(images);
@@ -2630,7 +2689,7 @@ export class ConversationViewServer {
     if (this.islandNeeds && Date.now() - this.islandNeeds.at < 5_000) return this.islandNeeds.jobs;
     try {
       const show = showOf(snapshot, { projects: this.show?.projects?.() ?? [], artefact: this.artefactInputs() });
-      const jobs = jobsFrom({ projects: readProjects(), runs: listDomainRuns().map(jobRunFromDomain), show, cardWords: readCardWords(), exhausted: exhaustedCardWords() })
+      const jobs = jobsFrom({ projects: readProjects(), runs: this.boardRuns(), show, cardWords: readCardWords(), exhausted: exhaustedCardWords() })
         .jobs.filter((job) => job.group === "needs");
       this.islandNeeds = { at: Date.now(), jobs };
       return jobs;
@@ -2640,11 +2699,23 @@ export class ConversationViewServer {
     }
   }
 
+  /** Use only reports recorded for an objective; retain raw legacy work when a report cannot be read. */
+  private boardRuns(): ReturnType<typeof jobRunFromDomain>[] {
+    const runs = listDomainRuns();
+    const objectives = listObjectives();
+    if (!objectives.length) return runs.map(jobRunFromDomain);
+    return cosJobRuns(runs, objectives, this.cosReports(), Date.now(), cosEnabled());
+  }
+
+  private cosReports(): CosReport[] {
+    return readCosReports(join(this.activity?.directory() ?? FLYD_DIR, "intelligence.sqlite"));
+  }
+
   /** One board for the column. Inferred names are written once, outside tests. One digest is scheduled, never drawn here. */
   private jobBoard(snapshot: ConversationSnapshot, show: ShowScreen): { jobs: Job[]; fleetKnown: boolean } {
     try {
       const projects = readProjects();
-      const runs = listDomainRuns().map(jobRunFromDomain);
+      const runs = this.boardRuns();
       const sessions = this.listedSessions.map((session) => ({
         id: session.id,
         title: session.title,

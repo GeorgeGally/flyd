@@ -49,6 +49,9 @@ import { LiveStaffSession, readStaffView } from "../command/fleet-monitor.js";
 import { listDomainRuns, readDomainRun } from "../command/store.js";
 import { isOpen, isSettled } from "../command/run-state.js";
 import { sendRunMessage } from "../command/messages.js";
+import { tellWork } from "../command/cos/steer.js";
+import { listObjectives } from "../command/cos/objectives.js";
+import { cosRequestIds } from "../conversation-view/cos-jobs.js";
 import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun, STAFF_COORDINATION_POLICY } from "../intelligence/executive/firstmate-decision.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision, takeBackSettledDecision } from "../intelligence/executive/decision-step.js";
@@ -101,7 +104,7 @@ export const answerAsFlyd: Answerer = async (question, history, onStep, turn) =>
   const memory = await retrieveAgentMemory(question, turn ? { excludeConversationSessionId: turn.source.sessionId } : {}).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
   const article = turn ? await articleForTurn(turn.source.sessionId, question) : undefined;
   let deferred = false;
-  const text = await respondToConversation({ onAnswerContent, ...(turn ? { onDeferred: () => { deferred = true; }, source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact, onMutation: turn.onMutation, ...(turn.askUser ? { askUser: turn.askUser } : {}), ...(turn.outside ? { outside: true } : {}), ...(turn.attached ? { attached: turn.attached } : {}), ...(turn.scope ? { chatScope: turn.scope } : {}) } : {}), ...(article ? { article } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: FORM_PROMPT });
+  const text = await respondToConversation({ onAnswerContent, ...(turn ? { onDeferred: () => { deferred = true; }, source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact, onMutation: turn.onMutation, ...(turn.askUser ? { askUser: turn.askUser } : {}), ...(turn.outside ? { outside: true } : {}), ...(turn.attached ? { attached: turn.attached } : {}), ...(turn.attachmentRefs?.length ? { attachmentRefs: turn.attachmentRefs } : {}), ...(turn.targetTaskId ? { targetTaskId: turn.targetTaskId } : {}), ...(turn.scope ? { chatScope: turn.scope } : {}) } : {}), ...(article ? { article } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: FORM_PROMPT });
   if (deferred) return { deferred: true };
   // Quiet design companionship: already-curated, sourced references become
   // an ambient card, never a second spoken answer or a new remote search.
@@ -175,6 +178,17 @@ function openInBrowser(url: string): void {
   execFile(command, [url], () => {});
 }
 
+/** Raw Firstmate wake reports have no objective lineage; direct replies remain available. */
+export function firstmateWakeMaySurface(wake: boolean | undefined, requests: ReadonlySet<string> | null): boolean {
+  return !wake || (requests !== null && requests.size === 0);
+}
+
+function cosRequestsForView(): ReadonlySet<string> | null {
+  try {
+    return cosRequestIds(listDomainRuns(undefined, true), listObjectives(undefined, true));
+  } catch { return null; }
+}
+
 /** The threads over everything he has said: Flyd's conversations, and firstmate's session transcripts beside them, read only. */
 function withThreads(source: ConversationSource, flyd: FlydConversationSource, transcript?: ClaudeCodeTranscriptSource): ConversationSource {
   const firstmateDir = resolveProjectDir(FIRSTMATE_PROJECT_DIR);
@@ -190,7 +204,7 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, t
       },
       image: (session: string, id: string) => firstmate.image(session, id),
       // A reply to what he said is never kept back; a wake's report passes the check every relay passes.
-      shows: (message: ConversationMessage) => !message.wake || relayMayShow(inFlydsVoice(message.text)),
+      shows: (message: ConversationMessage) => !message.wake || (firstmateWakeMaySurface(true, cosRequestsForView()) && relayMayShow(inFlydsVoice(message.text))),
       revision: () => firstmate.exchanges().map((exchange) => `${exchange.question.id}:${exchange.answer?.id ?? ""}`).join(","),
     }] : []),
   ];
@@ -204,7 +218,7 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, t
   const read = new Set<string>();
   const notePlay = (messages: ConversationMessage[]) => {
     for (const message of messages) {
-      if (message.role !== "assistant" || read.has(message.id)) continue;
+      if (message.role !== "assistant" || read.has(message.id) || (message.wake && !firstmateWakeMaySurface(true, cosRequestsForView()))) continue;
       read.add(message.id);
       try {
         // What landed or needs him rings once, a project at a time; only a line he saw whole counts as told, the rest waits for his next briefing.
@@ -280,7 +294,7 @@ export function feedChecks(inbox: Pick<FirstmateInbox, "available" | "home" | "s
  * The view's one feed, built from the options `flyd view` was started with (Flyd.app: `view --no-open --port <n>`):
  * whatever they are, it carries every safety check `feedChecks` builds.
  */
-export function viewFeed(options: ViewOptions, inbox: Pick<FirstmateInbox, "available" | "home" | "sendOwn">, feed: Pick<ConstructorParameters<typeof ArtefactFeed>[0] & object, "voice" | "decideChanges" | "workers">): ArtefactFeed {
+export function viewFeed(options: ViewOptions, inbox: Pick<FirstmateInbox, "available" | "home" | "sendOwn">, feed: Pick<ConstructorParameters<typeof ArtefactFeed>[0] & object, "voice" | "decideChanges" | "workers" | "cosRequests">): ArtefactFeed {
   return new ArtefactFeed({ home: inbox.home, ...feed, ...feedChecks(inbox) });
 }
 
@@ -317,8 +331,13 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         const message = `George takes back the answer Flyd gave for him by his standing rule ("${decision.settled.answer}") to: ${decision.settled.question}\n\nHis own answer: ${answer.trim()}`;
         const run = listDomainRuns().find((item) => item.id === taskId && item.transport.kind === "firstmate" && item.request.domain === "coding");
         if (run) {
-          const sent = await sendRunMessage({ run, kind: "decision", body: message, from: "flyd" });
-          if (!sent.delivered) throw new Error("Flyd could not deliver that answer to the work");
+          if (run.request.objectiveId) {
+            const sent = await tellWork({ objectiveId: run.request.objectiveId, runId: run.id, kind: "decision", message });
+            if (!sent.delivered) throw new Error("The Chief of Staff could not deliver that answer to the work");
+          } else {
+            const sent = await sendRunMessage({ run, kind: "decision", body: message, from: "flyd" });
+            if (!sent.delivered) throw new Error("Flyd could not deliver that answer to the work");
+          }
         } else {
           if (!inbox.available()) throw new Error("There is no connected coding employee to receive that answer");
           await inbox.sendTaskNote(taskId, message);
@@ -336,9 +355,14 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       let evidenceRef: string;
       if (run) {
         const message = update ? `George's follow-up on his answer to: ${decision.question}\n\n${answer.trim()}` : `George's answer to: ${decision.question}\n\n${answer.trim()}`;
-        const sent = await sendRunMessage({ run, kind: "decision", body: message, from: "flyd" });
-        if (!sent.delivered) throw new Error("Flyd could not deliver that decision to the active work");
-        const receipt = sent.run?.messages?.find((item) => item.kind === "decision" && item.body === message && item.deliveredAt);
+        if (run.request.objectiveId) {
+          const sent = await tellWork({ objectiveId: run.request.objectiveId, runId: run.id, kind: "decision", message });
+          if (!sent.delivered) throw new Error("The Chief of Staff could not deliver that decision to the active work");
+        } else {
+          const sent = await sendRunMessage({ run, kind: "decision", body: message, from: "flyd" });
+          if (!sent.delivered) throw new Error("Flyd could not deliver that decision to the active work");
+        }
+        const receipt = readDomainRun(run.id)?.messages?.find((item) => item.kind === "decision" && item.body === message && item.deliveredAt);
         if (!receipt) throw new Error("Flyd could not verify delivery of that decision");
         evidenceRef = `domain-message:${receipt.id}`;
       } else {
@@ -447,6 +471,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     decideChanges,
     // Working reads every worker Core's staff watch sees, not the snapshot's first twenty.
     workers: () => readStaffView()?.snapshot.workers ?? [],
+    cosRequests: cosRequestsForView,
   });
   if (source !== flydSource) source = executiveConversationSource(source, decideChanges, resolveDecision);
   // His conversations by project: Flyd's own and firstmate's, read only.

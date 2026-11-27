@@ -159,7 +159,7 @@ function parseProposal(raw: string): ExecutiveProposal {
 
 function interpretationPrompt(change: FirstmateChange): string {
   return [
-    "You are Flyd, George's chief of staff. Interpret one change from an employee or a work-status source.",
+    "You are interpreting a change from a work-status source for Flyd, George's personal assistant. The Chief of Staff is a separate role between Flyd and the domain bosses.",
     "Do not decide what Flyd is allowed to do. Do not claim something is verified unless the supplied evidence proves it.",
     "Choose one kind: question (a real decision George must make), internal_action (a concrete reversible action for an existing active task), verified_result (a result with independent verification), routine, or unclear.",
     "For a question, copy the exact source passage, list each genuine alternative as source wording, and recommend an option only when the supplied goal/evidence supports it. Never convert an either/or choice to Yes/No.",

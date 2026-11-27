@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -267,12 +267,14 @@ describe("FlydDesk", () => {
   it("keeps his screenshots with the question, and what they show for the answer and every follow-up", async () => {
     const asked: Array<[string, unknown]> = [];
     const attached: Array<string | undefined> = [];
+    const attachmentRefs: string[][] = [];
     const desk = new FlydDesk({
       dir,
       see: async (question, images) => `[shows: a 404 page for ${question} (${images.length})]`,
       answer: async (question, history, _onStep, turn) => {
         asked.push([question, history]);
         attached.push(turn?.attached);
+        attachmentRefs.push(turn?.attachmentRefs ?? []);
         return "That is a 404 from the preview server.";
       },
     });
@@ -286,6 +288,7 @@ describe("FlydDesk", () => {
     expect(exchange!.question.text).toBe("is this normal?");
     expect(exchange!.question.images).toHaveLength(1);
     expect(desk.image(exchange!.question.images![0]!)?.mediaType).toBe("image/png");
+    expect(attachmentRefs[0]).toEqual([join(dir, "images", exchange!.question.images![0]!.slice(1))]);
     expect(desk.image("a../../etc/passwd")).toBeNull();
 
     // A follow-up, even from a desk read again after a restart, still knows what the screenshot showed.
@@ -459,6 +462,7 @@ describe("FlydDesk", () => {
 });
 
 describe("ClaudeCodeTranscriptSource as Flyd's window", () => {
+  beforeEach(() => vi.stubEnv("FLYD_COS", "0"));
   // Records `note -` and `reply` calls without waking anyone, writing the same
   // files firstmate's own bin/fm-inbox.sh writes.
   const FAKE_SCRIPT = `#!/usr/bin/env bash
@@ -506,6 +510,18 @@ esac
     });
     return { source, home, answered };
   }
+
+  it("sends Flyd-window follow-ups through Flyd when the Chief of Staff is enabled", async () => {
+    vi.stubEnv("FLYD_COS", "1");
+    const { source, home, answered } = setup("FIRSTMATE");
+    const first = await source.send("s1", "Fix the footer", [], [], "firstmate");
+    const second = await source.sendDecision("About the artefact: make it blue", [], undefined, "s1");
+    expect(first.id).toMatch(/^ask:/);
+    expect(second.id).toMatch(/^ask:/);
+    await until(() => answered.length === 2 ? true : undefined);
+    expect(answered).toEqual(["Fix the footer", "About the artefact: make it blue"]);
+    expect(existsSync(join(home, "state", "inbox"))).toBe(false);
+  });
 
   it("moves the project badge across Flyd and firstmate turns, keeps it through projectless ones and after a reload", async () => {
     const projects = join(dir, "projects.json");

@@ -1,3 +1,4 @@
+import { cosEnabled } from "../enabled.js";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { validateEnvelope, type ContextEnvelope } from "../../../intelligence/context-envelope.js";
@@ -120,11 +121,12 @@ export function agentRunNodeUpgradeRequired(
 ): boolean {
   const desired = selection === undefined || selection.trim() === "" ||
     selection === "on" || selection === "shadow" || selection === "canary";
-  return cos === "1" && desired && !supportsAgentRunNode(nodeVersion);
+  return cosEnabled(cos) && desired && !supportsAgentRunNode(nodeVersion);
 }
 
 /** Safe, local, authenticated startup diagnostics. No private state or keys. */
 export async function agentRunActivationStatus(): Promise<{
+  cosEnabled: boolean;
   mode: DslMode;
   enabled: boolean;
   reason: string;
@@ -133,15 +135,16 @@ export async function agentRunActivationStatus(): Promise<{
   nodeUpgradeRequired: boolean;
 }> {
   const basics = {
+    cosEnabled: cosEnabled(),
     nodeVersion: process.versions.node,
     minimumNodeVersion: AGENTRUN_MIN_NODE_VERSION,
     nodeUpgradeRequired: agentRunNodeUpgradeRequired(),
   };
-  const mode = process.env.FLYD_COS === "1" ? dslMode() : "off";
+  const mode = cosEnabled() ? dslMode() : "off";
   if (mode === "off") {
     return { ...basics, mode, enabled: false,
       reason: basics.nodeUpgradeRequired ? "AgentRun requires newer Node; legacy recovery selected"
-        : process.env.FLYD_COS !== "1" ? "CoS is disabled" : "legacy recovery selected" };
+        : !cosEnabled() ? "CoS is disabled" : "legacy recovery selected" };
   }
   if (!executiveDecisionProviderConfigured()) {
     return { ...basics, mode, enabled: false, reason: "Jev/Gemini decision provider not configured" };

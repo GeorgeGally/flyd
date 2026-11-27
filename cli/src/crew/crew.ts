@@ -94,6 +94,8 @@ export interface CrewTask {
   prunedAt?: string;
   /** The Chief of Staff run's request id, so a restart can find the task it handed over instead of starting another. */
   requestId?: string;
+  /** The objective owns reporting for this task. */
+  objectiveId?: string;
 }
 
 /**
@@ -252,6 +254,7 @@ export interface DispatchOptions {
   afterLand?: AfterLandStep[];
   source?: CrewTask["source"];
   requestId?: string;
+  objectiveId?: string;
   now?: Date;
   dir?: string;
   /** Test seam: start the crewmate process. */
@@ -286,6 +289,7 @@ export async function dispatchCrewTask(options: DispatchOptions): Promise<CrewTa
     ...(doneWhen.length ? { doneWhen } : {}),
     ...(options.afterLand?.length ? { afterLand: options.afterLand } : {}),
     ...(options.requestId ? { requestId: options.requestId } : {}),
+    ...(options.objectiveId ? { objectiveId: options.objectiveId } : {}),
   };
   // George's taste for this repo's project: what he has corrected before.
   const { resolveTasteProject, tastePromptText } = await import("../council/taste.js");
@@ -1053,7 +1057,7 @@ async function superviseSettled(changed: CrewTask[], deps: SuperviseDependencies
       if (!changed.some((item) => item.id === owed.id)) changed.push(owed);
     }
   }
-  for (const task of changed.filter((item) => item.status !== "running" && !item.notified && deps.notify)) {
+  for (const task of changed.filter((item) => item.status !== "running" && !item.notified && !item.objectiveId && deps.notify)) {
     // Notified only once the Mac took it (or the notice gate settled it): an undelivered one is tried again later.
     const tell = async (message: string, kind: GeorgeKind): Promise<boolean> => {
       const outcome = await deps.notify!("Flyd", message, kind).catch(() => "undelivered" as const);

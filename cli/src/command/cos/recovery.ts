@@ -1,3 +1,4 @@
+import { cosEnabled } from "./enabled.js";
 import { evaluateExecutivePredicates, type DecisionModelOptions } from "../../cognition/system-one/decision-provider.js";
 import { familyEgress, questionFor } from "../../cognition/system-one/registry.js";
 import { projectJevState } from "../../cognition/system-one/jev.js";
@@ -69,7 +70,7 @@ export async function judgeRecovery(input: RecoveryInput, options: RecoveryJudge
     goal_context: (input.objective.brief?.outcome ?? input.objective.words).slice(0, 500),
     evidence_refs: (input.run.prior ?? []).slice(0, 8),
   });
-  const flag = process.env.FLYD_COS === "1" ? dslMode() : "off";
+  const flag = cosEnabled() ? dslMode() : "off";
   const cohort = String(input.objective.id ?? "") + ":" + input.run.key;
   // On compatible Core, AgentRun is the default. If the configured decision
   // provider is absent, preserve legacy recovery rather than writing a

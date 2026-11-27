@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { effectiveLegacyClaim, effectiveLegacyText, isGovernedLegacyFact, readEffectiveKnowledge } from "../cognition/effective-knowledge.js";
 import type { EffectiveKnowledge } from "../cognition/effective-knowledge.js";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { memoryFile, withMemoryTransaction } from "./memory-transaction.js";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 
@@ -106,8 +107,14 @@ export function renderMemory(entries: MemoryEntry[]): string {
   ].join("\n").replace(/\n+$/, "\n");
 }
 
+/** Waits for a participating writer and recovers an interrupted transaction before reading. */
+export function readConsistentMemoryText(paths = memoryPaths()): string | null {
+  return withMemoryTransaction(paths, () => memoryFile(paths.memory));
+}
+
 export function readMemoryEntries(paths = memoryPaths(), effective = true, snapshot?: EffectiveKnowledge): MemoryEntry[] {
-  const entries = existsSync(paths.memory) ? parseMemory(readFileSync(paths.memory, "utf8")) : [];
+  const text = readConsistentMemoryText(paths);
+  const entries = text === null ? [] : parseMemory(text);
   if (!effective || !entries.length) return entries;
   const view = snapshot ?? readEffectiveKnowledge();
   return entries.filter((entry) => !isGovernedLegacyFact(entry.text, view) || effectiveLegacyClaim(entry.text, view)).map((entry) => {
@@ -116,19 +123,11 @@ export function readMemoryEntries(paths = memoryPaths(), effective = true, snaps
   });
 }
 
-function atomicWrite(path: string, content: string): void {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const temporary = `${path}.${process.pid}.tmp`;
-  writeFileSync(temporary, content, { encoding: "utf8", mode: 0o600 });
-  renameSync(temporary, path);
-}
-
-function readSources(paths: MemoryPaths): Record<string, string[]> {
-  try {
-    return JSON.parse(readFileSync(paths.sources, "utf8")) as Record<string, string[]>;
-  } catch {
-    return {};
-  }
+function parseSources(raw: string | null): Record<string, string[]> {
+  if (raw === null) return {};
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || Object.values(parsed).some((value) => !Array.isArray(value) || value.some((item) => typeof item !== "string"))) throw new Error("Memory source index is invalid");
+  return Object.fromEntries(Object.entries(parsed));
 }
 
 function daysBetween(fromDay: string, toDay: string): number {
@@ -167,12 +166,20 @@ export interface ApplyReceipt {
  * memory cannot grow without bound when curation stalls.
  */
 export function applyMemoryOps(ops: MemoryOp[], options: { now?: Date; paths?: MemoryPaths } = {}): ApplyReceipt {
-  const now = options.now ?? new Date();
   const paths = options.paths ?? memoryPaths();
+  return withMemoryTransaction(paths, (commit) => applyMemoryOpsLocked(ops, options.now ?? new Date(), paths, commit));
+}
+
+function applyMemoryOpsLocked(ops: MemoryOp[], now: Date, paths: MemoryPaths, commit: (writes: Array<{ path: string; before: string | null; after: string }>) => void): ApplyReceipt {
   const today = localDay(now);
-  const entries = readMemoryEntries(paths,false);
+  const memoryBefore = memoryFile(paths.memory);
+  const sourcesBefore = memoryFile(paths.sources);
+  const archiveBefore = memoryFile(paths.archive);
+  const dailyPath = join(paths.dailyDir, `${today}.md`);
+  const dailyBefore = memoryFile(dailyPath);
+  const entries = memoryBefore === null ? [] : parseMemory(memoryBefore);
   const knowledge = readEffectiveKnowledge();
-  const sources = readSources(paths);
+  const sources = parseSources(sourcesBefore);
   const receipt: ApplyReceipt = { added: 0, updated: 0, reinforced: 0, archived: 0, notes: 0, rejected: [] };
   const archived: Array<{ entry: MemoryEntry; reason: string }> = [];
   const notes: string[] = [];
@@ -270,21 +277,106 @@ export function applyMemoryOps(ops: MemoryOp[], options: { now?: Date; paths?: M
     receipt.archived += 1;
   }
 
-  atomicWrite(paths.memory, renderMemory(entries));
-  atomicWrite(paths.sources, `${JSON.stringify(sources, null, 2)}\n`);
+  const writes = [
+    { path: paths.memory, before: memoryBefore, after: renderMemory(entries) },
+    { path: paths.sources, before: sourcesBefore, after: `${JSON.stringify(sources, null, 2)}\n` },
+  ];
   if (archived.length) {
-    mkdirSync(dirname(paths.archive), { recursive: true, mode: 0o700 });
-    appendFileSync(paths.archive, [
+    const appended = [
       `\n## ${now.toISOString()} archivist`,
       ...archived.map(({ entry, reason }) => `- ${entry.text} — ${entry.section}, ${entry.tier}, last confirmed ${entry.date}; ${reason}`),
       "",
-    ].join("\n"), { encoding: "utf8", mode: 0o600 });
+    ].join("\n");
+    writes.push({ path: paths.archive, before: archiveBefore, after: (archiveBefore ?? "") + appended });
   }
-  if (notes.length) {
-    mkdirSync(paths.dailyDir, { recursive: true, mode: 0o700 });
-    appendFileSync(join(paths.dailyDir, `${today}.md`), `${notes.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
-  }
+  if (notes.length) writes.push({ path: dailyPath, before: dailyBefore, after: (dailyBefore ?? "") + `${notes.join("\n")}\n` });
+  commit(writes);
   return receipt;
+}
+
+/** A revision covers all files involved in a correction, not just the displayed memory. */
+function correctionRevision(paths: MemoryPaths): string {
+  return createHash("sha256").update(JSON.stringify([memoryFile(paths.memory), memoryFile(paths.sources), memoryFile(paths.archive)])).digest("hex");
+}
+
+/** Recovers any pending write first; callers must exclude older writers and manual edits. */
+export function memoryCorrectionRevision(paths = memoryPaths()): string {
+  return withMemoryTransaction(paths, () => correctionRevision(paths));
+}
+
+export interface MemoryCorrection {
+  /** Exact old entry text (without markdown or tier/date), supplied from the reviewed source. */
+  oldText: string;
+  newText: string;
+}
+
+/**
+ * Applies explicit, attributed corrections only when all reviewed memory files still match.
+ * Unlike routine curation this never runs decay, budgeting, or a full memory re-render.
+ * The serving Core and all older or manual writers must be stopped before calling it: only
+ * upgraded writers participate in this lock, and a manual write can race any file rename.
+ * The caller must independently verify that `source` names an original user-authorized
+ * correction; this storage operation is not itself an authorization or a model tool.
+ */
+export function correctMemoryEntries(input: {
+  expectedRevision: string;
+  corrections: MemoryCorrection[];
+  source: string;
+  paths?: MemoryPaths;
+  now?: Date;
+}): { revision: string; updated: number } {
+  const paths = input.paths ?? memoryPaths();
+  return withMemoryTransaction(paths, (commit) => {
+    if (!input.corrections.length || !input.source.trim() || /[\r\n]/.test(input.source)) throw new Error("Memory correction requires corrections and an attributed source");
+    const before = memoryFile(paths.memory);
+    const sourcesBefore = memoryFile(paths.sources);
+    const archiveBefore = memoryFile(paths.archive);
+    const revision = createHash("sha256").update(JSON.stringify([before, sourcesBefore, archiveBefore])).digest("hex");
+    if (revision !== input.expectedRevision) throw new Error("Memory correction is stale; reread the current memory");
+    if (before === null) throw new Error("Memory file is missing");
+    const sources = parseSources(sourcesBefore);
+    const now = input.now ?? new Date();
+    const knowledge = readEffectiveKnowledge();
+    const entries = parseMemory(before);
+    const oldTexts = new Set<string>();
+    const nextIds = new Set(entries.map((entry) => entry.id));
+    const replacements = new Map<string, { text: string; entry: MemoryEntry }>();
+    for (const correction of input.corrections) {
+      const newText = correction.newText.trim();
+      if (!correction.oldText || !newText || /[\r\n]/.test(newText) || newText.includes("<!--") || oldTexts.has(correction.oldText)) throw new Error("Invalid or duplicate memory correction");
+      const matches = entries.filter((entry) => entry.text === correction.oldText);
+      if (matches.length !== 1 || entries.filter((entry) => entry.id === entryId(correction.oldText)).length !== 1) throw new Error("Memory correction target is missing or ambiguous");
+      const entry = matches[0];
+      if (isGovernedLegacyFact(entry.text, knowledge) || isGovernedLegacyFact(newText, knowledge)) throw new Error("This fact is governed by canonical knowledge");
+      const newId = entryId(newText);
+      if (newId !== entry.id && nextIds.has(newId)) throw new Error("Memory correction collides with another entry");
+      oldTexts.add(correction.oldText);
+      nextIds.add(newId);
+      replacements.set(correction.oldText, { text: newText, entry });
+      sources[newId] = [...new Set([...(sources[entry.id] ?? []), input.source])];
+    }
+    const seen = new Set<string>();
+    const after = before.replace(/^- (.+?)[ \t]*<!--([ap]):(\d{4}-\d{2}-\d{2})-->[ \t]*(?=\r?$)/gm, (line, text: string, marker: string) => {
+      const replacement = replacements.get(text);
+      if (!replacement) return line;
+      seen.add(text);
+      return `- ${replacement.text} <!--${marker}:${localDay(now)}-->`;
+    });
+    if (seen.size !== replacements.size) throw new Error("Memory correction could not locate every reviewed entry");
+    const archive = [
+      `\n## ${now.toISOString()} explicit correction`,
+      ...[...replacements.values()].map(({ text, entry }) => `- ${entry.text} — ${entry.section}, ${entry.tier}, last confirmed ${entry.date}; superseded by [${entryId(text)}]; source: ${input.source}`),
+      "",
+    ].join("\n");
+    const sourcesAfter = `${JSON.stringify(sources, null, 2)}\n`;
+    const archiveAfter = (archiveBefore ?? "") + archive;
+    commit([
+      { path: paths.memory, before, after },
+      { path: paths.sources, before: sourcesBefore, after: sourcesAfter },
+      { path: paths.archive, before: archiveBefore, after: archiveAfter },
+    ]);
+    return { revision: createHash("sha256").update(JSON.stringify([after, sourcesAfter, archiveAfter])).digest("hex"), updated: replacements.size };
+  });
 }
 
 /**
@@ -331,6 +423,10 @@ export function memoryPromptText(paths = memoryPaths(), now = new Date(), maxCha
 
 /** Daily notes matching any query term, newest first — on-demand recall, never injected. */
 export function searchDailyNotes(query: string, paths = memoryPaths(), limit = 12): string[] {
+  return withMemoryTransaction(paths, () => searchDailyNotesLocked(query, paths, limit));
+}
+
+function searchDailyNotesLocked(query: string, paths: MemoryPaths, limit: number): string[] {
   if (!existsSync(paths.dailyDir)) return [];
   const terms = query.toLowerCase().split(/\W+/).filter((term) => term.length > 2);
   if (terms.length === 0) return [];

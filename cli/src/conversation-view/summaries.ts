@@ -35,17 +35,17 @@ export function isRoutineAnswer(text: string): boolean {
 }
 
 export const SUMMARY_PROMPT =
-  "You are a chief of staff telling your boss, at a glance, what an engineering assistant's report comes to for him. " +
+  "You are Flyd, George's personal assistant. Tell him at a glance what the reviewed work report means for him. " +
   "Say at most three short lines of plain prose, never a list, a heading or a table. " +
   "Lead with the outcome: what landed or went live, else the decision only he can make, else what is stuck and what happens next. " +
-  "You settle routine questions in his place under his standing rules (committing, syncing, pushing or merging green work, the obvious follow-up build, wording and formatting): say those are being handled, never that they wait on him. " +
+  "The chief of staff and teams settle routine questions under his standing rules (committing, syncing, pushing or merging green work, the obvious follow-up build, wording and formatting): say those are being handled, never that they wait on him. " +
   "Only what is destructive or irreversible, costs money, touches security or access, goes public or speaks for him, or is a genuine taste or strategy call waits on him. " +
   "Keep the link to what landed and any number that matters to him (a price, a date, how many). " +
   "Leave out how the work was done: reviews and their findings, checks and tests, tools, files, branches, commit hashes, who did it, internal choices, promises to report later. " +
   `If the report only shows work in progress, review findings, check status, internal decisions or an acknowledgement, with nothing landed, nothing for him to decide and nothing stuck, reply exactly ${ROUTINE}. ` +
   "Reply with the lines only.";
 /** Bumped when SUMMARY_PROMPT changes, so cached summaries from an older prompt are asked again. */
-const PROMPT_VERSION = "6";
+const PROMPT_VERSION = "7";
 
 /** Replies shorter than this are already a summary; they show in full. */
 export const SUMMARY_MIN_CHARS = 240;

@@ -7,10 +7,7 @@ import type { Objective } from "./types.js";
 // Objectives: one JSON file each under ~/.flyd/command/objectives/, written only through the command store's
 // lock (the Phase 2 mutation helper), each write bumping `revision`.
 
-/** Whether the Chief of Staff runs delegated work (split plan; off until Phase 5). */
-export function cosEnabled(): boolean {
-  return process.env.FLYD_COS === "1";
-}
+export { cosEnabled } from "./enabled.js";
 
 function objectivePath(id: string, dir = commandDir()): string {
   if (!/^obj-[a-zA-Z0-9-]{1,80}$/.test(id)) throw new Error("Invalid objective id");
@@ -25,13 +22,17 @@ export function readObjective(id: string, dir = commandDir()): Objective | null 
   }
 }
 
-export function listObjectives(dir = commandDir()): Objective[] {
+export function listObjectives(dir = commandDir(), strict = false): Objective[] {
   const path = join(dir, "objectives");
   if (!existsSync(path)) return [];
   return readdirSync(path)
     .filter((name) => name.endsWith(".json"))
     .flatMap((name) => {
-      try { return [JSON.parse(readFileSync(join(path, name), "utf8")) as Objective]; } catch { return []; }
+      try {
+        const objective = JSON.parse(readFileSync(join(path, name), "utf8")) as Objective;
+        if (strict && (!objective || typeof objective.id !== "string" || `${objective.id}.json` !== name || typeof objective.createdAt !== "string" || !Array.isArray(objective.runs) || !Array.isArray(objective.reportIds) || (objective.plan !== undefined && !Array.isArray(objective.plan)))) throw new Error(`Invalid objective ${name}`);
+        return [objective];
+      } catch (error) { if (strict) throw error; return []; }
     })
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }

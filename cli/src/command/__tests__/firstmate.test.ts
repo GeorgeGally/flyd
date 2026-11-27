@@ -77,6 +77,14 @@ describe("FirstMate domain transport", () => {
     expect(body).toContain("fm-inbox.sh reply");
   });
 
+  it("tells Firstmate when the request comes from the Chief of Staff", () => {
+    const body = firstmateRequestBody({ ...request(), objectiveId: "obj-example" });
+    expect(body).toContain("George → Flyd → Chief of Staff → Firstmate");
+    expect(body).toContain("Chief of Staff assigned this request and reviews your result");
+    expect(body).toContain("--inbox-note");
+    expect(firstmateRequestBody(request())).not.toContain("--inbox-note");
+  });
+
   it("hands the matched skill and its process to FirstMate after Flyd's interpretation", () => {
     const body = firstmateRequestBody({ ...request(), skill: { name: "design-lab", body: "Explore three directions, then critique." } });
     expect(body).toContain("FLYD INTERPRETATION:\nFix the call site without replacing the existing abstraction.\nUSE SKILL: design-lab\nFollow this skill's process for this request:\nExplore three directions, then critique.");

@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chatModelChain, FLYD_APPLICATION_ROOT, getKey, oneShotModelChain, quickModelChain } from "../lib/config.js";
+import { chatModelChain, FLYD_APPLICATION_ROOT, FLYD_DIR, getKey, oneShotModelChain, quickModelChain } from "../lib/config.js";
 import { modelRoutingSource, type ModelJob } from "./model-routing.js";
 import { claudeApiKey, spendStatus } from "../lib/claude-spend.js";
+import { cosEnabled } from "../command/cos/objectives.js";
 
 // What Flyd runs on, worked out each time it is asked, from the same resolvers
 // each job uses to pick its model. So the answer follows ~/.flyd/models.json,
@@ -279,6 +280,22 @@ function claudeSpendLine(): string {
   return `Claude spend for ${spend.month}: $${spend.usd.toFixed(2)} of a $${spend.cap} monthly cap over ${spend.calls} calls (${claudeState()}; George is warned at 80%, and at the cap every job moves to its fallback until the 1st).`;
 }
 
+async function coreCosState(): Promise<string> {
+  try {
+    const token = readFileSync(join(FLYD_DIR, "overlay", "auth-token"), "utf8").trim();
+    if (!token) return "unknown";
+    const response = await fetch("http://127.0.0.1:4815/runtime/agentrun/status", {
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(1000),
+    });
+    if (!response.ok) return "unknown";
+    const status: unknown = await response.json();
+    if (typeof status !== "object" || status === null || !("cosEnabled" in status)) return "unknown";
+    return status.cosEnabled === true ? "enabled" : status.cosEnabled === false ? "disabled" : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 /** Flyd's setup as it reads to the chat model: every job with its model, the switches he set, which providers have keys. */
 export async function flydSetupReport(now = new Date()): Promise<string> {
   const assignments = await flydModelAssignments();
@@ -299,6 +316,7 @@ export async function flydSetupReport(now = new Date()): Promise<string> {
     ...assignments.filter((assignment) => assignment.dev).map(line),
     "",
     claudeSpendLine(),
+    `Chief of Staff: ${cosEnabled() ? "enabled" : "disabled"} in this conversation process; serving Core state: ${await coreCosState()}. Flyd is George's personal assistant, CEO, life coach, guru and mentor in one. The separate Chief of Staff orchestrates teams and reports to Flyd; team bosses and workers do the specialist work. Intended chain: George → Flyd → Chief of Staff → domain bosses → specialists. This current role definition supersedes older conflicting characterizations. When disabled, the legacy direct delegation path is used. Do not claim the Core state from the conversation process state.`,
     `Switches set: ${set.length ? set.join(", ") : "none"}; everything else is at its code default.`,
     `Provider keys present (names only): ${keys.length ? keys.join(", ") : "none"}.`,
     `Flyd's own code and docs: ${FLYD_APPLICATION_ROOT} (AGENTS.md describes its features; read the code there for anything about Flyd not listed here).`,
@@ -307,6 +325,7 @@ export async function flydSetupReport(now = new Date()): Promise<string> {
 
 const SETUP = String.raw`(?:models?|llms?|config(?:uration|ured)?|settings?|providers?|features?|capabilities)`;
 const SELF_SETUP = [
+  /\b(?:chief of staff|chain of command)\b/i,
   new RegExp(String.raw`\bflyd\b[\s\S]*\b(?:${SETUP}|running on|runs? on|powered by)\b|\b${SETUP}\b[\s\S]*\bflyd\b`, "i"),
   new RegExp(String.raw`\b(?:your|ur)\s+(?:own\s+)?${SETUP}\b`, "i"),
   new RegExp(String.raw`\b${SETUP}(?:\s+\w+){0,2}?\s+(?:are|do|did|have|is)\s+(?:you|u)(?:\s+(?:use|using|run|running|on|powered|built)\b|\s+(?:have|got)(?:\s+(?:configured|set up|enabled|installed|turned on|available)\b|\s*(?:[?.!]|$))|\s*(?:[?.!]|$))`, "i"),

@@ -9,7 +9,7 @@ import { chatToolSet } from "../../runtime/conversation-responder.js";
 import { planTurn } from "../../runtime/turn-plan.js";
 import { runRequestId, type Dispatch } from "../cos/dispatch.js";
 import { intakePrompt, parseIntake } from "../cos/intake.js";
-import { listObjectives, mutateObjective, openObjective, readObjective } from "../cos/objectives.js";
+import { cosEnabled, listObjectives, mutateObjective, openObjective, readObjective } from "../cos/objectives.js";
 import { cosReports, cosTick } from "../cos/tick.js";
 import type { CosReport } from "../cos/types.js";
 import { createDomainRun, readDomainRun, updateDomainRun } from "../store.js";
@@ -31,6 +31,15 @@ afterEach(() => {
 const BRIEF = JSON.stringify({
   team: "knowledge", outcome: "Compare Stripe and Paddle fees at his volume", done_when: ["both fee tables are sourced"],
   decisions: { comes_back: ["which provider to sign up with"], settled_by_policy: ["which currency to compare in"] },
+});
+
+it("enables the Chief of Staff only when explicitly selected", () => {
+  delete process.env.FLYD_COS;
+  expect(cosEnabled()).toBe(false);
+  process.env.FLYD_COS = "0";
+  expect(cosEnabled()).toBe(false);
+  process.env.FLYD_COS = "1";
+  expect(cosEnabled()).toBe(true);
 });
 
 const decision = (): ExecutiveDecisionRecord => ({
@@ -132,6 +141,21 @@ describe("Chief of Staff tick", () => {
 });
 
 describe("Chief of Staff reports", () => {
+  it("does not deliver an objective's run directly when the Chief of Staff is switched off", async () => {
+    const objective = openObjective({ words: "make a report", flydNotes: "", origin: { surface: "chat" } });
+    const id = `${objective.id}-r1`;
+    mutateObjective(objective.id, (current) => current && { ...current, status: "working", runs: [id] });
+    const at = new Date().toISOString();
+    const run: DomainRun = {
+      id, owner: "Librarian", status: "completed", createdAt: at, updatedAt: at, transport: { kind: "native", requestId: id },
+      request: { id, domain: "knowledge", originalMessage: "make a report", intendedOutcome: "report", doneWhen: ["done"], createdAt: at, objectiveId: objective.id },
+    };
+    createDomainRun(run);
+    process.env.FLYD_COS = "0";
+    let decided = false;
+    await notifyRun(run, undefined, undefined, async () => { decided = true; throw new Error("must stay with objective"); }, () => false);
+    expect(decided).toBe(false);
+  });
   it("tells a report again when the tell failed, and records it only once told", async () => {
     const store = new IntelligenceEventStore({ path: join(home, "intelligence.sqlite") });
     const objective = openObjective({ words: "do the thing", flydNotes: "", origin: { surface: "chat" } });
@@ -171,7 +195,7 @@ describe("Chief of Staff reports", () => {
     store.close();
   });
 
-  it("leaves a run its objective is not following to the ordinary notice", async () => {
+  it("withholds a run when its objective cannot be verified", async () => {
     const at = new Date().toISOString();
     const run: DomainRun = {
       id: "obj-lost-r1", owner: "Librarian", status: "completed", createdAt: at, updatedAt: at, transport: { kind: "native", requestId: "obj-lost-r1" },
@@ -181,11 +205,20 @@ describe("Chief of Staff reports", () => {
     process.env.FLYD_COS = "1";
     let decided = 0;
     await notifyRun(run, undefined, undefined, async () => { decided += 1; throw new Error("stop"); }, () => false);
-    expect(decided).toBe(1);
+    expect(decided).toBe(0);
   });
 });
 
 describe("hand_off", () => {
+  it("retains attachment references with the original request", async () => {
+    process.env.FLYD_COS = "1";
+    await runAssistantTool("hand_off", { words: "ignored", notes: "" }, {
+      userMessage: "Fix this screenshot", attachmentRefs: ["/tmp/example.png", "/tmp/brief.pdf"],
+    });
+    expect(listObjectives()[0]).toMatchObject({
+      words: "Fix this screenshot", contextRefs: ["/tmp/example.png", "/tmp/brief.pdf"],
+    });
+  });
   it("from Flyd's general chat is no project's, even though Core runs inside one; from a project's conversation it is that project's", async () => {
     process.env.FLYD_COS = "1";
     const situation = { project: "flyd", projectRoot: "/tmp/flyd" };
@@ -206,6 +239,7 @@ describe("hand_off", () => {
     expect(intakePrompt(byWords.get("Swap the hero image")!, { work: "HFTW shop hero images" })).toContain("What he is working on: HFTW shop hero images");
   });
   it("records his exact words as an objective, only with the Chief of Staff on, and is the delegate route's one tool", async () => {
+    process.env.FLYD_COS = "0";
     const context = { userMessage: "Make me three versions of the gallery page", situation: { project: "cap5", projectRoot: "/tmp/cap5" } };
     expect(await runAssistantTool("hand_off", { words: "three gallery versions", notes: "cap5" }, context)).toMatch(/not available/);
     expect(chatToolSet(null, false).map((tool) => tool.name)).not.toContain("hand_off");

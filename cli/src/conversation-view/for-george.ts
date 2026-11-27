@@ -5,7 +5,7 @@ import { plainSaid } from "../lib/backstage.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { capitalise, clip, inline, isAcknowledgement, SALUTATION, sentences } from "./summaries.js";
 
-// What George sees of his staff's chatter. Flyd is his chief of staff: the
+// What George sees of his staff's chatter. Flyd is his personal assistant: the
 // crew's progress reports, review findings, check status, internal decisions
 // and "shipshape" acknowledgements are absorbed, never shown to him as a
 // message. Only three things reach him, each in a line or two:

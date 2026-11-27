@@ -16,7 +16,7 @@ import { configureTransitionStore } from "../../transitions/writer.js";
 // These suites exercise the prompt and the tool loop, not routing: turns run
 // unplanned, as with the room reading switched off. Routing tests inject
 // their own readers, which FLYD_ROOM does not touch.
-beforeEach(() => { vi.stubEnv("FLYD_ROOM", "0"); });
+beforeEach(() => { vi.stubEnv("FLYD_ROOM", "0"); vi.stubEnv("FLYD_COS", "0"); });
 // Every turn compiles real context over this repo (~0.7s), and some tests run several.
 vi.setConfig({ testTimeout: 20_000 });
 afterEach(() => { vi.unstubAllEnvs(); });
@@ -1491,6 +1491,22 @@ describe("conversation action tools", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("rejects unadvertised direct delegation and file edits when the chief of staff is enabled", async () => {
+    vi.stubEnv("FLYD_COS", "1");
+    const outputs: string[] = [];
+    await respondToConversation({ message: "Please handle this", history: [], memory: { verdict: "insufficient", matches: [] }, situation: null, onToken: () => undefined }, {
+      routeTurn: async () => ({ route: "act", domain: "general", confidence: 1, source: "jev", decided: true }),
+      runAgentLoop: async (_system, _prompt, _tools, call) => {
+        outputs.push(await call("start_coding_task", { outcome: "Build it", done_when: ["done"] }));
+        outputs.push(await call("write_file", { path: "must-not-write.txt", content: "wrong" }));
+        return "<final>I'll handle it.</final>";
+      },
+      persistReceipt: async (input) => input as never,
+    });
+    expect(outputs).toEqual([expect.stringContaining("chief of staff"), expect.stringContaining("Skipped")]);
+    expect(existsSync("must-not-write.txt")).toBe(false);
   });
 
   it.each(["1", "0"])("keeps the fast handoff unchanged with optimism=%s and records the supplied policy", async (enabled) => {

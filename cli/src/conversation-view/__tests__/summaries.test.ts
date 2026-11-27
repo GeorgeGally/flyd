@@ -48,6 +48,7 @@ describe("authorSummary", () => {
 
 describe("SUMMARY_PROMPT", () => {
   it("asks for at most three lines, outcome first, links kept, and ROUTINE for staff chatter", () => {
+    expect(SUMMARY_PROMPT).toContain("Flyd, George's personal assistant");
     expect(SUMMARY_PROMPT).toMatch(/at most three short lines/);
     expect(SUMMARY_PROMPT).toMatch(/Lead with the outcome/);
     expect(SUMMARY_PROMPT).toMatch(/Keep the link/);

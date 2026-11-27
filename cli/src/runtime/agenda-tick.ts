@@ -1,3 +1,4 @@
+import { cosEnabled } from "../command/cos/enabled.js";
 import { guardModelCall, isUsageLimitError, ModelBackoffActive, readModelBackoff, recordModelBackoff } from "./model-backoff.js";
 
 // One background tick, shared by Core's 5-minute loop and launchd's
@@ -269,7 +270,7 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       // before a source-confirmed finding may become a CoS work receipt.
       name: "initiative-follow-through", usesModel: false,
       run: async () => {
-        if (process.env.FLYD_COS !== "1" || process.env.FLYD_INITIATIVE === "off"
+        if (!cosEnabled() || process.env.FLYD_INITIATIVE === "off"
           || process.env.FLYD_INITIATIVE === "0") return;
         const { runInitiativeFollowThrough } = await import("./initiative/follow-through.js");
         const result = await runInitiativeFollowThrough({ ...(options.now ? { now: options.now } : {}) });

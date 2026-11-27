@@ -5,7 +5,7 @@ import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ArtefactFeed } from "../../conversation-view/artefact.js";
 import type { FirstmateChange } from "../../intelligence/executive/firstmate-decision.js";
-import { registerViewCommand, viewFeed, type ViewOptions } from "../view.js";
+import { firstmateWakeMaySurface, registerViewCommand, viewFeed, type ViewOptions } from "../view.js";
 
 // 22 Oct to 14 Nov 2026: the overtaken check and the stale-call judge were built
 // only when the view was started with --session. Flyd.app starts it with
@@ -102,4 +102,12 @@ describe("the view as Flyd.app starts it (no --session)", () => {
     expect(feed.current().fleet!.calls.map((row) => row.task)).not.toContain("closed-hold");
     expect(sent).toEqual([]);
   });
+});
+
+
+it("holds unattributed Firstmate wake reports but keeps direct conversations visible", () => {
+  expect(firstmateWakeMaySurface(true, new Set(["request-1"]))).toBe(false);
+  expect(firstmateWakeMaySurface(true, null)).toBe(false);
+  expect(firstmateWakeMaySurface(true, new Set())).toBe(true);
+  expect(firstmateWakeMaySurface(false, new Set(["request-1"]))).toBe(true);
 });

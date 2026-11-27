@@ -1,3 +1,4 @@
+import { cosEnabled } from "../command/cos/enabled.js";
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
@@ -334,12 +335,11 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       const last = this.exchanges().map((exchange) => exchange.question)
         .reduce<ConversationMessage | undefined>((newest, question) => (!newest || Date.parse(question.timestamp ?? "") > Date.parse(newest.timestamp ?? "") ? question : newest), undefined);
       const previous = last ? { owner: last.id.startsWith("ask:") ? "flyd" as const : "firstmate" as const, ...(last.timestamp ? { at: last.timestamp } : {}) } : undefined;
-      // A Flyd-owned conversation must always reach Flyd's shared responder: with CoS enabled,
-      // the responder delegates code and cross-domain work through hand_off. A deliberately
-      // addressed FirstMate message or a slash command remains the explicit staff surface.
-      const route = to ?? (process.env.FLYD_COS === "1" && !command && !carriesCommand(text)
+      // In Flyd's window, ordinary messages and follow-ups reach its responder with CoS enabled;
+      // slash commands keep their explicit staff destination.
+      const route = cosEnabled() && !command && !carriesCommand(text)
         ? "flyd"
-        : await routeMessage(
+        : to ?? await routeMessage(
         { text, files: files?.length ?? 0, ...(command ? { command: command.name } : {}), recent: this.latest.get(sessionId) ?? [], sessionId, ...(previous ? { previous } : {}) },
         process.env.FLYD_ROUTING_FALLBACK_MODEL && !process.env.VITEST
           ? async (prompt) => {
@@ -347,7 +347,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
             return query(prompt, process.env.FLYD_ROUTING_FALLBACK_MODEL, undefined, undefined, undefined, { source: "conversation-view/claude-code-source" });
           }
           : this.desk.complete,
-      ));
+      );
       if (route === "flyd") return this.desk.desk.ask(text, images, sessionId, files, scope);
       // Firstmate is one of Flyd's staff: his words go with Flyd's own brief. A slash command runs exactly as he typed it.
       const flydBrief = command || carriesCommand(text) ? undefined : await this.desk.brief?.(text, this.latest.get(sessionId) ?? []).catch(() => undefined);
@@ -369,8 +369,9 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return this.inbox.send(text, images, command?.name, files, undefined, sessionId);
   }
 
-  async sendDecision(text: string, images?: ImageUpload[]): Promise<SentMessage> {
+  async sendDecision(text: string, images?: ImageUpload[], _decision?: { decisionId: string; taskId: string }, sessionId?: string, targetTaskId?: string): Promise<SentMessage> {
     if (!this.inbox) throw new Error("This conversation is read-only");
+    if (cosEnabled() && this.desk) return this.desk.desk.ask(text, images, sessionId, [], undefined, targetTaskId);
     return this.inbox.send(text, images);
   }
 

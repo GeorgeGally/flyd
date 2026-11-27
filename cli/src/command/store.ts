@@ -177,15 +177,18 @@ export function readDomainRun(id: string, dir = commandDir()): DomainRun | null 
   }
 }
 
-export function listDomainRuns(dir = commandDir()): DomainRun[] {
+export function listDomainRuns(dir = commandDir(), strict = false): DomainRun[] {
   const path = join(dir, "runs");
   if (!existsSync(path)) return [];
   return readdirSync(path)
     .filter((name) => name.endsWith(".json"))
     .flatMap((name) => {
       try {
-        return [JSON.parse(readFileSync(join(path, name), "utf8")) as DomainRun];
-      } catch {
+        const run = JSON.parse(readFileSync(join(path, name), "utf8")) as DomainRun;
+        if (strict && (!run || typeof run.id !== "string" || `${run.id}.json` !== name || typeof run.createdAt !== "string" || !run.request || typeof run.request !== "object" || !run.transport || typeof run.transport !== "object" || (run.request.objectiveId !== undefined && typeof run.request.objectiveId !== "string") || (run.transport.kind === "firstmate" && typeof run.transport.requestId !== "string"))) throw new Error(`Invalid domain run ${name}`);
+        return [run];
+      } catch (error) {
+        if (strict) throw error;
         return [];
       }
     })

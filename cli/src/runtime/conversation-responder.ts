@@ -1,3 +1,4 @@
+import { cosEnabled } from "../command/cos/enabled.js";
 import { shellEnv } from "../lib/shell-env.js";
 import { writeContextTrace } from "./context-trace.js";
 import { budgetPersonalContext, budgetHistory, type ContextRoute } from "./context-budget.js";
@@ -116,6 +117,8 @@ interface ConversationInput {
   outside?: boolean;
   /** What came attached to his message (what screenshots show, what documents say), in words: for the model's prompt only, never his own words. */
   attached?: string;
+  attachmentRefs?: string[];
+  targetTaskId?: string;
 }
 
 interface ConversationResponderDependencies {
@@ -543,13 +546,18 @@ const COS_TOOLS = new Set(["hand_off", "tell_work", "work_status"]);
 /** Management Flyd gives up to the Chief of Staff, and code changes Flyd never makes itself (split plan Phase 4). */
 const COS_OWNS = new Set(["start_coding_task", "start_knowledge_task", "start_design_task", "pass_on_question", "background_task", "domain_work", "crew", "edit_file", "write_file"]);
 
+/** The same ownership rule is enforced on calls, not just the advertised tool list. */
+export function flydMayCall(name: string, attended: boolean): boolean {
+  return !(cosEnabled() && attended && COS_OWNS.has(name));
+}
+
 /**
  * The tools chat offers on a turn: what its plan leaves in sight, code tools only on code turns. With the Chief of
  * Staff on, George's own turns hand work over instead of managing it or changing code; unattended runs are the work
  * itself and keep their tools.
  */
 export function chatToolSet(plan: TurnPlan | null, codeTurn: boolean, attended = true): AgentTool[] {
-  const cos = process.env.FLYD_COS === "1";
+  const cos = cosEnabled();
   return visibleTools([...conversationTools, ...personalTools, ...assistantTools], plan)
     .filter((tool) => (codeTurn || !CODE_TOOLS.has(tool.name))
       && (COS_TOOLS.has(tool.name) ? cos && attended : !(cos && attended && COS_OWNS.has(tool.name))));
@@ -557,7 +565,7 @@ export function chatToolSet(plan: TurnPlan | null, codeTurn: boolean, attended =
 
 /** A shell command Flyd may run on George's own turn with the Chief of Staff on: reading only, never changing. */
 export function flydMayRun(command: string, attended: boolean): boolean {
-  return !(process.env.FLYD_COS === "1" && attended) || isReadOnlyCommand(command);
+  return !(cosEnabled() && attended) || isReadOnlyCommand(command);
 }
 
 export function isInstagramLoginWall(url: string, text: string): boolean {
@@ -983,7 +991,7 @@ function unattendedPersonalTools(sessionId?: string, background = false): Person
   return background || sessionId?.startsWith("agenda-") ? { background: true } : {};
 }
 
-const EVAL_SIMULATED_TOOLS = new Set(["todos", "work_model", "retire_card", "schedule", "start_coding_task", "start_knowledge_task", "start_design_task", "background_task", "pass_on_question", "remember", "reminders", "speaking_style"]);
+const EVAL_SIMULATED_TOOLS = new Set(["todos", "work_model", "retire_card", "schedule", "start_coding_task", "start_knowledge_task", "start_design_task", "background_task", "pass_on_question", "hand_off", "tell_work", "remember", "reminders", "speaking_style"]);
 
 /** Voice files apply to every turn; repo docs only when the turn is about code or projects. */
 const ALWAYS_CONTEXT_FILES = new Set(["SOUL.md"]);
@@ -1226,7 +1234,7 @@ export async function respondToConversation(
   let domainDeliveryNote = "";
   const steering = !mobile && !dependencies.readOnly && fast?.domain && fast.domain !== "general"
     && fast.commandKind && ["correction", "decision", "priority_change", "cancel"].includes(fast.commandKind);
-  if (steering && process.env.FLYD_COS === "1") {
+  if (steering && cosEnabled()) {
     // With the Chief of Staff on, it resolves which work his message is for (tell_work); Flyd only passes it on.
     domainDeliveryNote = `This looks like a ${fast!.commandKind} for ${fast!.domain} work under way. Pass it on with tell_work (kind ${fast!.commandKind}, team ${fast!.domain}) before you reply, then tell him in a line.`;
   } else if (steering) {
@@ -1324,10 +1332,11 @@ export async function respondToConversation(
   input.signal?.throwIfAborted();
   const planBlock = [
     understanding ? presenceBrief(understanding) : "",
+    input.targetTaskId ? "This message was written on a specific work item. If it corrects or steers that work, use tell_work; the runtime will match the item by its recorded identity and will not guess. If it is only a question, answer it from evidence without sending a correction." : "",
     ...turnBriefParts({ plan, skill, fastNote, surface: "chat" }),
     domainDeliveryNote,
     preparationNote,
-    selfSetup ? `He's asking about you, Flyd. This is your own setup, looked up live from your configuration just now; it is complete and current. Answer from it in full and specifically: every job he asked about with the model that does it. Don't say you'd be guessing and don't offer to look it up. For anything about yourself it doesn't cover, read your own code at the path it gives, or pass the question on.\n\n${selfSetup}` : "",
+    selfSetup ? `He's asking about you, Flyd. This is your setup, looked up from this process now. Answer the question from the relevant facts below, and distinguish the intended chain from the enabled state. For anything it doesn't cover, read your own code at the path it gives, pass the question on, or say what you cannot verify.\n\n${selfSetup}` : "",
   ].filter(Boolean).join("\n\n");
   const request = buildConversationPrompt(input, compiledContext, {
     projectTurn,
@@ -1365,6 +1374,8 @@ export async function respondToConversation(
     situation: input.situation ? { project: input.situation.project, projectRoot: input.situation.projectRoot } : null,
     ...(input.chatScope ? { chatScope: input.chatScope } : {}),
     userMessage: input.message,
+    ...(input.attachmentRefs?.length ? { attachmentRefs: input.attachmentRefs } : {}),
+    ...(input.targetTaskId ? { targetTaskId: input.targetTaskId } : {}),
     ...(source?.turnId ? { turnId: source.turnId } : {}),
     answerTurn: Boolean(input.onDeferred) && plan?.route === "answer" && source?.surface === "view",
     skill: skill ? { name: skill.name, body: skill.body } : null,
@@ -1406,6 +1417,7 @@ export async function respondToConversation(
     // contract, then the retry limit. An article chat skips the route gate so
     // "remember this" is not refused as off an answer turn; confirmation still holds.
     const skip = (input.article ? null : (mobile && (!MOBILE_TOOLS.has(name) || (!input.mobileAccounts && CONNECTOR_TOOL_NAMES.has(name))) ? "Error: this capability requires a connected Mac; no desktop work was dispatched." : null) ?? offRoute(plan, name, toolInput) ?? offCode(codeTurn, name, toolInput, repoRoots))
+      ?? (!flydMayCall(name, !unattended) ? "Error: hand delegated work to the chief of staff with hand_off" : null)
       ?? dependencies.toolProfile?.refuse?.(name, toolInput) ?? contractError(name, toolInput) ?? repeats.blocked(name, toolInput)
       // With the Chief of Staff on, Flyd never changes code or files from the shell on his turn: that is handed off.
       ?? (name === "bash" && !flydMayRun(String(toolInput.command ?? ""), !unattended) ? "Error: you don't change files or code from the shell; hand the change off with hand_off" : null);

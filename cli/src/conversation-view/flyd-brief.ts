@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { memoryPaths } from "../council/memory-store.js";
+import { readConsistentMemoryText } from "../council/memory-store.js";
 import { describeProject, liveProjects, type Project } from "../council/projects.js";
 import { tastePromptText } from "../council/taste.js";
 import { readUserProfile } from "../lib/user-profile.js";
@@ -35,14 +34,6 @@ export function projectNamed(text: string, projects: Project[]): Project | undef
   }));
 }
 
-function read(file: string): string {
-  try {
-    return readFileSync(file, "utf8");
-  } catch {
-    return "";
-  }
-}
-
 /** What Flyd knows that may bear on his words; each source fails soft to nothing. */
 export function briefSources(text: string): BriefSources {
   let profile: string | null = null;
@@ -65,7 +56,7 @@ export function briefSources(text: string): BriefSources {
   }
   return {
     profile,
-    memory: read(memoryPaths().memory),
+    memory: (() => { try { return readConsistentMemoryText() ?? ""; } catch { return ""; } })(),
     ...(project ? { project: { about: describeProject(project), taste } } : {}),
   };
 }
@@ -76,7 +67,7 @@ export function briefPrompt(text: string, recent: ConversationMessage[], sources
     .map((message) => `${message.role === "user" ? "George" : message.aside ? "Firstmate (update)" : "Flyd"}: ${message.text.replace(/\s+/g, " ").slice(0, 300)}`)
     .join("\n");
   return [
-    "You are Flyd, George's chief of staff. He has asked for software work, and you are handing it to firstmate, the engineering lead on your staff. His words go to firstmate whole; under them you add your brief, for firstmate, never for George.",
+    "You are Flyd, George's personal assistant. This is a legacy direct handoff to Firstmate, the coding boss. The intended chain places the Chief of Staff between you and the domain bosses. George's words go to Firstmate whole; under them add your brief for Firstmate, never for George.",
     "Write at most five short lines with what only you can add: what you know that bears on this (what he has said or decided before, where his project stands, his taste for it); what done looks like to him; and your call on how much it matters now and what firstmate settles itself without asking him (implementation choices, routine merges and follow-ups). Only what is truly his (destructive or irreversible, money, his name, a taste or strategy call) comes back to him, through you, with a recommendation.",
     "Use only what is written below; never invent a fact, a preference or a deadline. If you know nothing that adds to his words, reply exactly NONE.",
     sources.profile ? `What you know about George:\n${sources.profile.slice(0, MAX_PROFILE_CHARS)}` : "",

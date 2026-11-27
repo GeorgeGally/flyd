@@ -11,7 +11,7 @@ import type { GeorgeKind } from "../lib/reaches-george.js";
 import { listDomainRuns, mutateDomainRun, readDomainRun, updateDomainRun } from "./store.js";
 import { cameBack, isOpen } from "./run-state.js";
 import type { DomainRun } from "./types.js";
-import { cosEnabled, readObjective } from "./cos/objectives.js";
+import { readObjective } from "./cos/objectives.js";
 import { followsRun } from "./cos/plan.js";
 import { deliver, reportFromRun } from "../runtime/delivery.js";
 import { authorityForStaffRun, processFirstmateChange } from "../intelligence/executive/firstmate-decision.js";
@@ -193,12 +193,12 @@ export async function notifyRun(
   if (run.report ? !reportDue(run) : run.notified) return;
   const from = run.report;
   // Work done for a Chief of Staff objective is the objective's to report (command/cos/tick.ts), never told on its own.
-  if (run.request.objectiveId && cosEnabled()) {
+  if (run.request.objectiveId) {
     const objective = readObjective(run.request.objectiveId);
-    if (objective && followsRun(objective, run.id)) {
-      if (from) moveReport(run.id, from, { state: "quiet" });
-      return;
-    }
+    if (objective && followsRun(objective, run.id) && from) moveReport(run.id, from, { state: "quiet" });
+    // An unavailable or inconsistent objective does not authorize a direct report.
+    // Leave it due so the chief of staff can reconcile it after recovery.
+    return;
   }
   // His own message from the conversation window: with the window open on that conversation the reply shows under it
   // there, so a notice would say it twice; otherwise he hears it like any other result.

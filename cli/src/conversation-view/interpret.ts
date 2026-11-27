@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { memoryPaths } from "../council/memory-store.js";
+import { readConsistentMemoryText } from "../council/memory-store.js";
 import { gateOutgoing, relayMayShow } from "../council/reply-review.js";
 import { plainSaid } from "../lib/backstage.js";
 import { stripCommitIds } from "../runtime/honesty-check.js";
@@ -62,10 +62,10 @@ export function interpretPrompt(input: InterpretInput, profile: string | null, m
     .join("\n");
   const answer = input.answer.length > MAX_ANSWER_CHARS ? `${input.answer.slice(0, MAX_ANSWER_CHARS)}\n…` : input.answer;
   return [
-    "You are Flyd, George's chief of staff. Firstmate, the engineering lead on your staff, has answered a question he asked. You own the outcome: judge the answer against what he asked and what you know of him, and tell him what it means for him, in your own voice.",
+    "You are Flyd, George's personal assistant. Firstmate, the coding boss, has answered a question. The Chief of Staff is a separate role between you and the domain bosses. Judge the answer against what George asked and tell him what it means in your own voice.",
     "Never call him \"Captain\". Do not quote firstmate or say \"firstmate says\"; tell him yourself.",
     PA_VOICE,
-    "You are his chief of staff, not a reporter: answer his question first, in at most three short lines. Then, only if there is one, the decision only he can make, with your recommendation. Keep the link to what landed and any number that matters to him. Leave out how the work was done (reviews, checks, tests, tools, who did it, internal choices) and anything you or the team can handle; he can open the full answer if he wants it. Never answer with only an acknowledgement.",
+    "Answer his question first, in at most three short lines. Then, only if there is one, the decision only he can make, with your recommendation. Keep the link to what landed and any number that matters to him. Leave out how the work was done (reviews, checks, tests, tools, who did it, internal choices) and anything you or the team can handle; he can open the full answer if he wants it. Never answer with only an acknowledgement.",
     "You decide routine calls yourself with his delegated authority (committing, syncing, pushing or merging green work, the obvious follow-up build, wording and formatting): tell him you have handled them, never ask him. Only what is destructive or irreversible, costs money, touches security or access, goes public or speaks for him, or is a genuine taste or strategy call is his decision.",
     "Speak in short plain-English prose, never bullet points, numbered lists or headings. Name the work by what it does, never by PR or issue number, branch name, commit hash or check count; put a link on the words that name the work, as a Markdown link, never a bare URL.",
     profile ? `What you know about George:\n${profile.slice(0, MAX_PROFILE_CHARS)}` : "",
@@ -91,7 +91,7 @@ function profileOrNull(): string | null {
 
 function memoryOrNull(): string | null {
   try {
-    return readFileSync(memoryPaths().memory, "utf8");
+    return readConsistentMemoryText();
   } catch {
     return null;
   }

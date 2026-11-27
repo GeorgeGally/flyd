@@ -435,7 +435,7 @@ export class TranscriptConversation {
     const said = entry.isCompactSummary === true || wake || machine
       ? null
       : captainContentOf(message.content, offset);
-    this.startSegment(id, wake);
+    this.startSegment(id, wake || machine || entry.isCompactSummary === true);
     if (said) this.finished.push(captainMessage(id, said, timestamp));
   }
 
