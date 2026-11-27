@@ -34,7 +34,7 @@ Chief of Staff       intake, dispatch, review, steering, one report per objectiv
      specialists
 ```
 
-The CoS is on by default; `FLYD_COS=0` (or `off`/`false`/`no`) is the operator rollback, and any other value keeps it on. Rolled back, new work uses the legacy direct-delegation path and CoS objectives pause. An existing objective retains ownership of its runs and reports during the pause; they are not replayed or delivered as unrelated direct work, and re-enabling resumes them where they stood. Existing legacy runs keep their original owner. Fleet items are linked to objectives by Firstmate's exact `request_id`; when that binding is missing, damaged or unreadable while objective work is in flight, the fleet is shown as unavailable rather than guessed.
+The CoS is on by default; `FLYD_COS=0` (or `off`/`false`/`no`) is the operator rollback, and any other value keeps it on. Rolled back, new work uses the legacy direct-delegation path and CoS objectives pause. An existing objective retains ownership of its runs and reports during the pause; they are not replayed or delivered as unrelated direct work, and re-enabling resumes them where they stood. Existing legacy runs keep their original owner. Fleet items are linked to objectives by Firstmate's exact `request_id`; rows exactly bound to an objective are withheld from the fleet. Rows whose ownership cannot be confirmed (unbound, secondmate `home/` ids, a provenance omission, or an unreadable objective record) stay visible with a plain "ownership unconfirmed" note and are never auto-decided, settled or followed up; a failed read keeps the ledger rather than blanking the board.
 
 Domain bosses are managers, not default workers. Specialists execute bounded work.
 
