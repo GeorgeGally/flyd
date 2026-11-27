@@ -1163,7 +1163,7 @@ describe("supervision chatter never reaches Flyd's window", () => {
     expect((await view.listSessions()).map((session) => session.id)).toEqual(["main"]);
   });
 
-  it("relays firstmate's answers to its own wakes only when they bring a PR, ask his decision or report a failure, and every background-task report", async () => {
+  it("relays firstmate's answers to its own wakes and to background-task reports only when they bring a PR, ask his decision or report a failure", async () => {
     const project = join(dir, "project");
     mkdirSync(project);
     writeFileSync(join(project, "main.jsonl"), [
@@ -1198,7 +1198,8 @@ describe("supervision chatter never reaches Flyd's window", () => {
       "Sir, the settings screen is ready to merge: https://github.com/GeorgeGally/flyd/pull/90. PR 84 (https://github.com/GeorgeGally/flyd/pull/84) is still waiting on your merge.",
       "Sir, the Good Neighbours worker failed its build twice and stopped.",
       "Sir, the lab page has two layouts. Should I keep the grid or the list?",
-      "Sir, deployed and all tests pass; landed on main.",
+      // A background task's report is machine-origin, with no objective behind it: it meets the same bar as a wake
+      // (transcript-filter.ts). Finished work reaches him through its reviewed report instead.
     ]);
     // The island reads the same snapshot, so it names only what the window shows.
     expect(relays.map((message) => message.id)).toContain(statusOf(snapshot).reply?.id);
