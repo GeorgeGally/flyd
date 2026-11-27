@@ -1,7 +1,11 @@
 import type { DomainRun } from "../command/types.js";
 import type { CosReport, Objective } from "../command/cos/types.js";
 import { planRequestId } from "../command/cos/plan.js";
-import { runNames } from "../command/run-closure.js";
+import { firstmateTasksOfRun, runNames, type TaskRecord } from "../command/run-closure.js";
+import { listObjectives } from "../command/cos/objectives.js";
+import { listDomainRuns } from "../command/store.js";
+import { firstmateHome } from "../lib/firstmate-home.js";
+import { firstmateRecord } from "./retire.js";
 import { existsSync } from "node:fs";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { jobRunFromDomain, type JobRun } from "./jobs.js";
@@ -77,8 +81,28 @@ export function cosRequestIds(runs: DomainRun[], objectives: Objective[]): Set<s
   return new Set([...known, ...inFlight]);
 }
 
-/** Every name objective-owned Firstmate work is known by: its objective, its run, its request and its inbox note. */
-export function cosOwnedNames(runs: DomainRun[], objectives: Objective[]): Set<string> {
-  const owned = runs.filter((run) => run.request.objectiveId && run.transport.kind === "firstmate");
-  return new Set([...cosRequestIds(runs, objectives), ...owned.flatMap((run) => [...runNames(run), run.request.objectiveId!])]);
+/**
+ * Every name objective-owned work is known by (its objective, its planned requests, its run, its inbox note and the
+ * Firstmate tasks bound to that run), each to the run or objective that owns it.
+ */
+export function cosOwners(runs: DomainRun[], objectives: Objective[], entries: ReadonlyMap<string, TaskRecord> = new Map()): Map<string, string> {
+  const owners = new Map<string, string>();
+  for (const objective of objectives) {
+    owners.set(objective.id, objective.id);
+    for (const run of objective.plan ?? []) if (run.team === "coding") owners.set(planRequestId(objective.id, run), objective.id);
+  }
+  for (const run of runs) {
+    if (!run.request.objectiveId) continue;
+    for (const name of [...runNames(run), ...(run.transport.kind === "firstmate" ? firstmateTasksOfRun(run, entries) : [])]) owners.set(name, run.id);
+  }
+  return owners;
+}
+
+/** Who owns objective work by every name it goes by, read now; null when the record cannot be read. */
+export function readCosOwners(home = firstmateHome()): ReadonlyMap<string, string> | null {
+  try {
+    return cosOwners(listDomainRuns(undefined, true), listObjectives(undefined, true), firstmateRecord(home));
+  } catch {
+    return null;
+  }
 }

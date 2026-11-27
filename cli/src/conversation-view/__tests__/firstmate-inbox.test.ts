@@ -602,7 +602,11 @@ describe("ClaudeCodeTranscriptSource with an inbox", () => {
     writeFileSync(join(project, "s1.jsonl"), captain("hello") + "\n");
     const runs = join(process.env.FLYD_COMMAND_DIR!, "runs");
     mkdirSync(runs, { recursive: true });
-    writeFileSync(join(runs, "domain-owned-note.json"), JSON.stringify({ id: "domain-owned-note", createdAt: "2026-11-27T00:00:00Z", request: { objectiveId: "obj-note" }, transport: { kind: "firstmate", requestId: "obj-note-r1" } }));
+    writeFileSync(join(runs, "domain-owned-note.json"), JSON.stringify({ id: "domain-owned-note", createdAt: "2026-11-27T00:00:00Z", request: { objectiveId: "obj-note" }, transport: { kind: "firstmate", requestId: "obj-note-r1", externalId: "1792372415-noteAb" } }));
+    const firstmate = join(dir, "firstmate-home");
+    mkdirSync(join(firstmate, "data"), { recursive: true });
+    writeFileSync(join(firstmate, "data", "backlog.md"), "- [ ] gallery-header - Fix the gallery header\n  From Flyd inbox request 1792372415-noteAb\n- [ ] legacy-task - The footer\n");
+    vi.stubEnv("FLYD_FIRSTMATE_HOME", firstmate);
     const inboxed: string[] = [];
     const inbox = { send: async (text: string) => (inboxed.push(text), { id: "note:1", timestamp: "x" }), notes: () => [], image: () => null };
     const asked: Array<string | undefined> = [];
@@ -611,8 +615,13 @@ describe("ClaudeCodeTranscriptSource with an inbox", () => {
     await source.sendDecision("Answer to pending decision legacy-task", [], undefined, "s1");
     await source.sendDecision("About the artefact \"Footer\"\nTask: legacy-task\n\nmake it blue", [], undefined, "s1", "legacy-task");
     await source.sendDecision("make it blue", [], undefined, "s1", "domain-owned-note");
+    await source.sendDecision("make the header navy", [], undefined, "s1", "gallery-header");
     expect(inboxed).toEqual(["Answer to pending decision legacy-task", "About the artefact \"Footer\"\nTask: legacy-task\n\nmake it blue"]);
-    expect(asked).toEqual(["domain-owned-note"]);
+    expect(asked).toEqual(["domain-owned-note", "domain-owned-note"]);
+    writeFileSync(join(runs, "broken.json"), "{");
+    await expect(source.sendDecision("make it red", [], undefined, "s1", "legacy-task")).rejects.toThrow(/can't confirm/);
+    expect(inboxed).toHaveLength(2);
+    rmSync(join(runs, "broken.json"));
   });
 
   it("marks only messages that start with a real skill or command", async () => {

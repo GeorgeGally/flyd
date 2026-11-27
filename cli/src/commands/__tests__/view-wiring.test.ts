@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ArtefactFeed } from "../../conversation-view/artefact.js";
 import type { FirstmateChange } from "../../intelligence/executive/firstmate-decision.js";
 import { readObjective } from "../../command/cos/objectives.js";
+import { cosOwners } from "../../conversation-view/cos-jobs.js";
+import { parseBacklog } from "../../conversation-view/artefact.js";
 import { answerObjectiveRun, registerViewCommand, WAKE_OWNER_UNAVAILABLE, withoutCosWakes, viewFeed, type ViewOptions } from "../view.js";
 
 // 22 Oct to 14 Nov 2026: the overtaken check and the stale-call judge were built
@@ -109,13 +111,16 @@ describe("the view as Flyd.app starts it (no --session)", () => {
 it("keeps only wake reports about objective-owned work backstage, and says so when ownership cannot be read", () => {
   const messages = [
     { id: "a", role: "assistant" as const, text: "Captain, gnm-footer landed: PR #12 merged.", wake: true },
-    { id: "b", role: "assistant" as const, text: "Captain, obj-77-r1 is ready for review.", wake: true },
-    { id: "c", role: "assistant" as const, text: "Here is the answer to your question about obj-77-r1.", answers: "q1" },
-    { id: "d", role: "assistant" as const, text: "Captain, obj-77-r10 needs a decision.", wake: true },
+    { id: "b", role: "assistant" as const, text: "Captain, gallery-header landed: PR #31 merged.", wake: true },
+    { id: "c", role: "assistant" as const, text: "Here is the answer to your question about gallery-header.", answers: "q1" },
+    { id: "d", role: "assistant" as const, text: "Captain, gallery-header-v2 needs a decision.", wake: true },
   ];
-  const owned = new Set(["obj-77-r1"]);
+  const run = { id: "domain-45b4d25a-1111-2222-3333-444455556666", createdAt: "2026-11-27T00:00:00Z", request: { objectiveId: "obj-77" }, transport: { kind: "firstmate", requestId: "obj-77-r1", externalId: "1792372415-jr6Ysy" } } as never;
+  const backlog = parseBacklog("- [ ] gallery-header - Fix the gallery header\n  From Flyd inbox request 1792372415-jr6Ysy\n- [ ] gnm-footer - Fix the footer\n  Captain asked directly\n- [ ] gallery-header-v2 - Another header\n");
+  const owned = cosOwners([run], [], backlog);
+  expect(owned.get("gallery-header")).toBe("domain-45b4d25a-1111-2222-3333-444455556666");
   expect(withoutCosWakes(messages, owned).map((message) => message.id)).toEqual(["a", "c", "d"]);
-  expect(withoutCosWakes(messages, new Set()).map((message) => message.id)).toEqual(["a", "b", "c", "d"]);
+  expect(withoutCosWakes(messages, new Map()).map((message) => message.id)).toEqual(["a", "b", "c", "d"]);
   const unreadable = withoutCosWakes(messages, null);
   expect(unreadable.map((message) => message.id)).toEqual(["a", "b", "c", "d"]);
   expect(unreadable.filter((message) => message.wake).every((message) => message.text === WAKE_OWNER_UNAVAILABLE)).toBe(true);
@@ -134,4 +139,14 @@ it("records an answer on a settled objective's work on that objective, as receiv
   expect(saved.status).toBe("done");
   expect(saved.runs).toEqual([]);
   await expect(answerObjectiveRun({ id: "domain-missing", request: { objectiveId: "obj-missing-answer" } as never }, "navy")).rejects.toThrow();
+});
+
+it("refuses an answer it cannot deliver to an open objective's finished run instead of filing it where nothing reads it", async () => {
+  const objectives = join(process.env.FLYD_COMMAND_DIR!, "objectives");
+  mkdirSync(objectives, { recursive: true });
+  const id = "obj-open-answer";
+  writeFileSync(join(objectives, `${id}.json`), JSON.stringify({ id, revision: 1, createdAt: "2026-11-27T00:00:00Z", updatedAt: "2026-11-27T00:00:00Z", origin: "chat", words: "make the header blue", flydNotes: "", contextRefs: [], status: "working", runs: [] }));
+  await expect(answerObjectiveRun({ id: "domain-open-answer", request: { objectiveId: id } as never }, "navy")).rejects.toThrow();
+  expect(readObjective(id)!.flydNotes).toBe("");
+  expect(readObjective(id)!.revision).toBe(1);
 });

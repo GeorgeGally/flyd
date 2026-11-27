@@ -50,9 +50,10 @@ import { listDomainRuns, readDomainRun } from "../command/store.js";
 import { isOpen, isSettled } from "../command/run-state.js";
 import { sendRunMessage } from "../command/messages.js";
 import { tellWork } from "../command/cos/steer.js";
-import { listObjectives, mutateObjective } from "../command/cos/objectives.js";
+import { listObjectives, mutateObjective, readObjective } from "../command/cos/objectives.js";
+import type { Objective } from "../command/cos/types.js";
 import type { DomainRun } from "../command/types.js";
-import { cosOwnedNames, cosRequestIds } from "../conversation-view/cos-jobs.js";
+import { cosRequestIds, readCosOwners } from "../conversation-view/cos-jobs.js";
 import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun, STAFF_COORDINATION_POLICY } from "../intelligence/executive/firstmate-decision.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision, takeBackSettledDecision } from "../intelligence/executive/decision-step.js";
@@ -187,9 +188,10 @@ export async function answerObjectiveRun(run: Pick<DomainRun, "id" | "request">,
   const objectiveId = run.request.objectiveId!;
   const sent = await tellWork({ objectiveId, runId: run.id, kind: "decision", message });
   if (sent.delivered) return `objective:${objectiveId}`;
-  if (sent.reason !== "no_active_work" && sent.reason !== "not_steerable") throw new Error(sent.ask || "The Chief of Staff could not deliver that answer to the work");
-  const recorded = mutateObjective(objectiveId, (current) => current && { ...current, flydNotes: [current.flydNotes, `Later from George (decision on ${run.id}): ${message}`].filter(Boolean).join("\n") });
-  if (!recorded) throw new Error("Flyd could not record that answer on its work");
+  const settled = (objective: Objective | null) => objective?.status === "done" || objective?.status === "cancelled";
+  if (!settled(readObjective(objectiveId))) throw new Error(sent.ask || "The Chief of Staff could not deliver that answer to the work");
+  const recorded = mutateObjective(objectiveId, (current) => settled(current) ? { ...current!, flydNotes: [current!.flydNotes, `Later from George (decision on ${run.id}): ${message}`].filter(Boolean).join("\n") } : null);
+  if (!settled(recorded)) throw new Error("Flyd could not record that answer on its work");
   return `objective:${objectiveId}`;
 }
 
@@ -199,24 +201,18 @@ export const WAKE_OWNER_UNAVAILABLE = "A coding report came in, but Flyd can't c
 const escapeName = (name: string) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** A Firstmate wake report that names objective-owned work stays with the Chief of Staff; one that cannot be checked says so. */
-export function firstmateWakeOwner(text: string, owned: ReadonlySet<string> | null): "shown" | "objective" | "unverified" {
+export function firstmateWakeOwner(text: string, owned: ReadonlyMap<string, string> | null): "shown" | "objective" | "unverified" {
   if (owned === null) return "unverified";
-  return [...owned].some((name) => new RegExp(`(?<![\\w-])${escapeName(name)}(?![\\w-])`).test(text)) ? "objective" : "shown";
+  return [...owned.keys()].some((name) => new RegExp(`(?<![\\w-])${escapeName(name)}(?![\\w-])`).test(text)) ? "objective" : "shown";
 }
 
 /** Firstmate's messages as the threads read them: wake reports about objective-owned work are kept backstage. */
-export function withoutCosWakes(messages: ConversationMessage[], owned: ReadonlySet<string> | null): ConversationMessage[] {
+export function withoutCosWakes(messages: ConversationMessage[], owned: ReadonlyMap<string, string> | null): ConversationMessage[] {
   return messages.flatMap((message) => {
     if (!message.wake) return [message];
     const owner = firstmateWakeOwner(message.text, owned);
     return owner === "objective" ? [] : owner === "unverified" ? [{ ...message, text: WAKE_OWNER_UNAVAILABLE }] : [message];
   });
-}
-
-function cosOwnedNamesForView(): ReadonlySet<string> | null {
-  try {
-    return cosOwnedNames(listDomainRuns(undefined, true), listObjectives(undefined, true));
-  } catch { return null; }
 }
 
 function cosRequestsForView(): ReadonlySet<string> | null {
@@ -235,7 +231,7 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, t
       sessions: () => firstmate.listSessions(),
       read: async (id: string) => {
         const snapshot = await firstmate.readHistory(id);
-        const messages = withoutCosWakes(snapshot.messages, cosOwnedNamesForView());
+        const messages = withoutCosWakes(snapshot.messages, readCosOwners());
         notePlay(messages);
         return { ...snapshot, messages };
       },
