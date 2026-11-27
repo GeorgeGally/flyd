@@ -59,6 +59,37 @@ describe("tell_work", () => {
     expect(sent).toEqual([]);
   });
 
+  it("delivers a chat decision with no run named to the one run asking for it, once", async () => {
+    const objective = underWay("Fix the footer", "coding");
+    const coding = readDomainRun(`${objective}-r1`)!;
+    mutateDomainRun(coding.id, (current) => current && { ...current, status: "needs_decision" });
+    const design = { ...coding, id: `${objective}-r2`, status: "working" as const, request: { ...coding.request, id: `${objective}-r2`, domain: "creative" as const, intendedOutcome: "Design the footer" }, transport: { ...coding.transport, requestId: `${objective}-r2` } };
+    createDomainRun(design);
+    mutateObjective(objective, (current) => current && { ...current, runs: [coding.id, design.id] });
+    const { sent, send } = recorder();
+    expect(await tellWork({ objectiveId: objective, message: "go with blue", kind: "decision" }, send)).toMatchObject({ delivered: true });
+    expect(sent).toEqual([{ run: coding.id, kind: "decision", body: "go with blue" }]);
+    mutateObjective(objective, (current) => current && { ...current, status: "needs_george", waitingOn: { reportId: "q1", kind: "question", question: "Which blue?", at: new Date().toISOString() } });
+    expect(await tellWork({ objectiveId: objective, message: "navy", kind: "decision" }, send)).toMatchObject({ delivered: true });
+    expect(sent.at(-1)).toEqual({ run: coding.id, kind: "decision", body: "navy" });
+  });
+
+  it("keeps an answer to crew work ready for /land on the objective without landing or sending anything", async () => {
+    const objective = openObjective({ words: "Fix the footer", flydNotes: "", origin: { surface: "chat" } });
+    mutateObjective(objective.id, (current) => current && { ...current, status: "needs_george", runs: ["crew:footer-fix"],
+      plan: [{ key: "r1", team: "coding", outcome: "Fix the footer", doneWhen: ["done"], state: "dispatched", attempt: 1, validFor: 0, ref: "crew:footer-fix" }],
+      waitingOn: { reportId: "ready-1", kind: "run", question: "Fix the footer is ready for your /land; it has not been merged yet.", at: new Date().toISOString() } });
+    const before = readObjective(objective.id)!;
+    const { sent, send } = recorder();
+    const outcome = await tellWork({ objectiveId: objective.id, expectedReportId: "ready-1", message: "looks good, ship it", kind: "decision" }, send);
+    expect(outcome).toMatchObject({ delivered: true, note: expect.stringContaining("/land") });
+    expect(sent).toEqual([]);
+    const after = readObjective(objective.id)!;
+    expect(after.flydNotes).toContain("looks good, ship it");
+    expect(after.plan).toEqual(before.plan);
+    expect(after.status).toBe("needs_george");
+  });
+
   it("does not apply an answer to a different, newer objective question", async () => {
     const objective = underWay("Fix the footer", "coding");
     mutateObjective(objective, (current) => current && { ...current, status: "needs_george", waitingOn: { reportId: "new-question", kind: "run", question: "Which colour?", at: new Date().toISOString() } });

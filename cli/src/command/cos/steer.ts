@@ -27,6 +27,8 @@ export interface SteerOutcome {
   again?: string;
   /** When a snoozed wait comes back. */
   until?: string;
+  /** What to tell him about an answer that was kept rather than acted on. */
+  note?: string;
   reason?: "no_active_work" | "ambiguous" | "not_steerable" | "delivery_failed" | "invalid_time";
 }
 
@@ -42,6 +44,16 @@ function steerableRuns(objective: Objective): DomainRun[] {
   const runs = [...objective.runs].reverse().filter((ref) => !ref.includes(":")).map((ref) => readDomainRun(ref))
     .filter((run): run is DomainRun => Boolean(run && !isSettled(run.status)));
   return [...runs.filter((run) => run.status === "needs_decision"), ...runs.filter((run) => run.status !== "needs_decision")];
+}
+
+/** The run a decision is for: the one named, else the one asking or the one the team names; ambiguous only when that still leaves several. */
+function decisionTarget(runs: DomainRun[], runId?: string, team?: DomainId): DomainRun | "ambiguous" | undefined {
+  if (runId) return runs.find((run) => run.id === runId);
+  if (runs.length <= 1) return runs[0];
+  const asking = runs.filter((run) => run.status === "needs_decision");
+  if (asking.length === 1) return asking[0];
+  const named = team ? (asking.length ? asking : runs).filter((run) => run.request.domain === team) : [];
+  return named.length === 1 ? named[0] : "ambiguous";
 }
 
 /** The run a correction is for: the one run, or the one the team hint names; null when that can't be told. */
@@ -197,16 +209,15 @@ function waitOf(objective: Objective): Waiting | undefined {
  * answer; a result he takes as it is is delivered; a hand-over that was never confirmed is sent again or dropped;
  * otherwise what didn't make it is tried again with his words, or dropped when he says so.
  */
-async function resume(objective: Objective, waiting: Waiting, message: string, choice: string | undefined, send: typeof sendRunMessage, runId?: string): Promise<SteerOutcome> {
+async function resume(objective: Objective, waiting: Waiting, message: string, choice: string | undefined, send: typeof sendRunMessage, runId?: string, team?: DomainId): Promise<SteerOutcome> {
   const options = waiting.options?.length ? waiting.options : [...WAIT_ANSWERS[waiting.kind]];
   const option = picked(options, choice ?? "") ?? picked(options, message);
   const at = new Date().toISOString();
   const done = { delivered: true, objectiveId: objective.id };
   const back = { waitingOn: undefined, snooze: undefined, progressAt: at };
   if (waiting.kind === "question") {
-    const runs = steerableRuns(objective);
-    if (!runId && runs.length > 1) return { delivered: false, objectiveId: objective.id, reason: "ambiguous", ask: "Which part of the work is this for?" };
-    const run = runId ? runs.find((candidate) => candidate.id === runId) : runs[0];
+    const run = decisionTarget(steerableRuns(objective), runId, team);
+    if (run === "ambiguous") return { delivered: false, objectiveId: objective.id, reason: "ambiguous", ask: "Which part of the work is this for?" };
     if (runId && !run) return { delivered: false, objectiveId: objective.id, reason: "not_steerable" };
     if (run) {
       const outcome = await send({ run, kind: "decision", body: message }).catch(() => ({ delivered: false }));
@@ -322,12 +333,17 @@ export async function tellWork(
   // His answer to what it waits on resumes this same objective; a run's own call goes to the run, as below.
   const waiting = waitOf(objective);
   if (waiting && waiting.kind !== "run" && (kind === "decision" || kind === "correction")) {
-    return resume(objective, waiting, message, input.choice, send, input.runId);
+    return resume(objective, waiting, message, input.choice, send, input.runId, input.team);
+  }
+  const runs = steerableRuns(objective);
+  // Crew work ready to land waits on his /land: an answer to it is kept on the objective, never lands or sends anything.
+  if (waiting?.kind === "run" && kind === "decision" && !runs.length && planOf(objective).some((run) => run.ref?.startsWith("crew:") && !isGone(run))) {
+    mutateObjective(objective.id, (current) => current && { ...current, flydNotes: [current.flydNotes, `Later from George on the work ready to land: ${message}`].filter(Boolean).join("\n") });
+    return { delivered: true, objectiveId: objective.id, note: "Landing still happens through /land; nothing was merged." };
   }
   if (kind === "correction") return correct(objective, message, input.team, send, input.runId);
-  const runs = steerableRuns(objective);
-  if (!input.runId && runs.length > 1) return { delivered: false, objectiveId: objective.id, reason: "ambiguous", ask: "Which part of the work is this for?" };
-  const run = input.runId ? runs.find((candidate) => candidate.id === input.runId) : runs[0];
+  const run = decisionTarget(runs, input.runId, input.team);
+  if (run === "ambiguous") return { delivered: false, objectiveId: objective.id, reason: "ambiguous", ask: "Which part of the work is this for?" };
   if (!run) return { delivered: false, objectiveId: objective.id, reason: "not_steerable" };
   const outcome = await send({ run, kind, body: message }).catch(() => ({ delivered: false }));
   if (!outcome.delivered) return { delivered: false, objectiveId: objective.id, reason: "delivery_failed" };

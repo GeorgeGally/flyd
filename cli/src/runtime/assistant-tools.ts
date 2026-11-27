@@ -443,6 +443,7 @@ export async function runAssistantTool(
           ...(input.choice ? { choice: String(input.choice) } : {}),
         });
         if (outcome.delivered && outcome.until) return `Set aside until ${outcome.until}; nothing comes back before then. Tell him in a line when it will.`;
+        if (outcome.delivered && outcome.note) return `His words are kept with the work, but nothing was acted on. Tell him in one line: ${outcome.note}`;
         if (outcome.delivered) return "The existing work has the instruction. Do not narrate the handoff or send it again; respond to George's actual point.";
         if (outcome.reason === "invalid_time") return "That isn't a time still to come. Ask him when he wants it back.";
         if (outcome.reason === "ambiguous") return `It could be for more than one piece of work. Ask him, in one line: ${outcome.ask}`;
