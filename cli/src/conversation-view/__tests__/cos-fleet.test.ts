@@ -7,7 +7,7 @@ import { listDomainRuns } from "../../command/store.js";
 import type { CosReport, Objective } from "../../command/cos/types.js";
 import type { DomainRun } from "../../command/types.js";
 import type { FirstmateChange } from "../../intelligence/executive/firstmate-decision.js";
-import { ArtefactFeed, firstmateChangesFromFleet, parseBearings, withoutCosFleet } from "../artefact.js";
+import { ArtefactFeed, composeArtefact, firstmateChangesFromFleet, parseBearings, projectFleetDecisions, withoutCosFleet } from "../artefact.js";
 import { cosJobRuns, cosRequestIds, recentObjectiveWork } from "../cos-jobs.js";
 import { jobsFrom } from "../jobs.js";
 
@@ -274,5 +274,20 @@ describe("CoS fleet provenance", () => {
     expect(feed.current().fleet?.live.map((row) => row.task)).toEqual(["legacy"]);
     expect(decideChanges.mock.calls.flatMap((call) => call[0]).some((change) => change.taskId === "owned")).toBe(false);
     feed.stop();
+  });
+
+  it("says plainly on the card that a row's ownership is unconfirmed", () => {
+    const fleet = parseBearings({ in_flight: [{ id: "legacy", name: "Fix the footer spacing", state: "working", request_id: null }, { id: "mate/child", name: "Tidy the gallery grid", state: "working", request_id: null }] });
+    const items = composeArtefact({ fleet: withoutCosFleet(fleet, new Set(["req-owned"]), parseBearings({ in_flight: [{ id: "legacy", name: "Fix the footer spacing", state: "working", request_id: null }] })).fleet, memories: [], news: [], taste: [] });
+    expect(items.find((item) => item.id.endsWith("mate/child"))?.detail).toContain("ownership unconfirmed");
+    expect(items.find((item) => item.id.endsWith("legacy"))?.detail ?? "").not.toContain("ownership unconfirmed");
+  });
+
+  it("puts an unconfirmed call's own question to him rather than waiting forever on a restatement", () => {
+    const call = { task: "gnm-footer-fix", label: "Rebase the gnm-footer-fix worktree onto local main or hold it?", repo: "gnm" };
+    const shown = projectFleetDecisions({ ...parseBearings({}), calls: [{ ...call, ownershipUnconfirmed: true }] }, []).calls;
+    expect(shown).toHaveLength(1);
+    expect(shown[0]!.label).toBe("Rebase the gnm-footer-fix worktree onto local main or hold it?");
+    expect(projectFleetDecisions({ ...parseBearings({}), calls: [call] }, []).calls[0]!.label).toMatch(/getting it restated/);
   });
 });

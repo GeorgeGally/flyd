@@ -161,6 +161,8 @@ describe("Flyd's own setup", () => {
       "what features do you have planned for gnm",
       "have the chief of staff fix the gallery header",
       "is the chief of staff done with the footer fix?",
+      "is the chief of staff on the footer fix?",
+      "is the chief of staff running the gallery job?",
       "is your chief of staff done with the footer fix?",
       "how is the chief of staff getting on with the gallery?",
       "what did the chief of staff decide about the hero images?",

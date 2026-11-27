@@ -828,6 +828,7 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
       const plain = plainQuestionFor(row.question ?? row.label, tasks);
       const detail = row.detail ? plainQuestionFor(row.detail, tasks) : null;
       if (plain) return [{ ...row, title: row.title ?? row.label, label: plain, ...(row.question ? { question: plain } : {}), detail: detail ?? undefined }];
+      if (row.ownershipUnconfirmed) return [{ ...row, title: row.title ?? row.label }];
       const { question: _question, detail: _detail, choices: _choices, ...held } = row;
       return [{ ...held, label: `A call on ${row.repo ?? "your work"} is waiting; Flyd is getting it restated.` }];
     }
@@ -1435,9 +1436,10 @@ function withoutProject(label: string, names: string[]): string {
 function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeOptions): ShowItem | undefined {
   const item = loopbackRowItem(kind, id, row, options);
   if (!item) return undefined;
+  const detail = [item.detail ? publicBoardUrl(item.detail) : "", row.ownershipUnconfirmed ? "ownership unconfirmed" : ""].filter(Boolean).join(" · ");
   return {
     ...item,
-    ...(item.detail ? { detail: publicBoardUrl(item.detail) } : {}),
+    ...(detail ? { detail } : {}),
     ...(item.links ? { links: item.links.map((link) => namedBoardLink(link, row.boardNames)) } : {}),
   };
 }
