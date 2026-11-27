@@ -370,10 +370,10 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return this.inbox.send(text, images, command?.name, files, undefined, sessionId);
   }
 
-  async sendDecision(text: string, images?: ImageUpload[], _decision?: { decisionId: string; taskId: string }, sessionId?: string, targetTaskId?: string): Promise<SentMessage> {
+  async sendDecision(text: string, images?: ImageUpload[], _decision?: { decisionId: string; taskId: string }, sessionId?: string, targetTaskId?: string, known?: ReadonlyMap<string, string>): Promise<SentMessage> {
     if (!this.inbox) throw new Error("This conversation is read-only");
     if (cosEnabled() && this.desk && targetTaskId) {
-      const owners = readCosOwners();
+      const owners = known ?? readCosOwners();
       if (!owners) throw new Error("Flyd can't confirm who owns that work just now; your note was not sent");
       const owner = owners.get(targetTaskId);
       if (owner) return this.desk.desk.ask(text, images, sessionId, [], undefined, owner);

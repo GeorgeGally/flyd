@@ -2095,13 +2095,13 @@ export class ConversationViewServer {
         return;
       }
       const job = { title: payload.jobTitle, task: payload.decisionTask, question: payload.questionText };
-      const decisionOwner = typeof payload.decisionTask === "string" ? this.cosOwner(payload.decisionTask) : undefined;
-      if (decisionOwner === null) {
+      const owners = typeof payload.decisionTask === "string" ? readCosOwners() : undefined;
+      if (owners === null) {
         sendJson(res, 409, { error: "Flyd can't confirm who owns that work just now. Your message was not sent." });
         return;
       }
-      if (decisionOwner) {
-        await this.sendToJob(res, job, payload.text, images as ImageUpload[], session);
+      if (typeof payload.decisionTask === "string" && owners?.has(payload.decisionTask)) {
+        await this.sendToJob(res, job, payload.text, images as ImageUpload[], session, undefined, owners);
         return;
       }
       const call = await this.liveCall(payload.decision, payload.decisionTask, payload.questionText);
@@ -2149,13 +2149,13 @@ export class ConversationViewServer {
       const decisionId = typeof payload.decisionFollowUp === "string" ? payload.decisionFollowUp : "";
       const taskId = typeof payload.decisionTask === "string" ? payload.decisionTask : call?.task ?? "";
       const job = { title: payload.jobTitle ?? call?.label, task: taskId, question: payload.questionText ?? call?.question };
-      const followUpOwner = taskId ? this.cosOwner(taskId) : undefined;
-      if (followUpOwner === null) {
+      const owners = taskId ? readCosOwners() : undefined;
+      if (owners === null) {
         sendJson(res, 409, { error: "Flyd can't confirm who owns that work just now. Your message was not sent." });
         return;
       }
-      if (followUpOwner) {
-        await this.sendToJob(res, job, payload.text, images as ImageUpload[], session);
+      if (owners?.has(taskId)) {
+        await this.sendToJob(res, job, payload.text, images as ImageUpload[], session, undefined, owners);
         return;
       }
       if (!decisionId || !taskId || !this.source.sendDecisionFollowUp || (images as ImageUpload[]).length) {
@@ -2272,7 +2272,7 @@ export class ConversationViewServer {
    * firstmate knows what "this" is without the screen. Images he pasted into
    * the box go with it.
    */
-  private async sendAbout(res: ServerResponse, about: unknown, text: unknown, images: ImageUpload[] = [], session?: string, receipt?: Record<string, unknown>): Promise<void> {
+  private async sendAbout(res: ServerResponse, about: unknown, text: unknown, images: ImageUpload[] = [], session?: string, receipt?: Record<string, unknown>, owners?: ReadonlyMap<string, string> | null): Promise<void> {
     const respond = (status: number, result: Record<string, unknown>) => this.sendJobResult(res, status, result, receipt);
     const card = typeof about === "object" && about !== null ? about as { title?: unknown; task?: unknown; url?: unknown; line?: unknown; detail?: unknown } : {};
     const field = (value: unknown) => (typeof value === "string" && value.trim() && value.length <= 2000 ? value.trim() : undefined);
@@ -2298,18 +2298,19 @@ export class ConversationViewServer {
     const named = [`About the artefact "${title.replace(/\s+/g, " ")}"`, ...(task ? [`Task: ${task}`] : []), ...(url ? [`Page: ${url}`] : []), ...(line ? [`Line: ${line}`] : []), ...(detail ? [`Detail: ${detail}`] : [])].join("\n");
     try {
       const words = text.trim();
-      const owner = task ? this.cosOwner(task) : undefined;
-      if (owner === null) {
+      const known = task ? owners === undefined ? readCosOwners() : owners : undefined;
+      if (known === null) {
         respond(409, { error: "Flyd can't confirm who owns that work just now. Your message was not sent." });
         return;
       }
+      const owner = task ? known?.get(task) : undefined;
       const owned = Boolean(owner);
       if (owned && !cosEnabled()) {
         respond(409, { error: "This work is paused with the chief of staff. Your message was not sent." });
         return;
       }
       const note = owned ? words : words ? withCommandMarker(`${named}\n\n${words}`, await this.commandIn(words)) : named;
-      respond(200, { ...await this.source.sendDecision(note, images, undefined, session, owner ?? task), waiting: "Sent." });
+      respond(200, { ...await (task ? this.source.sendDecision(note, images, undefined, session, owner ?? task, known) : this.source.sendDecision(note, images, undefined, session)), waiting: "Sent." });
     } catch (error) {
       respond(502, { error: error instanceof Error ? error.message : String(error) });
     }
@@ -2342,7 +2343,7 @@ export class ConversationViewServer {
     sendJson(res, 200, { ...receipt, ...(warning ? { warning } : {}), ...(pictureFailed ? { pictureFailed } : {}) });
   }
 
-  private async sendToJob(res: ServerResponse, job: { title?: unknown; task?: unknown; question?: unknown }, text: string, images: ImageUpload[], session?: string, receipt?: Record<string, unknown>): Promise<void> {
+  private async sendToJob(res: ServerResponse, job: { title?: unknown; task?: unknown; question?: unknown }, text: string, images: ImageUpload[], session?: string, receipt?: Record<string, unknown>, owners?: ReadonlyMap<string, string> | null): Promise<void> {
     const named = (value: unknown) => (typeof value === "string" && value.trim() ? value.replace(/\s+/g, " ").trim().slice(0, 300) : undefined);
     const task = named(job.task);
     const question = named(job.question);
@@ -2352,7 +2353,7 @@ export class ConversationViewServer {
         this.sendJobResult(res, 409, { error: "This work is paused with the chief of staff. Your message was not sent." }, receipt);
         return;
       }
-      await this.sendAbout(res, { title: named(job.title) ?? run.request.intendedOutcome, task: run.id, ...(question ? { detail: question } : {}) }, text, images, session, receipt);
+      await this.sendAbout(res, { title: named(job.title) ?? run.request.intendedOutcome, task: run.id, ...(question ? { detail: question } : {}) }, text, images, session, receipt, owners);
       return;
     }
     if (run) {
@@ -2370,7 +2371,7 @@ export class ConversationViewServer {
       }
       return;
     }
-    await this.sendAbout(res, { title: named(job.title) ?? question ?? task ?? "Your earlier question", ...(task ? { task } : {}), ...(question ? { detail: question } : {}) }, text, images, session, receipt);
+    await this.sendAbout(res, { title: named(job.title) ?? question ?? task ?? "Your earlier question", ...(task ? { task } : {}), ...(question ? { detail: question } : {}) }, text, images, session, receipt, owners);
   }
 
   private async commandIn(words: string): Promise<string | undefined> {
@@ -2712,12 +2713,6 @@ export class ConversationViewServer {
       console.error(`[island] ${error instanceof Error ? error.message : String(error)}`);
       return [];
     }
-  }
-
-  /** The run or objective that owns work by this name; null when ownership cannot be read. */
-  private cosOwner(name: string): string | undefined | null {
-    const owners = readCosOwners();
-    return owners === null ? null : owners.get(name);
   }
 
   /** Use only reports recorded for an objective; retain raw legacy work when a report cannot be read. */

@@ -955,13 +955,13 @@ describe("ConversationViewServer", () => {
       const sent = vi.fn(async () => ({ id: "sent", timestamp: new Date().toISOString() }));
       Object.assign(source, { sendDecision: sent });
       expect((await post(port, JSON.stringify({ domainRun: id, questionText: "Which one?", text: "The first" }), headers)).status).toBe(200);
-      expect(sent).toHaveBeenCalledWith("The first", [], undefined, undefined, id);
+      expect(sent).toHaveBeenCalledWith("The first", [], undefined, undefined, id, expect.any(Map));
       expect(readDomainRun(id)?.messages).toBeUndefined();
       expect((await post(port, JSON.stringify({ decision: "decision-1", decisionTask: id, text: "The second" }), headers)).status).toBe(200);
-      expect(sent).toHaveBeenLastCalledWith("The second", [], undefined, undefined, id);
+      expect(sent).toHaveBeenLastCalledWith("The second", [], undefined, undefined, id, expect.any(Map));
       const objective = openObjective({ words: "Choose the footer", flydNotes: "", origin: { surface: "view" } });
       expect((await post(port, JSON.stringify({ domainRun: objective.id, jobTitle: "Footer", text: "Blue" }), headers)).status).toBe(200);
-      expect(sent).toHaveBeenLastCalledWith("Blue", [], undefined, undefined, objective.id);
+      expect(sent).toHaveBeenLastCalledWith("Blue", [], undefined, undefined, objective.id, expect.any(Map));
       mutateObjective(objective.id, (current) => current && { ...current, status: "needs_george", waitingOn: { reportId: "question-1", kind: "intake", question: "Which colour?", at: new Date().toISOString() } });
       expect((await post(port, JSON.stringify({ domainRun: objective.id, questionText: "Which colour?", text: "Green" }), headers)).status).toBe(200);
       expect(readObjective(objective.id)).toMatchObject({ status: "intake", flydNotes: expect.stringContaining("Green") });

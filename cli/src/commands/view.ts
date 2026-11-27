@@ -53,7 +53,7 @@ import { tellWork } from "../command/cos/steer.js";
 import { listObjectives, mutateObjective, readObjective } from "../command/cos/objectives.js";
 import type { Objective } from "../command/cos/types.js";
 import type { DomainRun } from "../command/types.js";
-import { cosRequestIds, readCosOwners } from "../conversation-view/cos-jobs.js";
+import { cosRequestIds, namesOwnedWork, readCosOwners } from "../conversation-view/cos-jobs.js";
 import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun, STAFF_COORDINATION_POLICY } from "../intelligence/executive/firstmate-decision.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision, takeBackSettledDecision } from "../intelligence/executive/decision-step.js";
@@ -198,12 +198,10 @@ export async function answerObjectiveRun(run: Pick<DomainRun, "id" | "request">,
 /** Said in place of a Firstmate wake report while the Chief of Staff's work cannot be read. */
 export const WAKE_OWNER_UNAVAILABLE = "A coding report came in, but Flyd can't confirm just now whether the Chief of Staff owns that work, so it is held back until it can.";
 
-const escapeName = (name: string) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
 /** A Firstmate wake report that names objective-owned work stays with the Chief of Staff; one that cannot be checked says so. */
 export function firstmateWakeOwner(text: string, owned: ReadonlyMap<string, string> | null): "shown" | "objective" | "unverified" {
   if (owned === null) return "unverified";
-  return [...owned.keys()].some((name) => new RegExp(`(?<![\\w-])${escapeName(name)}(?![\\w-])`).test(text)) ? "objective" : "shown";
+  return namesOwnedWork(text, owned) ? "objective" : "shown";
 }
 
 /** Firstmate's messages as the threads read them: wake reports about objective-owned work are kept backstage. */

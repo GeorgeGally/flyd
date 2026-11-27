@@ -98,6 +98,17 @@ export function cosOwners(runs: DomainRun[], objectives: Objective[], entries: R
   return owners;
 }
 
+const ownedNamePatterns = new WeakMap<ReadonlyMap<string, string>, RegExp | null>();
+
+/** Whether the text names objective-owned work by any name it goes by, as a whole word; one pattern per owners map. */
+export function namesOwnedWork(text: string, owners: ReadonlyMap<string, string>): boolean {
+  if (!ownedNamePatterns.has(owners)) {
+    const names = [...owners.keys()].sort((a, b) => b.length - a.length).map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    ownedNamePatterns.set(owners, names.length ? new RegExp(`(?<![\\w-])(?:${names.join("|")})(?![\\w-])`) : null);
+  }
+  return ownedNamePatterns.get(owners)?.test(text) ?? false;
+}
+
 /** Who owns objective work by every name it goes by, read now; null when the record cannot be read. */
 export function readCosOwners(home = firstmateHome()): ReadonlyMap<string, string> | null {
   try {
