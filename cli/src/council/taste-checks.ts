@@ -93,6 +93,8 @@ export interface SpacingMetrics {
   text: Array<{ left: number; right: number; top: number; label: string }>;
   /** Each heading followed by actions (buttons, button-like links), and the gap from the last text above them. */
   headingActions: Array<{ heading: string; fontSize: number; gap: number }>;
+  /** How far the primary content's text spreads left to right; see ultrawideTrips for what counts. */
+  primary?: { left: number; right: number } | null;
 }
 
 export interface SpacingTrip {
@@ -138,6 +140,33 @@ export function spacingTrips(metrics: SpacingMetrics): SpacingTrip[] {
     }
   }
   return trips;
+}
+
+// ---------------------------------------------------------------------------
+// The ultrawide check: on a 2560px screen a page's content must not run edge to edge.
+
+/** The ultrawide viewport the content-width check lays every page out at. */
+export const ULTRAWIDE = { width: 2560, height: 1440, scale: 1 };
+/** The most of an ultrawide viewport the primary content may span before lines become unreadable. */
+const ULTRAWIDE_SHARE = 0.8;
+
+/**
+ * Primary content is the visible text inside `main` (or `[role=main]`), or, without one,
+ * the body's text outside header, nav and footer chrome. Its width is the span from the
+ * leftmost to the rightmost of those text lines, so a full-bleed background, band or image
+ * never counts: only the words a reader has to track across the screen do.
+ * Fails when that span is wider than 80% of a 2560px viewport.
+ */
+export function ultrawideTrips(metrics: SpacingMetrics): SpacingTrip[] {
+  const { width } = metrics.viewport;
+  if (width < ULTRAWIDE.width || !metrics.primary) return [];
+  const span = metrics.primary.right - metrics.primary.left;
+  if (span <= width * ULTRAWIDE_SHARE) return [];
+  return [{ line: `The content runs ${Math.round(span)}px wide on a ${width}px ultrawide screen (${Math.round((span / width) * 100)}%); cap it with a max-width so it spans no more than ${Math.round(ULTRAWIDE_SHARE * 100)}% (${Math.round(width * ULTRAWIDE_SHARE)}px).` }];
+}
+
+export function ultrawideCritique(trips: SpacingTrip[]): string {
+  return ["Ultrawide check failed (this round cannot pass until it holds):", ...trips.map((trip) => `- ${trip.line}`)].join("\n");
 }
 
 /** Spacing values in added CSS lines; a gap this big between stacked elements reads as a hole. */
@@ -192,7 +221,10 @@ export const SPACING_MEASURE_SCRIPT = `function flydMeasure(win) {
     }
     return true;
   }
-  var text = [], top = Infinity, bottom = -Infinity;
+  var text = [], top = Infinity, bottom = -Infinity, pl = Infinity, pr = -Infinity;
+  var main = d.querySelector("main,[role=main]"); if (main && !visible(main)) main = null;
+  var chrome = "header,nav,footer,[role=banner],[role=navigation],[role=contentinfo]";
+  function primary(el) { return main ? main.contains(el) : !el.closest(chrome); }
   var walker = d.createTreeWalker(d.body, NodeFilter.SHOW_TEXT);
   var node;
   while ((node = walker.nextNode())) {
@@ -204,6 +236,7 @@ export const SPACING_MEASURE_SCRIPT = `function flydMeasure(win) {
       var y = r.top + win.scrollY;
       text.push({ left: r.left, right: r.right, top: y, label: node.nodeValue.trim().slice(0, 60) });
       top = Math.min(top, y); bottom = Math.max(bottom, y + r.height);
+      if (primary(node.parentElement)) { pl = Math.min(pl, r.left); pr = Math.max(pr, r.right); }
     }
   }
   var media = d.querySelectorAll("img,svg,video,canvas,button,input");
@@ -228,5 +261,5 @@ export const SPACING_MEASURE_SCRIPT = `function flydMeasure(win) {
     if (gap > 0) pairs.push({ heading: (heading.textContent || "").trim().slice(0, 60), fontSize: parseFloat(win.getComputedStyle(heading).fontSize) || 16, gap: gap });
   }
   var height = Math.max(d.documentElement.scrollHeight, d.body.scrollHeight);
-  return { viewport: { width: vw, height: vh }, pageHeight: height, content: top < bottom ? { top: top, bottom: bottom } : null, text: text.slice(0, 400), headingActions: pairs };
+  return { viewport: { width: vw, height: vh }, pageHeight: height, content: top < bottom ? { top: top, bottom: bottom } : null, text: text.slice(0, 400), headingActions: pairs, primary: pl < pr ? { left: pl, right: pr } : null };
 }`;
