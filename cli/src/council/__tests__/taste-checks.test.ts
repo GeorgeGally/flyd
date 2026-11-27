@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { gatherEvidence } from "../../crew/self-improve.js";
-import { armedTasteChecks, cssSpacingTrips, spacingTrips, snappingTrips, tasteCheckPlan, type SpacingMetrics } from "../taste-checks.js";
+import { armedTasteChecks, cssSpacingTrips, spacingTrips, snappingTrips, tasteCheckPlan, ULTRAWIDE, ultrawideTrips, type SpacingMetrics } from "../taste-checks.js";
 import { planTasteSkills, renderTasteSkill } from "../taste-skills.js";
 import { ruleId, writeTaste, type TasteProfile, type TasteRule } from "../taste.js";
 
@@ -99,6 +99,27 @@ describe("the spacing check", () => {
   });
 });
 
+
+describe("the ultrawide check", () => {
+  const wide = (left: number, right: number): SpacingMetrics => page({ viewport: { width: ULTRAWIDE.width, height: ULTRAWIDE.height }, primary: { left, right } });
+
+  it("passes primary content held to a max-width at 2560px", () => {
+    expect(ultrawideTrips(wide(680, 1880))).toEqual([]);
+    expect(ultrawideTrips(wide(256, 2304))).toEqual([]); // exactly 80%
+  });
+
+  it("fails primary content wider than 80% of a 2560px viewport", () => {
+    const trips = ultrawideTrips(wide(40, 2520));
+    expect(trips).toHaveLength(1);
+    expect(trips[0]!.line).toMatch(/2480px wide on a 2560px ultrawide screen \(97%\).*2048px/);
+  });
+
+  it("only judges the ultrawide viewport, and passes a page with no primary text", () => {
+    expect(ultrawideTrips(page({ primary: { left: 0, right: 1440 } }))).toEqual([]);
+    expect(ultrawideTrips(wide(0, 0))).toEqual([]);
+    expect(ultrawideTrips(page({ viewport: { width: 2560, height: 1440 }, primary: null }))).toEqual([]);
+  });
+});
 
 describe("the snapping check", () => {
   it("holds drawing tools to magnetic snapping with a modifier to disable it", () => {

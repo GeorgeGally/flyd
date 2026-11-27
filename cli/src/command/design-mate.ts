@@ -6,7 +6,7 @@ import { basename, dirname, extname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { HEADLESS_CHROME_ARGS } from "../lib/headless-chrome.js";
 import { readTaste } from "../council/taste.js";
-import { armedTasteChecks, cssSpacingTrips, SPACING_MEASURE_SCRIPT, spacingCritique, spacingTrips, snappingCritique, snappingTrips, type SpacingMetrics, type SpacingTrip } from "../council/taste-checks.js";
+import { armedTasteChecks, cssSpacingTrips, SPACING_MEASURE_SCRIPT, spacingCritique, spacingTrips, snappingCritique, snappingTrips, ULTRAWIDE, ultrawideCritique, ultrawideTrips, type SpacingMetrics, type SpacingTrip } from "../council/taste-checks.js";
 import { BoardWatcher, putLabOnBoard, type BoardFeedback, type BoardInput, type BoardWatch, type LabBoard } from "./design-board.js";
 import { completeWithClaude, DesignModelError, makeWithClaude } from "./design-claude.js";
 import { DESIGN_LAB_DONE_WHEN, designLabSkill, designTeamSkills } from "./design.js";
@@ -290,6 +290,8 @@ async function judgeVersion(run: DomainRun, lab: Lab, version: LabVersion, taste
   version.critique = String(reply?.critique ?? "").trim();
   const trips = await spacingCheck(deps, [join(labDir(run.id, root), `v${version.n}.html`)], lab.log, `V${version.n}`);
   if (trips.length) failRound(version, trips);
+  const wide = await ultrawideCheck(deps, [join(labDir(run.id, root), `v${version.n}.html`)], lab.log, `V${version.n}`);
+  if (wide.length) failRound(version, wide, ultrawideCritique);
   if (snappingArmed()) {
     const page = join(labDir(run.id, root), `v${version.n}.html`);
     try {
@@ -364,6 +366,22 @@ async function spacingCheck(deps: DesignMateDeps, pages: string[], log: string[]
     }
   }
   if (trips.length) log.push(`${what}: the spacing check tripped ${trips.length} time(s).`);
+  return trips;
+}
+
+/**
+ * The ultrawide check runs on every measured page, armed or not: at 2560px the primary
+ * content may span at most 80% of the screen (council/taste-checks.ts ultrawideTrips).
+ */
+async function ultrawideCheck(deps: DesignMateDeps, pages: string[], log: string[], what: string): Promise<SpacingTrip[]> {
+  if (!deps.measure || !pages.length) return [];
+  const trips: SpacingTrip[] = [];
+  for (const page of pages) {
+    const metrics = await deps.measure(page, ULTRAWIDE).catch(() => null);
+    if (!metrics) { log.push(`${what}: the ultrawide check could not measure ${basename(page)} at ${ULTRAWIDE.width}px, so it is unchecked there.`); continue; }
+    trips.push(...ultrawideTrips(metrics));
+  }
+  if (trips.length) log.push(`${what}: the ultrawide check tripped ${trips.length} time(s).`);
   return trips;
 }
 
@@ -998,6 +1016,11 @@ async function advanceBuild(run: DomainRun, deps: DesignMateDeps, root: string, 
       })].join("\n");
       const trips = [...cssSpacingTrips(added), ...await spacingCheck(deps, pages, build.log, `Round ${build.round}`)];
       if (trips.length) failRound(build, trips);
+    }
+    if (files.length && deps.measure) {
+      const pages = files.filter((path) => /\.html?$/i.test(path)).map((path) => join(build.root, path)).filter((path) => existsSync(path));
+      const wide = await ultrawideCheck(deps, pages, build.log, `Round ${build.round}`);
+      if (wide.length) failRound(build, wide, ultrawideCritique);
     }
     if (files.length && snappingArmed()) {
       const source = toolSource(build.root, files);

@@ -3,10 +3,11 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir, uptime } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, briefPrompt, buildPrompt, critiquePrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readContext, readLab, shootWithChrome, startDesignRun, writeLab, toldInChat, type DesignMateDeps } from "../design-mate.js";
+import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, briefPrompt, buildPrompt, critiquePrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readContext, measureWithChrome, readLab, shootWithChrome, startDesignRun, writeLab, toldInChat, type DesignMateDeps } from "../design-mate.js";
 import { FLYD_DIR } from "../../lib/config.js";
 import { DesignModelError } from "../design-claude.js";
 import { DESIGN_LAB_DONE_WHEN, designStartLine, isDesignLabRun, labAwaitingReview } from "../design.js";
+import { ULTRAWIDE, ultrawideTrips } from "../../council/taste-checks.js";
 import { dispatchDomainFollowup } from "../followup.js";
 import { followupObjectiveId, readObjective } from "../cos/objectives.js";
 import { dueReport } from "../report.js";
@@ -676,4 +677,44 @@ describe("George's spacing check in the Creative Director's round", () => {
     expect(lab.log.some((line) => /V1: the spacing check tripped/.test(line))).toBe(true);
     expect(lab.versions.find((version) => version.n === 1)!.score).toBe(10);
   });
+});
+
+describe("the ultrawide check in the Creative Director's round", () => {
+  it("measures every version at 2560px and fails a round whose content spans more than 80%", async () => {
+    const calls: string[] = [];
+    const measured: string[] = [];
+    const deps: DesignMateDeps = {
+      ...staff([10], calls),
+      measure: async (page, viewport) => {
+        measured.push(`${page.split("/").at(-1)}@${viewport.width}`);
+        const first = measured.filter((item) => item === "v1.html@2560").length === 1;
+        const tooWide = page.endsWith("v1.html") && viewport.width === 2560 && first;
+        return { viewport, pageHeight: 2000, content: { top: 100, bottom: 1900 }, text: [], headingActions: [], primary: tooWide ? { left: 20, right: 2540 } : { left: 680, right: 1880 } };
+      },
+    };
+    const done = await driveDesignRun(start(), deps);
+    expect(done.status).toBe("completed");
+    expect(measured).toContain("v1.html@2560");
+    expect(calls.filter((call) => call === "rebuild")).toHaveLength(1);
+    const lab = readLab(done.id, labs)!;
+    expect(lab.log.some((line) => /V1: the ultrawide check tripped/.test(line))).toBe(true);
+  });
+
+  it.skipIf(!CHROME_BINARY)("reads primary content width from a real page, ignoring a full-bleed band", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "flyd-ultrawide-"));
+    try {
+      const body = "Flyd keeps lines short enough to read on a big screen. ".repeat(40);
+      const narrow = join(dir, "narrow.html");
+      writeFileSync(narrow, `<!doctype html><html><body style="margin:0"><header style="display:flex;justify-content:space-between;padding:8px 16px"><span>Logo</span><span>Menu</span></header><div style="background:#000;height:200px"></div><main style="max-width:1200px;margin:0 auto;padding:0 24px"><p>${body}</p></main></body></html>`);
+      const wide = join(dir, "wide.html");
+      writeFileSync(wide, `<!doctype html><html><body style="margin:0"><main style="padding:0 24px"><p>${body}</p></main></body></html>`);
+      const narrowMetrics = await measureWithChrome(narrow, ULTRAWIDE);
+      const wideMetrics = await measureWithChrome(wide, ULTRAWIDE);
+      expect(narrowMetrics?.primary).toBeTruthy();
+      expect(ultrawideTrips(narrowMetrics!)).toEqual([]);
+      expect(ultrawideTrips(wideMetrics!)).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 90_000);
 });
