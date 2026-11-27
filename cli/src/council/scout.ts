@@ -162,6 +162,12 @@ const SEED_RSS: Array<[string, string, string]> = [
   ["Internet Archive Blogs", "https://blog.archive.org/feed/", "Internet Archaeology"],
   ["The Public Domain Review", "https://publicdomainreview.org/rss.xml", "Obscure Media"],
   ["Open Culture", "https://www.openculture.com/feed", "Obscure Media"],
+  ["We Make Money Not Art", "https://we-make-money-not-art.com/feed/", "Media Art"],
+  ["Neural", "https://neural.it/feed/", "Media Art"],
+  ["CLOT Magazine", "https://www.clotmag.com/feed/", "Media Art"],
+  ["Processing Foundation", "https://medium.com/feed/processing-foundation", "Creative Coding"],
+  ["Adafruit", "https://blog.adafruit.com/feed/", "Hardware Hacking"],
+  ["Evil Mad Scientist", "https://www.evilmadscientist.com/feed/", "Hardware Hacking"],
 ];
 
 /** Niche communities added beside Hermes's 35; they share the polite Reddit rotation. */
