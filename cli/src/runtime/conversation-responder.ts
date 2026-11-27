@@ -541,31 +541,61 @@ const conversationTools: AgentTool[] = [
   },
 ];
 
-/** The Chief of Staff's tools: Flyd hands work over, steers it and asks how it is going (FLYD_COS=1). */
+/** The Chief of Staff's tools: Flyd hands work over, steers it and asks how it is going (on unless FLYD_COS=0). */
 const COS_TOOLS = new Set(["hand_off", "tell_work", "work_status"]);
 /** Management Flyd gives up to the Chief of Staff, and code changes Flyd never makes itself (split plan Phase 4). */
 const COS_OWNS = new Set(["start_coding_task", "start_knowledge_task", "start_design_task", "pass_on_question", "background_task", "domain_work", "crew", "edit_file", "write_file"]);
+/** Tools that start new work with a team or a worker: with the Chief of Staff on, only it starts such work. */
+const DELEGATES = new Set(["start_coding_task", "start_knowledge_task", "start_design_task", "pass_on_question", "background_task", "crew"]);
+
+/**
+ * Whose turn it is, for the Chief of Staff's ownership rule. George's own turn hands work over; his scheduled ask
+ * (an agenda run) does the work itself but hands any team work over too; a worker's job is the work itself and never
+ * starts more delegated work around the objective it belongs to.
+ */
+export type TurnOwner = "george" | "scheduled" | "worker";
+
+export function turnOwnerOf(sessionId: string | undefined): TurnOwner {
+  if (sessionId?.startsWith("agenda-")) return "scheduled";
+  if (sessionId?.startsWith("job-")) return "worker";
+  return "george";
+}
+
+/** `true` is George's own turn and `false` a worker's, as callers wrote before scheduled turns had their own rule. */
+function ownerOf(owner: boolean | TurnOwner): TurnOwner {
+  return owner === true ? "george" : owner === false ? "worker" : owner;
+}
 
 /** The same ownership rule is enforced on calls, not just the advertised tool list. */
-export function flydMayCall(name: string, attended: boolean): boolean {
-  return !(cosEnabled() && attended && COS_OWNS.has(name));
+export function flydMayCall(name: string, owner: boolean | TurnOwner): boolean {
+  if (!cosEnabled()) return true;
+  const who = ownerOf(owner);
+  if (who === "george") return !COS_OWNS.has(name);
+  if (COS_TOOLS.has(name)) return who === "scheduled";
+  return !DELEGATES.has(name);
+}
+
+/** A follow-up question to a team (domain_work ask) opens new team work, so off George's own turn it is refused too. */
+export function flydMayAsk(name: string, input: Record<string, unknown>, owner: boolean | TurnOwner): boolean {
+  return !(cosEnabled() && name === "domain_work" && input.action === "ask" && ownerOf(owner) !== "george");
 }
 
 /**
  * The tools chat offers on a turn: what its plan leaves in sight, code tools only on code turns. With the Chief of
  * Staff on, George's own turns hand work over instead of managing it or changing code; unattended runs are the work
- * itself and keep their tools.
+ * itself and keep their working tools, but any new team work still goes through the Chief of Staff.
  */
-export function chatToolSet(plan: TurnPlan | null, codeTurn: boolean, attended = true): AgentTool[] {
+export function chatToolSet(plan: TurnPlan | null, codeTurn: boolean, attended: boolean | TurnOwner = true): AgentTool[] {
   const cos = cosEnabled();
+  const who = ownerOf(attended);
   return visibleTools([...conversationTools, ...personalTools, ...assistantTools], plan)
     .filter((tool) => (codeTurn || !CODE_TOOLS.has(tool.name))
-      && (COS_TOOLS.has(tool.name) ? cos && attended : !(cos && attended && COS_OWNS.has(tool.name))));
+      && (COS_TOOLS.has(tool.name) ? cos && who !== "worker" : flydMayCall(tool.name, who)));
 }
 
 /** A shell command Flyd may run on George's own turn with the Chief of Staff on: reading only, never changing. */
-export function flydMayRun(command: string, attended: boolean): boolean {
-  return !(cosEnabled() && attended) || isReadOnlyCommand(command);
+export function flydMayRun(command: string, attended: boolean | TurnOwner): boolean {
+  return !(cosEnabled() && ownerOf(attended) === "george") || isReadOnlyCommand(command);
 }
 
 export function isInstagramLoginWall(url: string, text: string): boolean {
@@ -1219,6 +1249,7 @@ export async function respondToConversation(
   // decides it in ~0.3s when it's sure; only then is the ~10s LLM room
   // reading skipped. Unattended runs are the work itself and read nothing.
   const unattended = Boolean(input.sessionId?.startsWith("job-") || input.sessionId?.startsWith("agenda-"));
+  const owner = turnOwnerOf(input.sessionId);
   // Only adapters that supply a stable finalized source opt into implicit preparation.
   const source = input.source;
   const initiative = !mobile && !dependencies.readOnly && !unattended && source && process.env.FLYD_INITIATIVE !== "0"
@@ -1417,10 +1448,10 @@ export async function respondToConversation(
     // contract, then the retry limit. An article chat skips the route gate so
     // "remember this" is not refused as off an answer turn; confirmation still holds.
     const skip = (input.article ? null : (mobile && (!MOBILE_TOOLS.has(name) || (!input.mobileAccounts && CONNECTOR_TOOL_NAMES.has(name))) ? "Error: this capability requires a connected Mac; no desktop work was dispatched." : null) ?? offRoute(plan, name, toolInput) ?? offCode(codeTurn, name, toolInput, repoRoots))
-      ?? (!flydMayCall(name, !unattended) ? "Error: hand delegated work to the chief of staff with hand_off" : null)
+      ?? (!flydMayCall(name, owner) || !flydMayAsk(name, toolInput, owner) ? (owner === "worker" ? "Error: new team work goes through the chief of staff; report what this job needs instead" : "Error: hand delegated work to the chief of staff with hand_off") : null)
       ?? dependencies.toolProfile?.refuse?.(name, toolInput) ?? contractError(name, toolInput) ?? repeats.blocked(name, toolInput)
       // With the Chief of Staff on, Flyd never changes code or files from the shell on his turn: that is handed off.
-      ?? (name === "bash" && !flydMayRun(String(toolInput.command ?? ""), !unattended) ? "Error: you don't change files or code from the shell; hand the change off with hand_off" : null);
+      ?? (name === "bash" && !flydMayRun(String(toolInput.command ?? ""), owner) ? "Error: you don't change files or code from the shell; hand the change off with hand_off" : null);
     if (skip) {
       toolCalls.push({ name, input: toolInput, succeeded: false, error: skip });
       return skip;
@@ -1458,7 +1489,7 @@ export async function respondToConversation(
   const maxIterations = budget.iterations;
   const offered = input.article
     ? personalTools.filter((tool) => tool.name === "remember")
-    : chatToolSet(plan, codeTurn, !unattended).filter(tool => !mobile || (MOBILE_TOOLS.has(tool.name) && (input.mobileAccounts || !CONNECTOR_TOOL_NAMES.has(tool.name))));
+    : chatToolSet(plan, codeTurn, owner).filter(tool => !mobile || (MOBILE_TOOLS.has(tool.name) && (input.mobileAccounts || !CONNECTOR_TOOL_NAMES.has(tool.name))));
   const presentationTools = input.onAnswerContent && !input.article && !mobile && (!plan || plan.route === "answer") ? [...offered, DESCRIBE_ANSWER_TOOL] : offered;
   const selectedTools = dependencies.toolProfile ? dependencies.toolProfile.offer(presentationTools) : presentationTools;
   if (!dependencies.readOnly) {

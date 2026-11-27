@@ -340,6 +340,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
           }
         } else {
           if (!inbox.available()) throw new Error("There is no connected coding employee to receive that answer");
+          if (cosRequestsForView() === null) throw new Error("Flyd can't confirm who owns that work just now; your answer was not sent");
           await inbox.sendTaskNote(taskId, message);
         }
         takeBackSettledDecision(store, decisionId, answer);
@@ -350,8 +351,12 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         if (decision.resolution.answer === answer.trim()) return;
         throw new QuestionGone("That decision already has George's answer");
       }
-      const run = listDomainRuns().find((item) => item.id === taskId && item.transport.kind === "firstmate"
-        && item.request.domain === "coding" && (update || !isSettled(item.status)));
+      const runs = listDomainRuns();
+      // Objective work is answered through its objective even after its run settled: never as new work around it.
+      const run = runs.find((item) => item.id === taskId && item.transport.kind === "firstmate"
+        && item.request.domain === "coding" && (update || !isSettled(item.status) || Boolean(item.request.objectiveId)));
+      // Without a reading of which requests the Chief of Staff owns, an answer cannot safely open work of its own.
+      if (!run && cosRequestsForView() === null) throw new Error("Flyd can't confirm who owns that work just now; your answer was not sent");
       let evidenceRef: string;
       if (run) {
         const message = update ? `George's follow-up on his answer to: ${decision.question}\n\n${answer.trim()}` : `George's answer to: ${decision.question}\n\n${answer.trim()}`;
@@ -446,7 +451,10 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true, source: "commands/view" }),
       jev: { ...(process.env.FLYD_JEV_MODEL ? { model: process.env.FLYD_JEV_MODEL } : {}) },
       executeInternalAction: async (action) => {
-        const run = listDomainRuns().find((item) => item.id === action.target && item.transport.kind === "firstmate"
+        const runs = listDomainRuns();
+        // Objective work is coordinated by the Chief of Staff, never by a fresh staff note from here.
+        if (runs.some((item) => item.id === action.target && item.request.objectiveId)) return { status: "unknown", evidenceRefs: [] };
+        const run = runs.find((item) => item.id === action.target && item.transport.kind === "firstmate"
           && item.request.domain === "coding" && isOpen(item.status));
         if (!run) {
           const observedTask = prepared.find((change) => change.taskId === action.target && change.authority?.some((grant) => grant.grantId === action.grantId));

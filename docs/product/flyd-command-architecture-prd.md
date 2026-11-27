@@ -34,7 +34,7 @@ Chief of Staff       intake, dispatch, review, steering, one report per objectiv
      specialists
 ```
 
-The CoS remains behind `FLYD_COS=1` until fleet items can be reliably linked to their objectives. With it off, new work uses the legacy direct-delegation path and CoS objectives pause. An existing objective retains ownership of its runs and reports during the pause; they are not replayed or delivered as unrelated direct work. Existing legacy runs keep their original owner.
+The CoS is on by default; `FLYD_COS=0` (or `off`/`false`/`no`) is the operator rollback, and any other value keeps it on. Rolled back, new work uses the legacy direct-delegation path and CoS objectives pause. An existing objective retains ownership of its runs and reports during the pause; they are not replayed or delivered as unrelated direct work, and re-enabling resumes them where they stood. Existing legacy runs keep their original owner. Fleet items are linked to objectives by Firstmate's exact `request_id`; when that binding is missing, damaged or unreadable while objective work is in flight, the fleet is shown as unavailable rather than guessed.
 
 Domain bosses are managers, not default workers. Specialists execute bounded work.
 
@@ -360,9 +360,9 @@ Build after coding + knowledge demonstrate that the common protocol is stable.
 
 Build only when there is enough recurring work to justify a manager rather than a skill bundle.
 
-### Chief of Staff — intake, dispatch and reports (behind `FLYD_COS=1`)
+### Chief of Staff — intake, dispatch and reports (on unless `FLYD_COS=0`)
 
-This builds on the split plan (`docs/plans/2026-10-30-flyd-chief-of-staff-split-plan.md`). `FLYD_COS=1` enables it; leaving the flag off pauses it and keeps the legacy path available for new work.
+This builds on the split plan (`docs/plans/2026-10-30-flyd-chief-of-staff-split-plan.md`). It is on by default; `FLYD_COS=0` pauses it and keeps the legacy path available for new work.
 
 **Handoff.** With CoS enabled, a `delegate` turn shows Flyd one tool, `hand_off(words, notes, urgency?)`. The call records an `Objective` in `~/.flyd/command/objectives/<id>.json`, kept with George's exact words and Flyd's notes. It returns once the record is durable, without waiting for intake. Objectives are written only through the command store's lock, and every write bumps the objective's `revision`.
 
@@ -389,7 +389,7 @@ This builds on the split plan (`docs/plans/2026-10-30-flyd-chief-of-staff-split-
 - a completed run gives a `done` report;
 - a failed run gets one alternative (see chains, below); a second failure, a one-off job or a crew run gives a `decision` report.
 
-### Chief of Staff — chains, joins and corrections (behind `FLYD_COS=1`)
+### Chief of Staff — chains, joins and corrections (on unless `FLYD_COS=0`)
 
 This is v8 Phase 6 (`docs/plans/2026-11-08-flyd-orchestration-v8.md`). The plan lives on the objective (`plan`, `after`) and changes only through its lock; there is no new store and no graph engine (`command/cos/plan.ts`).
 
@@ -405,7 +405,7 @@ This is v8 Phase 6 (`docs/plans/2026-11-08-flyd-orchestration-v8.md`). The plan 
 - **Delivery and acceptance.** The one `done` report is written only when every run is completed and valid for the current revision. Before that, one query checks the final result against the objective's done-when. A check that can't be read is asked once more; still unreadable, it is not a pass: George hears the work is finished but not double-checked, with the result to look at. A single final domain run is told through `tellRun`; anything else is one line.
 - **Adapting.** A failed run, or a final result that falls short of done-when, is re-briefed to its team once with why. A one-off job may have acted outside, so it is never re-run on its own. A second failure, or a failed job, is one `decision` report; there is no third try, and an unanswered close-but-not-there decision is not re-checked. Each adaptation is recorded with its reason, and `work_status` shows the plan, his corrections and the adaptations.
 
-### Chief of Staff — waiting work (behind `FLYD_COS=1`)
+### Chief of Staff — waiting work (on unless `FLYD_COS=0`)
 
 This is v8 Phase 7. Each objective records what it waits on George for (`waitingOn`: the report, its kind, question and options), so nothing waits silently and his reply has somewhere to go. Each wait kind takes only its own answers (`WAIT_ANSWERS` in `command/cos/types.ts`): work that couldn't start (`intake`) takes his words and is briefed again; a run's own call (`run`) goes to that run; a run that didn't finish (`retry`) is tried another way or dropped; a result that fell short (`accept`) is taken as it is or tried another way; work gone quiet (`stuck`) is nudged, parked or left running; a hand-over never confirmed (`unconfirmed`) is sent again or dropped. A run that didn't finish is a wait, never a terminal objective status.
 
@@ -426,7 +426,7 @@ This is v8 Phase 7. Each objective records what it waits on George for (`waiting
 - **Plain run statuses** show in `work_status(objective_id)` only, so only when he asks: interrupted, retrying; picked up (a retry finished it); replaced (a newer revision took over); reported twice (one result kept); still finishing (gone quiet; the chaser is on it).
 - **Not yet covered:** the conversation view's Needs you column has no snooze button. It lists FirstMate's own calls, not the CoS's reports, so a snooze is set by telling Flyd.
 
-### Chief of Staff — steering and status (behind `FLYD_COS=1`)
+### Chief of Staff — steering and status (on unless `FLYD_COS=0`)
 
 This is split plan Phase 4. With the flag on:
 

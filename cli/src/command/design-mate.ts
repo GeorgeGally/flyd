@@ -15,6 +15,7 @@ import { createDomainRun, isDomainRunId, listDomainRuns, mutateDomainRun, readDo
 import { cameBack, isSettled } from "./run-state.js";
 import type { DomainRequest, DomainResult, DomainRun } from "./types.js";
 import { decisionsLines } from "./types.js";
+import { adoptFollowupRun, cosEnabled, followupObjectiveId } from "./cos/objectives.js";
 
 // The design team beside FirstMate. The Creative Director is its voice: it
 // takes Flyd's brief, sets genuinely different directions, judges the work
@@ -1431,8 +1432,19 @@ export async function answerFromBoard(run: DomainRun, feedback: BoardFeedback): 
     ...(version ? [`Build V${version.n} · ${version.name}.`] : []),
     ...(feedback.notes.length ? ["His notes on the board:", ...feedback.notes.map((note) => `- ${note}`)] : []),
   ].join("\n");
-  const id = feedback.ids.length ? `lab-${createHash("sha256").update(`${run.id}\0${feedback.ids.join(",")}`).digest("hex").slice(0, 32)}` : undefined;
-  const next = await designFollowup(run, words, { pick: version?.n ?? null, ...(id ? { requestId: id } : {}) });
+  const owned = Boolean(run.request.objectiveId) && cosEnabled();
+  // Objective work answered here is followed up under an objective too, so it needs a request id to adopt it by.
+  const id = feedback.ids.length ? `lab-${createHash("sha256").update(`${run.id}\0${feedback.ids.join(",")}`).digest("hex").slice(0, 32)}` : owned ? `lab-${randomUUID()}` : undefined;
+  const objectiveId = owned && id ? followupObjectiveId(id) : undefined;
+  const next = await designFollowup(run, words, { pick: version?.n ?? null, ...(id ? { requestId: id } : {}), ...(objectiveId ? { objectiveId } : {}) });
+  // The Chief of Staff reviews and reports the follow-up once; it never reaches George around the objective.
+  if (objectiveId && next.request.objectiveId === objectiveId) {
+    adoptFollowupRun({
+      objectiveId, parentObjectiveId: run.request.objectiveId!, parentRunId: run.id, runId: next.id, words,
+      brief: { team: "creative", outcome: next.request.intendedOutcome, doneWhen: next.request.doneWhen, decisions: next.request.decisions ?? { comesBack: [], settledByPolicy: [] }, ...(next.request.project ? { project: next.request.project } : {}) },
+      ...(next.request.project ? { project: next.request.project } : {}),
+    });
+  }
   void syncDesignMateRuns();
   if (next.status === "failed") return `I couldn't start that: ${next.failure ?? "it stopped at once"}`;
   if (next.request.project?.root && version && readBuild(next.id)) return `Building V${version.n} · ${version.name} into the project now. You'll hear when it's in.`;

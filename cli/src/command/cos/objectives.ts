@@ -63,6 +63,40 @@ export function openObjective(input: Pick<Objective, "words" | "flydNotes" | "or
   return mutateObjective(id, () => objective, dir)!;
 }
 
+/** The objective a team's own follow-up run is adopted into: one per follow-up request, so a replay finds it. */
+export function followupObjectiveId(requestId: string): string {
+  return `obj-followup-${createHash("sha256").update(requestId).digest("hex").slice(0, 24)}`;
+}
+
+/**
+ * George answered objective work on its team's own surface (a design board), and the team started the follow-up run
+ * itself. That run is adopted by an objective of its own, already working, so the Chief of Staff reviews it and
+ * reports once instead of the run reaching George around it. The earlier objective is left as it was; the new one
+ * points back at it and at the run it follows. Idempotent: the same follow-up adopts once.
+ */
+export function adoptFollowupRun(input: {
+  objectiveId: string;
+  parentObjectiveId: string;
+  parentRunId: string;
+  runId: string;
+  words: string;
+  brief: Objective["brief"] & object;
+  project?: Objective["project"];
+}, dir = commandDir(), now = new Date()): Objective {
+  const saved = mutateObjective(input.objectiveId, (existing) => {
+    if (existing) return null;
+    const at = now.toISOString();
+    return {
+      id: input.objectiveId, revision: 0, createdAt: at, updatedAt: at, origin: { surface: "view" },
+      words: input.words, flydNotes: `George's follow-up on the team's own surface to earlier work (objective ${input.parentObjectiveId}).`,
+      contextRefs: [`objective:${input.parentObjectiveId}`, `domain-run:${input.parentRunId}`],
+      ...(input.project ? { project: input.project } : {}),
+      brief: input.brief, status: "working", runs: [input.runId], reportIds: [], progressAt: at,
+    };
+  }, dir);
+  if (!saved) throw new Error("Could not adopt the follow-up run into an objective");
+  return saved;
+}
 
 /**
  * CoS records an already-performed, independently sourced READ-ONLY research

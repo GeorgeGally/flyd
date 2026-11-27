@@ -74,9 +74,9 @@ export async function dispatchDomainFollowup(input: {
  * his words, and failing that, when his words ask to build it, it is the version
  * he marked final on the board, used once.
  * `project` is where to build when the lab named none; a round keeps the lab's own. `requestId` makes a
- * replayed answer the same run, not a second one.
+ * replayed answer the same run, not a second one. `objectiveId` is the objective that adopts the run.
  */
-export async function designFollowup(parent: DomainRun, question: string, options: { pick?: number | null; requestId?: string; project?: { name?: string; root?: string } } = {}): Promise<DomainRun> {
+export async function designFollowup(parent: DomainRun, question: string, options: { pick?: number | null; requestId?: string; project?: { name?: string; root?: string }; objectiveId?: string } = {}): Promise<DomainRun> {
   const { dispatchDesignMate, labDir, labsDir, readLab, shotPaths, writeLab } = await import("./design-mate.js");
   const lab = readLab(parent.id);
   const named = options.pick !== undefined ? null
@@ -91,6 +91,7 @@ export async function designFollowup(parent: DomainRun, question: string, option
     parentRequestId: parent.id,
     contextRefs: [`domain:${parent.id}`],
     ...(options.requestId ? { requestId: options.requestId } : {}),
+    ...(options.objectiveId ? { objectiveId: options.objectiveId } : {}),
   };
   if (version && root) {
     const built = dispatchDesignMate({

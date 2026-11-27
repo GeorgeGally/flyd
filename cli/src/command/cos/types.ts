@@ -1,7 +1,7 @@
 import type { DeliveryShape } from "../../runtime/delivery.js";
 import type { BriefDecisions, DomainId } from "../types.js";
 
-// The Chief of Staff's own records (split plan "Contracts"; behind FLYD_COS=1).
+// The Chief of Staff's own records (split plan "Contracts"; on unless FLYD_COS=0).
 
 /** A run that didn't finish is a wait on George (`needs_george`, `retry`), never a terminal state of its own. */
 export type ObjectiveStatus = "intake" | "working" | "needs_george" | "done" | "cancelled";

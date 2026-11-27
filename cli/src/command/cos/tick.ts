@@ -21,7 +21,7 @@ import { flushPendingCorrections } from "./steer.js";
 import { awaitsDecision, backTo, isActive, isGone, isValid, maxActive, planFromBrief, planOf, planRequestId, releasable, requeue, sinks } from "./plan.js";
 import { WAIT_ANSWERS, type Adaptation, type CosReport, type CosReportKind, type Objective, type PlannedRun, type RunBrief, type WaitKind } from "./types.js";
 
-// The Chief of Staff's tick (enabled with FLYD_COS=1). Called from the command tick, and
+// The Chief of Staff's tick (on by default; FLYD_COS=0 rolls it back). Called from the command tick, and
 // kicked at once by hand_off. For each objective it:
 // - in intake: briefs it (one JSON query, kept on the objective) into a plan of runs;
 // - working: reconciles runs a dead process left `dispatching` (by request id, never blindly), reviews each run that
@@ -897,7 +897,7 @@ const defaultSay = async (made: CosReport): Promise<unknown> => (await import(".
 
 let ticking = false;
 
-/** One pass over the open objectives. A no-op unless FLYD_COS=1 (or a test passes its own deps). */
+/** One pass over the open objectives. A no-op when rolled back with FLYD_COS=0 (unless a test passes its own deps). */
 export async function cosTick(deps: CosTickDeps = {}): Promise<void> {
   if (ticking || (!cosEnabled() && !deps.dispatch)) return;
   ticking = true;

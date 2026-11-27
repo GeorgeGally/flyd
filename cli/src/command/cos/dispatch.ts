@@ -29,7 +29,16 @@ export function runRequestId(objective: Pick<Objective, "id">, index = 1): strin
   return `${objective.id}-r${index}`;
 }
 
-export const dispatchBrief: Dispatch = async (objective, brief, requestId, options = {}) => {
+/** How a dispatch reaches a team that starts work at once. Absent, the installed team; tests pass a fake. */
+export interface DispatchTeams {
+  /** Starts a dispatched design run; absent, Design Mate starts it now. */
+  startDesign?: (run: import("../types.js").DomainRun) => unknown;
+}
+
+export const dispatchBrief: Dispatch = (objective, brief, requestId, options) => briefDispatcher()(objective, brief, requestId, options);
+
+/** Dispatch through each team's own entry point (see above), reaching the given teams. */
+export const briefDispatcher = (teams: DispatchTeams = {}): Dispatch => async (objective, brief, requestId, options = {}) => {
   const refusal = refuseLeakedLaunch([brief.outcome, objective.words]);
   if (refusal) return { refused: refusal };
   const contextRefs = [...objective.contextRefs, ...(brief.contextRefs ?? [])];
@@ -72,7 +81,8 @@ export const dispatchBrief: Dispatch = async (objective, brief, requestId, optio
       const lab = await dispatchDesignLab({ ...common, source: "chat", ...(brief.project ? { project: brief.project } : {}) });
       if (lab.status === "refused") return { refused: lab.reason };
       // Under way now rather than on the next tick; a lab that stops is told through the objective's report.
-      void (await import("../design-mate.js")).startDesignRun(lab.run, { waitMs: 0 });
+      if (teams.startDesign) teams.startDesign(lab.run);
+      else void (await import("../design-mate.js")).startDesignRun(lab.run, { waitMs: 0 });
       return { ref: lab.run.id };
     }
     case "life": {

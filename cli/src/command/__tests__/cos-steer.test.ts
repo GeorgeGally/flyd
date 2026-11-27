@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { chatToolSet, flydMayCall, flydMayRun } from "../../runtime/conversation-responder.js";
+import { chatToolSet, flydMayAsk, flydMayCall, flydMayRun, turnOwnerOf } from "../../runtime/conversation-responder.js";
 import { handOffLiveTask } from "../../runtime/live-task-intake.js";
 import { planTurn } from "../../runtime/turn-plan.js";
 import { runAssistantTool } from "../../runtime/assistant-tools.js";
@@ -23,7 +23,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   delete process.env.FLYD_COMMAND_DIR;
-  delete process.env.FLYD_COS;
+  process.env.FLYD_COS = "0";
   rmSync(home, { recursive: true, force: true });
 });
 
@@ -246,10 +246,23 @@ describe("Flyd with the Chief of Staff on", () => {
     const names = chatToolSet(null, true).map((tool) => tool.name);
     expect(names).toEqual(expect.arrayContaining(["hand_off", "tell_work", "work_status", "read_file"]));
     for (const gone of ["edit_file", "write_file", "start_coding_task", "background_task", "domain_work", "crew"]) expect(names).not.toContain(gone);
-    // Unattended runs are the work itself and keep their tools.
-    expect(chatToolSet(null, true, false).map((tool) => tool.name)).toEqual(expect.arrayContaining(["edit_file", "write_file"]));
-    expect([flydMayCall("start_coding_task", true), flydMayCall("write_file", true), flydMayCall("hand_off", true), flydMayCall("start_coding_task", false)]).toEqual([false, false, true, true]);
-    expect([flydMayRun("git status", true), flydMayRun("rm -rf dist", true), flydMayRun("echo hi > notes.txt", true), flydMayRun("rm -rf dist", false)]).toEqual([true, false, false, true]);
+    // Unattended runs are the work itself and keep their working tools, but start no team work around the Chief of Staff.
+    const worker = chatToolSet(null, true, "worker").map((tool) => tool.name);
+    expect(worker).toEqual(expect.arrayContaining(["edit_file", "write_file", "bash"]));
+    for (const gone of ["start_coding_task", "start_knowledge_task", "start_design_task", "background_task", "pass_on_question", "crew", "hand_off", "tell_work"]) expect(worker).not.toContain(gone);
+    // His scheduled ask does its own work too, and hands team work to the Chief of Staff.
+    const scheduled = chatToolSet(null, true, "scheduled").map((tool) => tool.name);
+    expect(scheduled).toEqual(expect.arrayContaining(["edit_file", "write_file", "hand_off", "tell_work", "work_status"]));
+    for (const gone of ["start_coding_task", "start_knowledge_task", "start_design_task", "background_task", "pass_on_question", "crew"]) expect(scheduled).not.toContain(gone);
+    expect([turnOwnerOf("agenda-1"), turnOwnerOf("job-1"), turnOwnerOf("window:abcdefgh"), turnOwnerOf(undefined)]).toEqual(["scheduled", "worker", "george", "george"]);
+    expect([flydMayCall("start_coding_task", true), flydMayCall("write_file", true), flydMayCall("hand_off", true), flydMayCall("start_coding_task", false), flydMayCall("write_file", false), flydMayCall("hand_off", "scheduled")]).toEqual([false, false, true, false, true, true]);
+    expect([flydMayAsk("domain_work", { action: "ask" }, true), flydMayAsk("domain_work", { action: "ask" }, "scheduled"), flydMayAsk("domain_work", { action: "show" }, "worker")]).toEqual([true, false, true]);
+    expect([flydMayRun("git status", true), flydMayRun("rm -rf dist", true), flydMayRun("echo hi > notes.txt", true), flydMayRun("rm -rf dist", false), flydMayRun("rm -rf dist", "scheduled")]).toEqual([true, false, false, true, true]);
+    process.env.FLYD_COS = "0";
+    // The rollback restores every legacy tool on every kind of turn.
+    expect([flydMayCall("start_coding_task", "worker"), flydMayCall("start_coding_task", "scheduled"), flydMayAsk("domain_work", { action: "ask" }, "worker")]).toEqual([true, true, true]);
+    expect(chatToolSet(null, true, "scheduled").map((tool) => tool.name)).not.toContain("hand_off");
+    process.env.FLYD_COS = "1";
     const answer = planTurn({ route: "answer", source: "jev", domain: null })!;
     expect([[...answer.handoffs], answer.instruction.includes("hand it off in this turn with hand_off")]).toEqual([["hand_off", "tell_work"], true]);
     expect([...planTurn({ route: "delegate", source: "jev", domain: "coding" })!.handoffs]).toEqual(["hand_off", "tell_work"]);

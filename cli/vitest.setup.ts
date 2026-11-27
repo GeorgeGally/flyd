@@ -56,6 +56,9 @@ process.env.FLYD_CLAUDE_SPEND_FILE = join(sandbox, "claude-spend.json");
 process.env.FLYD_CLAUDE ??= "0";
 // Self-improvement dispatches real crew work; tests opt in explicitly.
 process.env.FLYD_SELF_IMPROVE ??= "0";
+// The Chief of Staff is on by default in the product (command/cos/enabled.ts). Tests keep the
+// legacy path unless they opt in with FLYD_COS=1, so a test never hands work to it by accident.
+process.env.FLYD_COS ??= "0";
 // Belt and braces: even an opted-in launch cannot reach the real OpenCode.
 process.env.FLYD_OPENCODE_PATH = "/usr/bin/false";
 // The firstmate bridge must never run George's real fm-inbox.sh from a test.

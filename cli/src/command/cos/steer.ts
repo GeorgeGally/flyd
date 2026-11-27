@@ -6,7 +6,7 @@ import { listObjectives, mutateObjective, readObjective } from "./objectives.js"
 import { awaitsDecision, backTo, downstreamOf, isGone, planOf, requeue, sinks } from "./plan.js";
 import { WAIT_ANSWERS, type Adaptation, type Objective, type PlannedRun, type Waiting } from "./types.js";
 
-// Steering and status (split plan Phase 4, behind FLYD_COS=1). `tell_work` replaces the in-turn fast path: the Chief
+// Steering and status (split plan Phase 4; on unless FLYD_COS=0). `tell_work` replaces the in-turn fast path: the Chief
 // of Staff resolves which objective and run George's message is for and delivers it through `sendRunMessage`; when
 // two or more objectives genuinely match it asks one question instead of guessing. `work_status` is read-only and
 // answers from the objectives and their retained results, so a follow-up question never dispatches anything.

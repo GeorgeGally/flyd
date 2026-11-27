@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   delete process.env.FLYD_COMMAND_DIR;
-  delete process.env.FLYD_COS;
+  process.env.FLYD_COS = "0";
   rmSync(home, { recursive: true, force: true });
 });
 
@@ -33,9 +33,13 @@ const BRIEF = JSON.stringify({
   decisions: { comes_back: ["which provider to sign up with"], settled_by_policy: ["which currency to compare in"] },
 });
 
-it("enables the Chief of Staff only when explicitly selected", () => {
+it("runs the Chief of Staff by default and turns it off only by explicit rollback", () => {
   delete process.env.FLYD_COS;
-  expect(cosEnabled()).toBe(false);
+  expect(cosEnabled()).toBe(true);
+  expect(cosEnabled("")).toBe(true);
+  expect(cosEnabled("1")).toBe(true);
+  expect(cosEnabled("yes")).toBe(true);
+  for (const rollback of ["0", "off", "false", "no", " OFF "]) expect(cosEnabled(rollback)).toBe(false);
   process.env.FLYD_COS = "0";
   expect(cosEnabled()).toBe(false);
   process.env.FLYD_COS = "1";

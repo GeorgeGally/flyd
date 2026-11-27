@@ -480,7 +480,7 @@ export async function commandTick(): Promise<void> {
     // Every report still owed (left undelivered, or cut off mid-send) is said again, from the first tick at Core start on.
     await deliverOwed().catch(() => undefined);
     await settleReports().catch(() => undefined);
-    // The Chief of Staff's objectives: intake, dispatch and one report each (FLYD_COS=1; a no-op otherwise).
+    // The Chief of Staff's objectives: intake, dispatch and one report each (on unless FLYD_COS=0; a no-op then).
     await (await import("./cos/tick.js")).cosTick().catch(() => undefined);
     // Reports held for a natural break are told once his focus breaks, together.
     await tellHeld().catch(() => undefined);
