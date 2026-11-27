@@ -53,7 +53,7 @@ import { tellWork } from "../command/cos/steer.js";
 import { listObjectives, mutateObjective, readObjective } from "../command/cos/objectives.js";
 import type { Objective } from "../command/cos/types.js";
 import type { DomainRun } from "../command/types.js";
-import { cosRequestIds, namesOwnedWork, readCosOwners } from "../conversation-view/cos-jobs.js";
+import { cosRequestIds, namesOwnedWork, readCosOwners, recentObjectiveWork } from "../conversation-view/cos-jobs.js";
 import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun, STAFF_COORDINATION_POLICY } from "../intelligence/executive/firstmate-decision.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision, takeBackSettledDecision } from "../intelligence/executive/decision-step.js";
@@ -215,7 +215,8 @@ export function withoutCosWakes(messages: ConversationMessage[], owned: Readonly
 
 function cosRequestsForView(): ReadonlySet<string> | null {
   try {
-    return cosRequestIds(listDomainRuns(undefined, true), listObjectives(undefined, true));
+    const work = recentObjectiveWork(listDomainRuns(undefined, true), listObjectives(undefined, true));
+    return cosRequestIds(work.runs, work.objectives);
   } catch { return null; }
 }
 

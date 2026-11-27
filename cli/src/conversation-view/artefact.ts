@@ -66,6 +66,8 @@ export interface ArtefactRow {
   task?: string;
   /** Exact originating inbox request, when Firstmate's snapshot records it. */
   requestId?: string;
+  /** Whether this raw row belongs to Chief of Staff work could not be confirmed: shown, never decided, settled or followed up by Flyd. */
+  ownershipUnconfirmed?: boolean;
   /** When the task last reported, as an ISO time. */
   at?: string;
   /** When a call was raised, from the backlog: unlike `at`, a status line never moves it. */
@@ -402,17 +404,29 @@ export function parseBearings(raw: unknown): FleetArtefact {
   };
 }
 
-/** Keep verified legacy work; withhold unknown ownership and linked worker rows until CoS reports. */
-export function withoutCosFleet(fleet: FleetArtefact, requests: ReadonlySet<string>, authoritative: FleetArtefact = fleet): { fleet: FleetArtefact; tasks: Set<string> } {
-  if (requests.size && fleet.provenanceIncomplete) return { fleet: FLEET_UNAVAILABLE("request provenance incomplete"), tasks: new Set() };
-  const fields: Array<"calls" | "live" | "ready" | "landed" | "held" | "next"> = ["calls", "live", "ready", "landed", "held", "next"];
-  const tasks = new Set(fields.flatMap((field) => fleet[field].flatMap((row) => row.requestId && requests.has(row.requestId) && row.task ? [row.task] : [])));
+/**
+ * Rows exactly bound to Chief of Staff work are withheld (its objective reports instead). Every other row stays; one whose
+ * ownership cannot be confirmed (no request binding while objective work is active, a secondmate child, a row this read
+ * did not see, or an unreadable objective record) is marked so, never dropped and never blanks the board.
+ */
+export function withoutCosFleet(fleet: FleetArtefact, requests: ReadonlySet<string> | null, authoritative: FleetArtefact = fleet): { fleet: FleetArtefact; tasks: Set<string> } {
+  const owned = requests ?? new Set<string>();
+  const tasks = new Set(FLEET_FIELDS.flatMap((field) => fleet[field].flatMap((row) => row.requestId && owned.has(row.requestId) && row.task ? [row.task] : [])));
   // Bearings prefixes secondmate child IDs with "home/"; their request ownership is not yet available.
-  const known = new Set(fields.flatMap((field) => authoritative[field].flatMap((row) => row.task ? [row.task] : [])));
-  const retained = (row: ArtefactRow) => !(row.requestId && requests.has(row.requestId)) && !(row.task && tasks.has(row.task))
-    && (!requests.size || Boolean(row.task && known.has(row.task) && !row.task.includes("/")));
-  return { fleet: { ...fleet, ...Object.fromEntries(fields.map((field) => [field, fleet[field].filter(retained)])),
-    ...(fleet.changes ? { changes: fleet.changes.filter((change) => (!change.taskId || !tasks.has(change.taskId)) && (!requests.size || Boolean(change.taskId && known.has(change.taskId) && !change.taskId.includes("/")))) } : {}) }, tasks };
+  const known = new Set(FLEET_FIELDS.flatMap((field) => authoritative[field].flatMap((row) => row.task ? [row.task] : [])));
+  const complete = !fleet.provenanceIncomplete && !authoritative.provenanceIncomplete;
+  const confirmed = (row: ArtefactRow) => requests !== null && (!requests.size || Boolean(row.requestId)
+    || Boolean(complete && row.task && known.has(row.task) && !row.task.includes("/")));
+  const withheld = (row: ArtefactRow) => Boolean(row.requestId && owned.has(row.requestId)) || Boolean(row.task && tasks.has(row.task));
+  return { fleet: { ...fleet, ...Object.fromEntries(FLEET_FIELDS.map((field) => [field, fleet[field].filter((row) => !withheld(row)).map((row) => confirmed(row) ? row : { ...row, ownershipUnconfirmed: true })])),
+    ...(fleet.changes ? { changes: fleet.changes.filter((change) => !change.taskId || !tasks.has(change.taskId)) } : {}) }, tasks };
+}
+
+/** Only the rows whose ownership is confirmed, for anything Flyd decides, settles or follows up on its own. */
+function confirmedFleet(fleet: FleetArtefact): FleetArtefact {
+  const unconfirmed = new Set(FLEET_FIELDS.flatMap((field) => fleet[field].flatMap((row) => row.ownershipUnconfirmed && row.task ? [row.task] : [])));
+  return { ...fleet, ...Object.fromEntries(FLEET_FIELDS.map((field) => [field, fleet[field].filter((row) => !row.ownershipUnconfirmed)])),
+    ...(fleet.changes ? { changes: fleet.changes.filter((change) => !change.taskId || !unconfirmed.has(change.taskId)) } : {}) };
 }
 
 export interface BacklogEntry {
@@ -2270,8 +2284,8 @@ export class ArtefactFeed {
       if (fleet.unavailable) throw new Error(fleet.unavailable);
       this.keepGood(raw, Date.now(), Date.now() - started);
       const requestIds = this.options.cosRequests?.();
-      const eligible = requestIds === null ? FLEET_UNAVAILABLE("chief of staff objectives unavailable") : withoutCosFleet(fleet, requestIds ?? new Set()).fleet;
-      if (!process.env.VITEST && !eligible.unavailable) {
+      const eligible = confirmedFleet(withoutCosFleet(fleet, requestIds === undefined ? new Set() : requestIds).fleet);
+      if (!process.env.VITEST) {
         try {
           syncFleetFollowups(eligible.held.flatMap((row) => row.task ? [{ id: row.task, task: row.label, status: row.status ?? "" }] : []));
         } catch (error) {
@@ -2533,30 +2547,26 @@ export class ArtefactFeed {
       this.loadLedger();
       const merged = this.mergeLedger(withRecent, Date.now(), !bearings.unavailable && !provenanceUncertain);
       const content = bearings.unavailable && !FLEET_FIELDS.some((field) => merged[field].length) ? FLEET_UNAVAILABLE("unreadable") : merged;
-      const owned = requestIds === null
-        ? { fleet: FLEET_UNAVAILABLE("chief of staff objectives unavailable"), tasks: new Set<string>() }
-        : withoutCosFleet(provenanceUncertain ? { ...content, provenanceIncomplete: true } : content, requests, bearings);
+      const owned = withoutCosFleet(provenanceUncertain ? { ...content, provenanceIncomplete: true } : content, requestIds === null ? null : requests, bearings);
       // Every call is checked before it can reach him: is it still open (firstmate's own predicate, and its subject not
       // already landed), was it overtaken (the staff are told to close it), did he retire it, and is it still a current
       // decision (the 3-day rule). The staff hear about overtaken calls even when the 3-day rule then hides them.
       const allQuestions = enrichFleet(owned.fleet, entries, extras, Date.now(), { sourceDetail: Boolean(this.options.decideChanges), keepStaleCalls: true });
       const live = await this.withLiveHolds(allQuestions, bearings.unavailable ? undefined : bearings);
       const enriched = pinnedQuestions(withCurrentCalls(this.withoutRetired(await this.withoutOvertaken(live, entries)), Date.now()));
-      const verifiedTasks = new Set(FLEET_FIELDS.flatMap((field) => owned.fleet[field].flatMap((row) => row.task ? [row.task] : [])));
-      const decided = this.options.decideChanges && !owned.fleet.unavailable
-        ? projectFleetDecisions(enriched, await this.options.decideChanges(firstmateChangesFromFleet(enriched)).catch((error: unknown) => {
+      const decided = this.options.decideChanges
+        ? projectFleetDecisions(enriched, await this.options.decideChanges(firstmateChangesFromFleet(confirmedFleet(enriched))).catch((error: unknown) => {
           console.warn(`[view] executive decision step failed: ${reason(error)}`);
           return [];
         }), heldForAttention().filter((row) => {
           const run = row.task ? readDomainRun(row.task) : null;
-          return (!requests.size || Boolean(row.task && verifiedTasks.has(row.task))) && (!run?.transport.requestId || !requests.has(run.transport.requestId));
+          return !run?.transport.requestId || !requests.has(run.transport.requestId);
         }))
         : enriched;
       // Every worker the staff is running, not only the twenty the snapshot lists.
       const running = decided.unavailable ? [] : this.staffLive(withRecent);
       if (running.length) {
-        const known = new Set(owned.fleet.live.flatMap((row) => row.task ? [row.task] : []));
-        decided.live = [...decided.live, ...running.filter((row) => (!requests.size || Boolean(row.task && known.has(row.task))) && (!row.task || !owned.tasks.has(row.task)))];
+        decided.live = [...decided.live, ...running.filter((row) => !row.task || !owned.tasks.has(row.task)).map((row) => requestIds === null || requests.size ? { ...row, ownershipUnconfirmed: true } : row)];
       }
       decided.calls = decided.calls.map((row) => ({ ...row, title: row.title ?? row.label, label: callHeadline(row.label, row.task ? entries.get(row.task)?.title : undefined) }));
       for (const row of decided.calls) {
@@ -2569,10 +2579,10 @@ export class ArtefactFeed {
       // Flyd's own words for each row, after the executive has decided what may show: its wording
       // never changes what reaches George, only how it reads (no commit subjects, no task ids).
       const { fleet, unsaid } = voice ? this.voiced(voice, decided) : { fleet: decided, unsaid: [] };
-      const visibleEntries = requests.size ? new Map([...entries].filter(([task]) => verifiedTasks.has(task))) : entries;
+      const visibleEntries = new Map([...entries].filter(([task]) => !owned.tasks.has(task)));
       this.inputs = {
         fleet: this.withBoards(fleet),
-        ...(bearings.unavailable || decided.unavailable ? {} : { landedByDay: landedByDay(visibleEntries, Date.now()), landedWeek: weekLandedRows(visibleEntries, Date.now()).filter((row) => !row.task || !owned.tasks.has(row.task)) }),
+        ...(bearings.unavailable || decided.unavailable ? {} : { landedByDay: landedByDay(visibleEntries, Date.now()), landedWeek: weekLandedRows(visibleEntries, Date.now()) }),
         memories: memoryHighlights(memoryText),
         news: newsHighlights(newsRaw),
         taste: tasteHighlights(tasteText),
@@ -2642,7 +2652,7 @@ export class ArtefactFeed {
   private async withoutOvertaken(fleet: FleetArtefact, entries: Map<string, BacklogEntry>): Promise<FleetArtefact> {
     const check = this.options.overtaken;
     if (!check || fleet.unavailable) return fleet;
-    const calls = fleet.calls.filter((row) => !row.ledgerOnly).map((row) => ({ row, call: callId(row) }));
+    const calls = fleet.calls.filter((row) => !row.ledgerOnly && !row.ownershipUnconfirmed).map((row) => ({ row, call: callId(row) }));
     for (const call of this.overtaken.keys()) if (!calls.some((item) => item.call === call)) this.overtaken.delete(call);
     const verdicts = await Promise.all(calls.map(async ({ row, call }) => {
       if (!row.task) return undefined;

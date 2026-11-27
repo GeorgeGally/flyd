@@ -73,6 +73,20 @@ export function cosJobRuns(runs: DomainRun[], objectives: Objective[], reports: 
   return [...legacy, ...projected.values()];
 }
 
+const RECENT_MS = 7 * 86_400_000;
+const recent = (at: string, now: number) => !(now - Date.parse(at) > RECENT_MS);
+
+/** Objective work still open or settled in the last week, with its runs; older work's raw rows are no longer held back. */
+export function recentObjectiveWork(runs: DomainRun[], objectives: Objective[], now = Date.now()): { runs: DomainRun[]; objectives: Objective[] } {
+  const kept = objectives.filter((objective) => (objective.status !== "done" && objective.status !== "cancelled") || recent(objective.updatedAt, now));
+  const keptIds = new Set(kept.map((objective) => objective.id));
+  const allIds = new Set(objectives.map((objective) => objective.id));
+  return {
+    objectives: kept,
+    runs: runs.filter((run) => !run.request.objectiveId || keptIds.has(run.request.objectiveId) || (!allIds.has(run.request.objectiveId) && recent(run.updatedAt, now))),
+  };
+}
+
 /** Keep every known objective-owned request backstage, including when its report is unavailable. */
 export function cosRequestIds(runs: DomainRun[], objectives: Objective[]): Set<string> {
   const known = runs.flatMap((run) => run.request.objectiveId && run.transport.kind === "firstmate" && run.transport.requestId ? [run.transport.requestId] : []);
@@ -122,7 +136,8 @@ export function readCosOwners(home = firstmateHome()): ReadonlyMap<string, strin
       }
     };
     const entries = new Map([...parseBacklog(record("done-archive.md")), ...parseBacklog(record("backlog.md"))]);
-    return cosOwners(listDomainRuns(undefined, true), listObjectives(undefined, true), entries);
+    const work = recentObjectiveWork(listDomainRuns(undefined, true), listObjectives(undefined, true));
+    return cosOwners(work.runs, work.objectives, entries);
   } catch {
     return null;
   }
