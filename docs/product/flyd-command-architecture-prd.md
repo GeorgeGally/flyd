@@ -428,7 +428,7 @@ This is v8 Phase 7. Each objective records what it waits on George for (`waiting
 
 ### Chief of Staff — steering and status (on unless `FLYD_COS=0`)
 
-This is split plan Phase 4. With the flag on:
+This is split plan Phase 4. With CoS enabled:
 
 - **Steering.** `tell_work(message, kind?, objective_id?, team?)` replaces the in-turn fast path that sent a correction straight to a domain run.
   - The CoS (`command/cos/steer.ts`) resolves which open objective the message is for. The Jev domain reading arrives as a team hint that narrows the list.
